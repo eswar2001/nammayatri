@@ -448,14 +448,14 @@ profileView push state =
             , gravity LEFT
             , visibility $ boolToVisibility driverBlockedHeaderVisibility
             ]
-            [ textView $ 
+            [ textView $
                 [ height WRAP_CONTENT
                 , width WRAP_CONTENT
                 , color Color.white900
                 , text $ getString $ BLOCKED_TILL (EHC.convertUTCtoISC state.data.blockedExpiryTime "hh:mm A") (EHC.convertUTCtoISC state.data.blockedExpiryTime "DD-MM-YYYY")
                 , weight 1.0
                 ] <> FontStyle.subHeading3 TypoGraphy
-            , imageView 
+            , imageView
                 [ height $ V 24
                 , width $ V 24
                 , imageWithFallback $ fetchImage FF_COMMON_ASSET "ny_ic_question_mark_with_circle"
@@ -495,7 +495,7 @@ profileView push state =
                       , width MATCH_PARENT
                       ][
                         tabImageView state push
-                      , completedProfile state push 
+                      , completedProfile state push
                       ]
                     , infoView state push
                     , verifiedVehiclesView state push
@@ -568,7 +568,7 @@ completedProfile state push =
 
 getVerifiedVehicleCount :: Array ST.DriverVehicleDetails -> Int
 getVerifiedVehicleCount vehicles = length $ filter (\item -> item.isVerified == true) vehicles
-  
+
 verifiedVehiclesView :: forall w. ST.DriverProfileScreenState -> (Action -> Effect Unit) -> PrestoDOM (Effect Unit) w
 verifiedVehiclesView state push =
   linearLayout
@@ -778,7 +778,7 @@ tabImageView state push =
               linearLayout[
                 height $ V 98,
                 width $ V 100,
-                orientation VERTICAL, 
+                orientation VERTICAL,
                 visibility $ boolToVisibility $ state.props.screenType == ST.DRIVER_DETAILS && per < 100
             ][
                 linearLayout[
@@ -875,16 +875,113 @@ driverDetailsView push state =
       , margin $ MarginHorizontal 16 16
       ] $ if state.data.cancellationRate > configs.warning1 then cancellationRateOnTop configs else cancellationRateOnBottom configs
   where
-    cancellationRateOnTop configs = 
+    cancellationRateOnTop configs =
       [ cancellationRateView state push configs
       , driverAnalyticsView state push
       , badgeLayoutView state
       ]
     cancellationRateOnBottom configs =
-      [ driverAnalyticsView state push
+      [ extraChargePenaltyView push state
+      , driverAnalyticsView state push
       , badgeLayoutView state
       , cancellationRateView state push configs
       ]
+
+extraChargePenaltyView :: forall w. (Action -> Effect Unit) -> ST.DriverProfileScreenState -> PrestoDOM (Effect Unit) w
+extraChargePenaltyView push state =
+  linearLayout[
+    width MATCH_PARENT,
+    height WRAP_CONTENT,
+    orientation VERTICAL
+  ][
+    textView $ [
+      text "Extra-Charge Penalty",
+      width MATCH_PARENT,
+      height WRAP_CONTENT,
+      color Color.black
+    , margin $ MarginBottom 12
+    ] <> (FontStyle.subHeading2 TypoGraphy),
+     linearLayout[
+      width MATCH_PARENT
+    , height WRAP_CONTENT
+    , background Color.aliceBlueLight
+    , orientation VERTICAL
+    , cornerRadius 16.0
+    ][
+      linearLayout[
+        width MATCH_PARENT
+      , height WRAP_CONTENT
+      , margin $ MarginTop 16
+      ][
+        linearLayout[
+          width MATCH_PARENT
+        , height WRAP_CONTENT
+        ][
+          linearLayout[
+            width $ V $ ((screenWidth unit) - 64 ) / 2
+          , height WRAP_CONTENT
+          , orientation VERTICAL
+          , gravity CENTER
+          ][
+            pillView
+          , noOfRides
+          , pillDesc
+          ]
+        , linearLayout[
+            width $ V $ ((screenWidth unit) - 64) / 2
+          , cornerRadius 16.0
+          , background "#F5EDEA"
+          , gravity CENTER
+          , padding $ Padding 16 4 16 4
+          ][
+            imageView[
+              height $ V 90
+            , imageWithFallback $ fetchImage FF_COMMON_ASSET "ny_ic_extra_charge_gauge"
+            ]
+          ]
+        ]
+      ]
+  , learnMoreBtn
+    ]
+  ]
+
+  where
+    pillView =
+      linearLayout[
+        width WRAP_CONTENT
+      , height WRAP_CONTENT
+      , padding $ Padding 16 4 16 4
+      , background Color.orange900
+      , cornerRadius 20.0
+      , gravity CENTER
+      , margin $ MarginBottom 8
+      ][
+        textView $ [
+          text "High"
+        , color Color.white900
+        , padding $ PaddingBottom 4
+        ] <> (FontStyle.body30 TypoGraphy)
+      ]
+
+    noOfRides =
+      textView $ [
+        text "6 out of 20 rides"
+      , height WRAP_CONTENT
+      , width WRAP_CONTENT
+      , color Color.black800
+      , gravity CENTER
+      , margin $ MarginBottom 4
+      ] <> (FontStyle.body4 TypoGraphy)
+
+    pillDesc =
+      textView $ [
+        text "Extra-charged"
+      , color Color.black800
+      , gravity CENTER
+      ] <> (FontStyle.body3 TypoGraphy)
+
+
+    learnMoreBtn  = PrimaryButton.view (push <<< LearnMoreExtraChargeBtnAC) (learnMoreExtraChargeBtnConfig state)
 
 ------------------------------------------- MISSED OPPORTUNITY VIEW -----------------------------------------
 missedOpportunityView :: forall w. ST.DriverProfileScreenState -> (Action -> Effect Unit) -> PrestoDOM (Effect Unit) w
@@ -993,7 +1090,7 @@ driverAnalyticsView state push =
                   , margin $ MarginHorizontal 5 5
                   , gravity CENTER_VERTICAL
                   ]
-                  [ imageView 
+                  [ imageView
                     [ imageWithFallback $ fetchImage FF_ASSET "ny_ic_blue_heart"
                     , width $ V 15
                     , height $ V 15
@@ -1061,14 +1158,14 @@ cancellationRateView state push configs =
         , width MATCH_PARENT
         , orientation HORIZONTAL
         , margin if cancellationRate > configs.warning2 then MarginBottom 16 else MarginBottom 0
-        ] 
-        [ 
+        ]
+        [
           relativeLayout
           [ height $ V 103
           , width $ V $ ((screenWidth unit)/ 2) - 32
           , gravity CENTER
-          ][ 
-            imageView 
+          ][
+            imageView
             [ imageWithFallback $ fetchImage FF_ASSET "ny_ic_gauge_image"
             , width $ V $ ((screenWidth unit)/ 2) - 32
             , height $ V 100
@@ -1092,7 +1189,7 @@ cancellationRateView state push configs =
           , weight 1.0
           , orientation VERTICAL
           , gravity CENTER
-          ] [ 
+          ] [
               textView $
               [ width MATCH_PARENT
               , height WRAP_CONTENT
@@ -1130,7 +1227,7 @@ cancellationRateView state push configs =
           , padding $ PaddingVertical 8 8
           , gravity CENTER
           , visibility $ boolToVisibility $ cancellationRate > configs.warning2
-          ] 
+          ]
           [ textView $
             [ text (getString HIGH_CANCELLATION_RATE)
             , textSize FontSize.a_14
@@ -1791,7 +1888,7 @@ vehicleListItem state push vehicle =
             ]
         ]
     ]
-  
+
 
 getRcDetails :: ST.DriverProfileScreenState -> Array { key :: String, value :: Maybe String, action :: Action, isEditable :: Boolean, keyInfo :: Boolean, isRightInfo :: Boolean }
 getRcDetails state = do
@@ -2593,8 +2690,8 @@ getVehicleImage :: ST.VehicleCategory -> ST.DriverProfileScreenState -> String
 getVehicleImage category state =
   let vehicleVariant = (getValueToLocalStore VEHICLE_VARIANT)
       showSpecialVariantImage = vehicleVariant == "HERITAGE_CAB"
-  in 
-    if showSpecialVariantImage 
+  in
+    if showSpecialVariantImage
       then HU.getVehicleVariantImage vehicleVariant
       else mkAsset category $ getCityConfig state.data.config.cityConfig (getValueToLocalStore DRIVER_LOCATION)
   where

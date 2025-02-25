@@ -178,6 +178,15 @@ primaryButtonConfig state = let
       }
   in primaryButtonConfig'
 
+learnMoreExtraChargeBtnConfig :: ST.DriverProfileScreenState -> PrimaryButton.Config
+learnMoreExtraChargeBtnConfig state = PrimaryButton.config {
+  textConfig {
+    text = "Learn More"
+  , color = Color.blue800
+  }
+  , background = "#E2EFFF"
+  , margin = Margin 16 16 16 16
+}
 
 updateButtonConfig :: ST.DriverProfileScreenState -> PrimaryButton.Config
 updateButtonConfig state = let
@@ -390,7 +399,7 @@ paymentInfoPopUpConfig push state =
     config' = PopUpModal.config
     popUpConfig' =
       config'
-        { 
+        {
          buttonLayoutMargin = Margin 16 24 16 20 ,
          padding = PaddingTop 24,
          backgroundClickable = true,
@@ -458,7 +467,7 @@ addRCButtonConfig state = let
       , cornerRadius = 10.0
       , background = Color.blue600
       , height = (V 60)
-      , id = "AddRCPrimaryButton" 
+      , id = "AddRCPrimaryButton"
       }
   in primaryButtonConfig'
 
@@ -473,7 +482,7 @@ addRCButtonConfigs state = let
       , cornerRadius = 10.0
       , background = Color.blue600
       , height = (V 60)
-      , id = "AddRCPrimaryButton" 
+      , id = "AddRCPrimaryButton"
       }
   in primaryButtonConfig'
 
@@ -508,13 +517,13 @@ deleteRcPopUpConfig state =
     popUpConfig'
 
 driverBLockedPopup :: ST.DriverProfileScreenState -> PopUpModal.Config
-driverBLockedPopup state = 
+driverBLockedPopup state =
   PopUpModal.config {
     gravity = CENTER,
     backgroundClickable = false,
     optionButtonOrientation = "VERTICAL",
     buttonLayoutMargin = Margin 16 0 16 20,
-    margin = MarginHorizontal 25 25, 
+    margin = MarginHorizontal 25 25,
     primaryText {
       text = getString $ BLOCKED_TILL (EHC.convertUTCtoISC state.data.blockedExpiryTime "hh:mm A") (EHC.convertUTCtoISC state.data.blockedExpiryTime "DD-MM-YYYY")
     , textStyle = Heading2
