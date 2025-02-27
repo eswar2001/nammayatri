@@ -1235,7 +1235,7 @@ getHi =
     , enter_referral_code: "रेफरल कोड दर्ज करें"
     , have_a_referral_code: "क्या आपके पास रेफरल कोड है?"
     , complete_steps_to_apply_referral: "रेफरल कोड लागू करने के लिए उपरोक्त चरणों को पूरा करें"
-    , download_namma_yatri: (\_ -> "नम्मा यात्री डाउनलोड करें")
+    , download_namma_yatri: (\appName -> appName <> " डाउनलोड करें")
     , enter_code: "कोड दर्ज करें"
     , complete_registration: "पूरा पंजीकरण"
     , cant_find_option: "विकल्प नहीं मिल सका"
@@ -1711,6 +1711,7 @@ getHi =
     , your_ride_starts_in: "आपकी सवारी में शुरू होती है"
     , away: " दूर"
     , intercity: "अंतर-शहर"
+    , local: "स्थानीय"
     , intercity_return: "अंतर-शहर वापसी"
     , rental: "किराया"
     , regular: "नियमित"
@@ -1788,4 +1789,7 @@ getHi =
     , drivers_are_permitted_to_cancel_ambulance_bookings :"ड्राइवरों को केवल उनके चिकित्सा कारणों या वाहन के खराब होने की स्थिति में ही रद्द करने की अनुमति है"
     , payment_under_maintenance : "भुगतान रखरखाव में है"
     , payments_temporarily_unavailable : "भुगतान अस्थायी रूप से अनुपलब्ध है और जल्द ही वापस आ जाएगा। कृपया बाद में पुनः प्रयास करें।"
+    , resume_ride : "यात्रा फिर से शुरू करें"
+    , end_ride_with_stops : "आपके पास और स्टॉप हैं। फिर भी यात्रा समाप्त करें?"
+    , stop: (\n -> "स्टॉप " <> n)
     }

@@ -18,7 +18,6 @@ import qualified Domain.Types.LocationAddress as LA
 import qualified Domain.Types.SearchRequest as SearchRequest
 import qualified Domain.Types.Trip as DTrip
 import Environment
-import Kernel.Beam.Functions as B
 import Kernel.External.Maps.Google.MapsClient.Types as Maps
 import Kernel.External.Maps.Types
 import Kernel.External.MultiModal.Interface.Types
@@ -31,6 +30,7 @@ import Kernel.Types.Distance
 import Kernel.Types.Error
 import Kernel.Types.Flow
 import Kernel.Types.Id
+import Kernel.Types.Price as KTP
 import Kernel.Utils.Common
 import Lib.JourneyLeg.Bus ()
 import qualified Lib.JourneyLeg.Interface as JLI
@@ -52,11 +52,14 @@ import qualified Storage.CachedQueries.Merchant.MerchantOperatingCity as QMerchO
 import Storage.CachedQueries.Merchant.RiderConfig as QRC
 import qualified Storage.Queries.Booking as QBooking
 import qualified Storage.Queries.BookingUpdateRequest as QBUR
+import qualified Storage.Queries.FRFSSearch as QFRFSSearch
+import qualified Storage.Queries.FRFSTicketBooking as QTBooking
 import qualified Storage.Queries.Journey as JQ
 import qualified Storage.Queries.Journey as QJourney
 import qualified Storage.Queries.JourneyLeg as QJourneyLeg
 import qualified Storage.Queries.Ride as QRide
 import qualified Storage.Queries.SearchRequest as QSearchRequest
+import qualified Storage.Queries.WalkLegMultimodal as QWalkLeg
 import Tools.Error
 import Tools.Maps as Maps
 
@@ -92,6 +95,12 @@ init journeyReq = do
       logDebug $ "journey for multi-modal: " <> show journey
       return $ Just journey
 
+getJourneyFare :: [JL.LegInfo] -> Flow Price
+getJourneyFare legs =
+  case catMaybes (map (.totalFare) legs) of
+    [] -> pure $ Price {amount = HighPrecMoney 0, amountInt = Money 0, currency = KTP.INR}
+    (firstFare : restFares) -> foldlM KTP.addPrice firstFare restFares
+
 getJourney :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => Id DJourney.Journey -> m DJourney.Journey
 getJourney id = JQ.findByPrimaryKey id >>= fromMaybeM (JourneyNotFound id.getId)
 
@@ -107,7 +116,8 @@ getAllLegsInfo ::
   m [JL.LegInfo]
 getAllLegsInfo journeyId = do
   allLegsRawData <- getJourneyLegs journeyId
-  allLegsInfo <-
+  let lockKey = multimodalLegSearchIdAccessLockKey journeyId.getId
+  Redis.withLockRedisAndReturnValue lockKey 5 $ do
     allLegsRawData `forM` \leg -> do
       case leg.legSearchId of
         Just legSearchIdText -> do
@@ -119,7 +129,6 @@ getAllLegsInfo journeyId = do
             DTrip.Subway -> JL.getInfo $ SubwayLegRequestGetInfo $ SubwayLegRequestGetInfoData {searchId = cast legSearchId, fallbackFare = leg.estimatedMinFare, distance = leg.distance, duration = leg.duration}
             DTrip.Bus -> JL.getInfo $ BusLegRequestGetInfo $ BusLegRequestGetInfoData {searchId = cast legSearchId, fallbackFare = leg.estimatedMinFare, distance = leg.distance, duration = leg.duration}
         Nothing -> throwError $ InvalidRequest ("LegId null for Mode: " <> show leg.mode)
-  return $ allLegsInfo
 
 getAllLegsStatus ::
   JL.GetStateFlow m r c =>
@@ -128,10 +137,12 @@ getAllLegsStatus ::
 getAllLegsStatus journey = do
   allLegsRawData <- getJourneyLegs journey.id
   riderLastPoints <- getLastThreePoints journey.id
-  (_, allLegsState) <- foldlM (processLeg riderLastPoints) (True, []) allLegsRawData
-  when ((all (\st -> st.status `elem` [JL.Completed, JL.Skipped, JL.Cancelled]) allLegsState) && journey.status /= DJourney.CANCELLED) $ do
-    updateJourneyStatus journey DJourney.FEEDBACK_PENDING
-  return allLegsState
+  let lockKey = multimodalLegSearchIdAccessLockKey journey.id.getId
+  Redis.withLockRedisAndReturnValue lockKey 5 $ do
+    (_, allLegsState) <- foldlM (processLeg riderLastPoints) (True, []) allLegsRawData
+    when (all (\st -> st.status `elem` [JL.Completed, JL.Skipped, JL.Cancelled]) allLegsState && journey.status /= DJourney.CANCELLED) $ do
+      updateJourneyStatus journey DJourney.FEEDBACK_PENDING
+    return allLegsState
   where
     processLeg ::
       JL.GetStateFlow m r c =>
@@ -160,7 +171,12 @@ startJourney ::
   m ()
 startJourney forcedBookedLegOrder journeyId = do
   allLegs <- getAllLegsInfo journeyId
-  mapM_ (\leg -> JLI.confirm (Just leg.order == forcedBookedLegOrder) leg) allLegs
+  mapM_
+    ( \leg ->
+        when (leg.status /= JL.Skipped) $
+          JLI.confirm (if (leg.order == 0) then True else (Just leg.order == forcedBookedLegOrder)) leg
+    )
+    allLegs
 
 addAllLegs ::
   ( JL.SearchRequestFlow m r c
@@ -347,8 +363,8 @@ cancellableStatus leg = if leg.travelMode == DTrip.Walk then not (leg.status `el
 getUnifiedQR :: [JL.LegInfo] -> UTCTime -> Maybe JL.UnifiedTicketQR
 getUnifiedQR legs now = do
   let bookings = mapMaybe getTickets (filter (\leg -> leg.travelMode `elem` [DTrip.Metro, DTrip.Bus, DTrip.Subway]) legs)
-  let cmrlBookings = [b | (provider, b) <- bookings, provider == providerToText JL.CMRL]
-  let mtcBookings = [b | (provider, b) <- bookings, provider == providerToText JL.MTC]
+  let cmrlBookings = [b | (provider, b) <- bookings, provider == providerToText JL.CMRL || provider == providerToText JL.DIRECT]
+  let mtcBookings = [b | (provider, b) <- bookings, provider == providerToText JL.MTC || provider == providerToText JL.DIRECT]
   if null cmrlBookings && null mtcBookings
     then Nothing
     else
@@ -364,6 +380,7 @@ getUnifiedQR legs now = do
 providerToText :: JL.Provider -> Text
 providerToText JL.CMRL = "Chennai Metro Rail Limited"
 providerToText JL.MTC = "Buses"
+providerToText JL.DIRECT = "Direct Multimodal Services"
 
 getTickets :: JL.LegInfo -> Maybe (Text, JL.BookingData)
 getTickets leg =
@@ -377,7 +394,7 @@ getTickets leg =
     processTickets expectedProvider mbTickets mbProviderName bookingId = do
       tickets <- mbTickets
       provider <- mbProviderName
-      if provider == providerToText expectedProvider
+      if provider == providerToText expectedProvider || provider == providerToText JL.DIRECT
         then
           Just
             ( provider,
@@ -449,16 +466,24 @@ cancelRemainingLegs ::
   m ()
 cancelRemainingLegs journeyId = do
   remainingLegs <- getRemainingLegs journeyId
-  forM_ remainingLegs $ \leg -> do
-    isCancellable <- checkIfCancellable leg
-    unless isCancellable $
-      throwError $ InvalidRequest $ "Cannot cancel leg for leg: " <> show leg.travelMode
+  -- forM_ remainingLegs $ \leg -> do
+  --   isCancellable <- checkIfCancellable leg
+  --   unless isCancellable $
+  --     throwError $ InvalidRequest $ "Cannot cancel leg for leg: " <> show leg.travelMode
   results <-
     forM remainingLegs $ \leg -> do
-      try @_ @SomeException (if leg.skipBooking then return () else cancelLeg leg (SCR.CancellationReasonCode "") False)
+      try @_ @SomeException $
+        if leg.skipBooking
+          then return ()
+          else do
+            isCancellable <- checkIfCancellable leg
+            if isCancellable then (cancelLeg leg (SCR.CancellationReasonCode "")) False else (QJourneyLeg.updateIsDeleted (Just True) (Just leg.searchId))
   let failures = [e | Left e <- results]
   unless (null failures) $
     throwError $ InvalidRequest $ "Failed to cancel some legs: " <> show failures
+
+multimodalLegSearchIdAccessLockKey :: Text -> Text
+multimodalLegSearchIdAccessLockKey legSearchId = "Multimodal:Leg:SearchIdAccess:" <> legSearchId
 
 skipLeg ::
   (JL.GetStateFlow m r c, m ~ Kernel.Types.Flow.FlowR AppEnv) =>
@@ -472,6 +497,77 @@ skipLeg journeyId legOrder = do
     throwError $ InvalidRequest $ "Leg cannot be skipped in status: " <> show skippingLeg.status
 
   cancelLeg skippingLeg (SCR.CancellationReasonCode "") True
+
+addSkippedLeg ::
+  (JL.GetStateFlow m r c, m ~ Kernel.Types.Flow.FlowR AppEnv) =>
+  Id DJourney.Journey ->
+  Int ->
+  m ()
+addSkippedLeg journeyId legOrder = do
+  allLegs <- QJourneyLeg.findAllByJourneyId journeyId
+  -- skippedLeg <- find (\leg -> (leg.isSkipped == Just True && leg.sequenceNumber == legOrder)
+  --  || (leg.isDeleted == Just True && leg.sequenceNumber == legOrder && leg.mode == DTrip.Walk))
+  --  allLegs & fromMaybeM (InvalidRequest $ "Skipped Leg not found with leg Order: " <> show allLegs)
+
+  skippedLeg <-
+    find
+      (\leg -> (leg.sequenceNumber == legOrder))
+      allLegs
+      & fromMaybeM (InvalidRequest $ "Skipped Leg not found with leg Order: " <> show legOrder)
+
+  legSearchId <-
+    skippedLeg.legSearchId
+      & fromMaybeM (InvalidRequest "legSearchId is missing for skippedLeg")
+
+  isSkippedOrCancelled <- case skippedLeg.mode of
+    DTrip.Taxi -> do
+      mbBooking <- QBooking.findByTransactionId legSearchId
+      case mbBooking of
+        Just booking -> return booking.isSkipped
+        Nothing -> do
+          searchReq <- QSearchRequest.findById (Id legSearchId) >>= fromMaybeM (SearchRequestNotFound $ "searchRequestId-" <> legSearchId)
+          case searchReq.journeyLegInfo of
+            Just journeyData -> return (Just journeyData.skipBooking)
+            Nothing -> return Nothing
+    DTrip.Walk -> do
+      walkLeg <- QWalkLeg.findById (Id legSearchId) >>= fromMaybeM (InvalidRequest "WalkLeg Data not found")
+      case walkLeg.journeyLegInfo of
+        Just walkLegData -> return walkLegData.isDeleted
+        Nothing -> return Nothing
+    DTrip.Metro -> checkFRFSBooking legSearchId
+    DTrip.Subway -> checkFRFSBooking legSearchId
+    DTrip.Bus -> checkFRFSBooking legSearchId
+
+  when (isSkippedOrCancelled /= Just True) $
+    throwError $ InvalidRequest $ "isSkipped is not True for legOrder: " <> show legOrder
+  when (skippedLeg.mode == DTrip.Walk) $
+    QJourneyLeg.updateIsDeleted (Just False) skippedLeg.legSearchId
+
+  let lockKey = multimodalLegSearchIdAccessLockKey journeyId.getId
+  exep <- try @_ @SomeException $ do
+    Redis.withLockRedis lockKey 5 $ do
+      QJourneyLeg.updateIsSkipped (Just False) skippedLeg.legSearchId
+      QJourneyLeg.updateLegSearchId Nothing skippedLeg.id
+      addAllLegs journeyId
+  case exep of
+    Left _ -> do
+      -- Rollback operations
+      QJourneyLeg.updateLegSearchId skippedLeg.legSearchId skippedLeg.id
+      QJourneyLeg.updateIsSkipped (Just True) skippedLeg.legSearchId
+      when (skippedLeg.mode == DTrip.Walk) $
+        QJourneyLeg.updateIsDeleted (Just True) skippedLeg.legSearchId
+      throwError $ InvalidRequest "Failed to update skipped leg, as Search operation failed"
+    Right _ -> return ()
+  where
+    checkFRFSBooking legSearchId = do
+      frfsBooking <- QTBooking.findBySearchId (Id legSearchId)
+      case frfsBooking of
+        Just booking -> return booking.isSkipped
+        Nothing -> do
+          frfsSearchReq <- QFRFSSearch.findById (Id legSearchId) >>= fromMaybeM (SearchRequestNotFound $ "searchRequestId-" <> legSearchId)
+          case frfsSearchReq.journeyLegInfo of
+            Just frfsJourneyData -> return (Just frfsJourneyData.skipBooking)
+            Nothing -> return Nothing
 
 checkIfCancellable ::
   ( CacheFlow m r,
@@ -657,13 +753,18 @@ extendLeg journeyId startPoint mbEndLocation mbEndLegOrder fare newDistance newD
     JL.StartLegOrder startLegOrder -> do
       allLegs <- getAllLegsInfo journeyId
       currentLeg <- find (\leg -> leg.order == startLegOrder) allLegs & fromMaybeM (InvalidRequest $ "Cannot find leg with order: " <> show startLegOrder)
+
       legsToCancel <-
         case mbEndLegOrder of
           Just endLegOrder -> return $ filter (\leg -> leg.order >= startLegOrder && leg.order < endLegOrder) allLegs
           Nothing -> return $ filter (\leg -> leg.order >= startLegOrder) allLegs
-      checkIfRemainingLegsAreCancellable legsToCancel
+      -- checkIfRemainingLegsAreCancellable legsToCancel
       forM_ legsToCancel $ \leg -> do
-        cancelLeg leg (SCR.CancellationReasonCode "") False
+        isCancellable <- checkIfCancellable leg
+        if isCancellable
+          then cancelLeg leg (SCR.CancellationReasonCode "") False
+          else QJourneyLeg.updateIsDeleted (Just True) (Just leg.searchId)
+
       (newOriginLat, newOriginLon) <- getNewOriginLatLon currentLeg.legExtraInfo
       let leg = mkMultiModalLeg newDistance newDuration MultiModalTypes.Unspecified newOriginLat newOriginLon endLocation.lat endLocation.lon currentLeg.startTime
       riderConfig <- QRC.findByMerchantOperatingCityId currentLeg.merchantOperatingCityId Nothing >>= fromMaybeM (RiderConfigDoesNotExist currentLeg.merchantOperatingCityId.getId)
@@ -686,7 +787,7 @@ extendLeg journeyId startPoint mbEndLocation mbEndLegOrder fare newDistance newD
           journeyLeg <- JL.mkJourneyLeg currentLeg.order leg currentLeg.merchantId currentLeg.merchantOperatingCityId journeyId riderConfig.maximumWalkDistance (Just fare)
           QJourneyLeg.create journeyLeg
           addAllLegs journeyId
-          startJourney Nothing journeyId
+          startJourney (Just currentLeg.order) journeyId
         _ -> do
           throwError $ InvalidRequest ("Cannot extend leg for mode: " <> show currentLeg.travelMode)
   where
@@ -696,8 +797,15 @@ extendLeg journeyId startPoint mbEndLocation mbEndLegOrder fare newDistance newD
         Just endLegOrder -> do
           remainingLegs <- getRemainingLegs journeyId
           let legsToCancel = filter (\leg -> leg.order < endLegOrder) remainingLegs
-          checkIfRemainingLegsAreCancellable legsToCancel
-          mapM_ (\leg -> cancelLeg leg (SCR.CancellationReasonCode "") False) legsToCancel
+          -- checkIfRemainingLegsAreCancellable legsToCancel
+          mapM_
+            ( \leg -> do
+                isCancellable <- checkIfCancellable leg
+                if isCancellable
+                  then cancelLeg leg (SCR.CancellationReasonCode "") False
+                  else QJourneyLeg.updateIsDeleted (Just True) (Just leg.searchId)
+            )
+            legsToCancel
 
     getNewOriginLatLon legExtraInfo =
       case legExtraInfo of
@@ -808,48 +916,50 @@ extendLegEstimatedFare journeyId startPoint mbEndLocation legOrder = do
     JL.StartLegOrder startLegOrder -> find (\leg -> leg.order == startLegOrder) allLegs & fromMaybeM (InvalidRequest $ "Cannot find leg with order: " <> show startLegOrder)
     JL.StartLocation _ -> getCurrentLeg journeyId >>= fromMaybeM (InternalError "Current leg not found")
 
-  isLegsCancellable <- checkIfAllLegsCancellable remainingLegs
-  if isLegsCancellable
-    then do
-      parentSearchReq <- QSearchRequest.findById journey.searchRequestId >>= fromMaybeM (SearchRequestNotFound journey.searchRequestId.getId)
-      endLocation <- maybe (fromMaybeM (InvalidRequest $ "toLocation not found for searchId: " <> show parentSearchReq.id.getId) parentSearchReq.toLocation >>= return . DLoc.makeLocationAPIEntity) return mbEndLocation
+  -- isLegsCancellable <- checkIfAllLegsCancellable remainingLegs
+  -- if isLegsCancellable
+  --   then do
+  parentSearchReq <- QSearchRequest.findById journey.searchRequestId >>= fromMaybeM (SearchRequestNotFound journey.searchRequestId.getId)
+  endLocation <- maybe (fromMaybeM (InvalidRequest $ "toLocation not found for searchId: " <> show parentSearchReq.id.getId) parentSearchReq.toLocation >>= return . DLoc.makeLocationAPIEntity) return mbEndLocation
 
-      startLocation <- getStartLocation startPoint remainingLegs
-      case (startPoint, currentLeg.travelMode) of
-        (JL.StartLocation _, DTrip.Taxi) -> do
-          booking <- QBooking.findByTransactionId currentLeg.searchId >>= fromMaybeM (BookingNotFound $ "transactionId:-" <> currentLeg.searchId)
-          ride <- QRide.findByRBId booking.id >>= fromMaybeM (InvalidRequest $ "No Ride present for booking" <> booking.id.getId)
-          let editLocReq =
-                DRide.EditLocationReq
-                  { origin = Nothing,
-                    destination = Just $ DRide.EditLocation {gps = LatLong {lat = endLocation.lat, lon = endLocation.lon}, address = getAddress endLocation}
-                  }
-          editLocResp <- DRide.editLocation ride.id (currentLeg.personId, currentLeg.merchantId) editLocReq -- handle case if driver declines
-          case editLocResp.bookingUpdateRequestId of
-            Just bookingUpdateReqId -> searchForUpdateRequest bookingUpdateReqId (5 :: Int) -- can set in config
-            Nothing -> throwError (InvalidRequest "bookingUpdateRequestId not found")
-        (_, _) -> do
-          distResp <-
-            Maps.getDistance currentLeg.merchantId currentLeg.merchantOperatingCityId $
-              Maps.GetDistanceReq
-                { origin = startLocation,
-                  destination = getEndLocation endLocation,
-                  travelMode = Just Maps.CAR,
-                  sourceDestinationMapping = Nothing,
-                  distanceUnit = Meter
-                }
-          let distance = convertMetersToDistance Meter distResp.distance
-          let multiModalLeg = mkMultiModalLeg distance distResp.duration MultiModalTypes.Unspecified startLocation.lat startLocation.lon endLocation.lat endLocation.lon
-          estimatedFare <- JLI.getFare currentLeg.merchantId currentLeg.merchantOperatingCityId multiModalLeg DTrip.Taxi
-          return $
-            APITypes.ExtendLegGetFareResp
-              { totalFare = estimatedFare,
-                distance = distance,
-                duration = Just distResp.duration,
-                bookingUpdateRequestId = Nothing
+  startLocation <- getStartLocation startPoint remainingLegs
+  case (startPoint, currentLeg.travelMode) of
+    (JL.StartLocation _, DTrip.Taxi) -> do
+      booking <- QBooking.findByTransactionId currentLeg.searchId >>= fromMaybeM (BookingNotFound $ "transactionId:-" <> currentLeg.searchId)
+      ride <- QRide.findByRBId booking.id >>= fromMaybeM (InvalidRequest $ "No Ride present for booking" <> booking.id.getId)
+      let editLocReq =
+            DRide.EditLocationReq
+              { origin = Nothing,
+                destination = Just $ DRide.EditLocation {gps = LatLong {lat = endLocation.lat, lon = endLocation.lon}, address = getAddress endLocation}
               }
-    else throwError (InvalidRequest "Legs are not cancellable")
+      editLocResp <- DRide.editLocation ride.id (currentLeg.personId, currentLeg.merchantId) editLocReq -- handle case if driver declines
+      case editLocResp.bookingUpdateRequestId of
+        Just bookingUpdateReqId -> do
+          searchForUpdateRequest bookingUpdateReqId (5 :: Int) -- can set in config
+        Nothing -> throwError (InvalidRequest "bookingUpdateRequestId not found")
+    (_, _) -> do
+      distResp <-
+        Maps.getDistance currentLeg.merchantId currentLeg.merchantOperatingCityId $
+          Maps.GetDistanceReq
+            { origin = startLocation,
+              destination = getEndLocation endLocation,
+              travelMode = Just Maps.CAR,
+              sourceDestinationMapping = Nothing,
+              distanceUnit = Meter
+            }
+      let distance = convertMetersToDistance Meter distResp.distance
+      let multiModalLeg = mkMultiModalLeg distance distResp.duration MultiModalTypes.Unspecified startLocation.lat startLocation.lon endLocation.lat endLocation.lon
+      estimatedFare <- JLI.getFare currentLeg.merchantId currentLeg.merchantOperatingCityId multiModalLeg DTrip.Taxi
+      return $
+        APITypes.ExtendLegGetFareResp
+          { totalFare = estimatedFare,
+            distance = distance,
+            duration = Just distResp.duration,
+            bookingUpdateRequestId = Nothing
+          }
   where
+    -- else throwError (InvalidRequest "Legs are not cancellable")
+
     getEndLocation location =
       LatLong
         { lat = location.lat,
@@ -877,12 +987,14 @@ extendLegEstimatedFare journeyId startPoint mbEndLocation legOrder = do
       longitude <- startLoc.lon & fromMaybeM (InvalidRequest "Start location not Found")
       return $ LatLong {lat = latitude, lon = longitude}
 
-    searchForUpdateRequest _ 0 = throwError (InvalidRequest "Maximum number of tries reached for editLocation results")
-    searchForUpdateRequest bookingUpdateRequestId count = do
-      mbBookingUpdateReq <- B.runInReplica $ QBUR.findById bookingUpdateRequestId
-      case mbBookingUpdateReq of
-        Just bookingUpdateReq -> do
-          estimatedFare <- bookingUpdateReq.estimatedFare & fromMaybeM (InvalidRequest $ "EditLocation fare not Found for bookingUpdateReqId: " <> show bookingUpdateReq.id)
+    searchForUpdateRequest bookingUpdateReqId 0 = throwError (InvalidRequest $ "Maximum number of tries reached for editLocation results for bookingUpdateReqId: " <> show bookingUpdateReqId)
+    searchForUpdateRequest bookingUpdateReqId count = do
+      bookingUpdateReq <- QBUR.findById bookingUpdateReqId >>= fromMaybeM (InvalidRequest $ "bookingUpdateRequest not found for id: " <> show bookingUpdateReqId)
+      case bookingUpdateReq.estimatedFare of
+        Nothing -> do
+          liftIO $ threadDelaySec $ Seconds {getSeconds = 2} -- can set in config
+          searchForUpdateRequest bookingUpdateReqId (count -1)
+        Just estimatedFare -> do
           estimatedDistance <- bookingUpdateReq.estimatedDistance & fromMaybeM (InvalidRequest $ "EditLocation distance not Found for bookingUpdateReqId: " <> show bookingUpdateReq.id)
           return $
             APITypes.ExtendLegGetFareResp
@@ -891,9 +1003,6 @@ extendLegEstimatedFare journeyId startPoint mbEndLocation legOrder = do
                 duration = Nothing,
                 bookingUpdateRequestId = Just bookingUpdateReq.id
               }
-        Nothing -> do
-          liftIO $ threadDelaySec $ Seconds {getSeconds = 2} -- can set in config
-          searchForUpdateRequest bookingUpdateRequestId (count -1)
 
     mkMultiModalLeg distance duration mode originLat originLon destLat destLon =
       MultiModalTypes.MultiModalLeg

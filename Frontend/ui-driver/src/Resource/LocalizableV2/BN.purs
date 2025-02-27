@@ -1233,7 +1233,7 @@ getBn =
     , enter_referral_code: "রেফারেল কোড লিখুন"
     , have_a_referral_code: "একটি রেফারেল কোড আছে?"
     , complete_steps_to_apply_referral: "রেফারেল কোড প্রয়োগ করতে উপরের ধাপগুলি সম্পূর্ণ করুন"
-    , download_namma_yatri: (\_ -> "নম্মা যাত্রী ডাউনলোড করুন")
+    , download_namma_yatri: (\appName -> appName <> " ডাউনলোড করুন")
     , enter_code: "কোড লিখুন"
     , complete_registration: "সম্পূর্ণ নিবন্ধন"
     , help_faq: "সাহায্য"
@@ -1711,6 +1711,7 @@ getBn =
     , your_ride_starts_in: "আপনার যাত্রা শুরু হচ্ছে"
     , away: " দূরে"
     , intercity: "আন্তঃনগর"
+    , local: "স্থানীয়"
     , intercity_return: "আন্তঃনগর প্রত্যাবর্তন"
     , rental: "ভাড়া"
     , regular: "নিয়মিত"
@@ -1788,4 +1789,7 @@ getBn =
     , drivers_are_permitted_to_cancel_ambulance_bookings : "ড্রাইভারদের শুধুমাত্র তাদের চিকিৎসা সংক্রান্ত কারণ বা যানবাহন সমস্যার জন্যই বাতিল করার অনুমতি রয়েছে"
     , payment_under_maintenance : "পেমেন্ট রক্ষণাবেক্ষণের অধীনে"
     , payments_temporarily_unavailable : "পেমেন্টগুলি অস্থায়ীভাবে অনুপলব্ধ এবং শীঘ্রই ফিরে আসবে। অনুগ্রহ করে পরে আবার চেষ্টা করুন।"
+    , resume_ride : "যাত্রা পুনরায় শুরু করুন"
+    , end_ride_with_stops : "আপনার আরও স্টপেজ রয়েছে। যাত্রা শেষ করবেন?"
+    , stop : (\n -> "স্টপ " <> n)
     }

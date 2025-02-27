@@ -12,6 +12,7 @@ import qualified Domain.Types.SearchRequest
 import Kernel.Prelude
 import qualified Kernel.Types.Common
 import qualified Kernel.Types.Id
+import qualified Kernel.Utils.TH
 import qualified Tools.Beam.UtilsTH
 
 data Journey = Journey
@@ -20,6 +21,7 @@ data Journey = Journey
     estimatedDistance :: Kernel.Types.Common.Distance,
     estimatedDuration :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
     id :: Kernel.Types.Id.Id Domain.Types.Journey.Journey,
+    isPaymentSuccess :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     modes :: [Domain.Types.Common.MultimodalTravelMode],
     riderId :: Kernel.Types.Id.Id Domain.Types.Person.Person,
     searchRequestId :: Kernel.Types.Id.Id Domain.Types.SearchRequest.SearchRequest,
@@ -33,6 +35,8 @@ data Journey = Journey
   }
   deriving (Generic, Show, ToJSON, FromJSON, ToSchema)
 
-data JourneyStatus = NEW | INITIATED | CONFIRMED | INPROGRESS | CANCELLED | FEEDBACK_PENDING | COMPLETED deriving (Eq, Ord, Show, Read, Generic, ToJSON, FromJSON, ToSchema)
+data JourneyStatus = NEW | INITIATED | CONFIRMED | INPROGRESS | CANCELLED | FEEDBACK_PENDING | COMPLETED deriving (Eq, Ord, Show, Read, Generic, ToJSON, FromJSON, ToSchema, ToParamSchema)
 
 $(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''JourneyStatus)
+
+$(Kernel.Utils.TH.mkHttpInstancesForEnum ''JourneyStatus)

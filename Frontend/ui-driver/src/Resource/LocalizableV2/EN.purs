@@ -1235,7 +1235,7 @@ getEn =
     , enter_referral_code: "Enter referral code"
     , have_a_referral_code: "Have a referral code?"
     , complete_steps_to_apply_referral: "Complete above steps to apply referral code"
-    , download_namma_yatri: (\_ -> "Download Namma Yatri")
+    , download_namma_yatri: (\appName -> "Download " <> appName)
     , enter_code: "Enter Code"
     , complete_registration: "Complete Registration"
     , help_faq: "Help"
@@ -1711,6 +1711,7 @@ getEn =
     , your_ride_starts_in: "your ride starts in"
     , away: " away"
     , intercity: "Intercity"
+    , local: "Local"
     , intercity_return: "Intercity Return"
     , rental: "Rental"
     , regular: "Regular"
@@ -1788,4 +1789,7 @@ getEn =
     , drivers_are_permitted_to_cancel_ambulance_bookings : "Drivers are permitted to cancel only for their medical reasons or vehicle breakdowns"
     , payment_under_maintenance : "Payment Under Maintenance"
     , payments_temporarily_unavailable : "Payments are temporarily unavailable and will be back soon. Please try again later."
+    , resume_ride : "Resume ride"
+    , end_ride_with_stops : "You have more stops until drop End Ride anyway?"
+    , stop: (\n -> "Stop " <> n)
     }

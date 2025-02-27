@@ -229,7 +229,7 @@ instance showValidationStatus :: Show ValidationStatus where show = genericShow
 instance eqValidationStatus :: Eq ValidationStatus where eq = genericEq
 
 
-data VehicalTypes = Sedan | Hatchback | SUV | Auto | Bike | Ambulance_Taxi | Ambulance_AC | Ambulance_AC_Oxy | Ambulance_Taxi_Oxy | Ambulance_Ventilator | Suv_Plus | EV_Auto
+data VehicalTypes = Sedan | Hatchback | SUV | Auto | Bike | Ambulance_Taxi | Ambulance_AC | Ambulance_AC_Oxy | Ambulance_Taxi_Oxy | Ambulance_Ventilator | Suv_Plus | EV_Auto | HERITAGE_CAB
 
  -- ############################################################# UploadingDrivingLicenseScreen ################################################################################
 type UploadDrivingLicenseState = {
@@ -596,6 +596,7 @@ type DriverProfileScreenProps = {
   enableGoto :: Boolean,
   isRideActive :: Boolean,
   canSwitchToRental :: Maybe Boolean,
+  canSwitchToIntraCity :: Maybe Boolean,
   canSwitchToInterCity :: Maybe Boolean,
   showDriverBlockedPopup :: Boolean
 }
@@ -876,7 +877,8 @@ type IndividualRideCardState =
     tripEndTime :: Maybe String,
     acRide :: Maybe Boolean,
     vehicleServiceTier :: String,
-    parkingCharge :: Number
+    parkingCharge :: Number,
+    stops :: Array API.Stop
   }
 
 
@@ -1101,6 +1103,7 @@ type HomeScreenData =  {
 , favPopUp :: FavouritePopUp
 , isSpecialLocWarrior :: Boolean
 , bus_number :: String
+
 }
 
 type FavouritePopUp = {
@@ -1327,7 +1330,8 @@ type ActiveRide = {
   receiverInstructions :: Maybe String,
   senderPersonDetails :: Maybe API.PersonDetails,
   receiverPersonDetails :: Maybe API.PersonDetails,
-  notifiedReachedDestination :: Boolean
+  notifiedReachedDestination :: Boolean,
+  stops :: Array API.Stop
 }
 
 type HomeScreenProps =  {
@@ -1425,7 +1429,9 @@ type HomeScreenProps =  {
   showParcelIntroductionPopup :: Boolean,
   showMetroWarriorWarningPopup :: Boolean,
   setBusOnline :: Boolean,
-  bus_input_data :: String
+  bus_input_data :: String,
+  showEndRideWithStopPopup :: Boolean,
+  triggerGMapsIntent :: Boolean
  }
 
 type RideRequestPill = {
@@ -1582,7 +1588,8 @@ type TripDetailsScreenData =
     acRide :: Maybe Boolean,
     vehicleServiceTier :: String,
     parkingCharge :: Number,
-    tripType :: TripType
+    tripType :: TripType,
+    stops :: Array String
   }
 
 type TripDetailsScreenProps =
@@ -2013,7 +2020,8 @@ type NotificationCardState = {
   mediaType :: Maybe MediaType,
   likeCount :: Int,
   viewCount :: Int,
-  likeStatus :: Boolean
+  likeStatus :: Boolean,
+  shareable :: Boolean
 }
 
 type NotificationCardPropState = {
@@ -2043,7 +2051,10 @@ type NotificationCardPropState = {
   imageWithUrlVisibility :: PropValue,
   backgroundHolder :: PropValue,
   likeCount :: PropValue,
-  viewCount :: PropValue
+  viewCount :: PropValue,
+  likeCountVisibility :: PropValue,
+  shareCountVisibility :: PropValue,
+  viewCountVisibility :: PropValue
 }
 
 type NotificationDetailModelState = {
@@ -2062,7 +2073,8 @@ type NotificationDetailModelState = {
   mediaType :: Maybe MediaType,
   likeCount :: Int,
   likeStatus :: Boolean,
-  viewCount :: Int
+  viewCount :: Int,
+  shareable :: Boolean
 }
 
 data YoutubeVideoStatus = PLAY | PAUSE
@@ -2193,6 +2205,7 @@ type BookingOptionsScreenProps = {
   acExplanationPopup :: Boolean,
   fromDeepLink :: Boolean,
   canSwitchToInterCity :: Maybe Boolean,
+  canSwitchToIntraCity :: Maybe Boolean,
   showRateCard :: Boolean,
   rateCardLoaded :: Boolean,
   peakTime :: Boolean

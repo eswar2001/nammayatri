@@ -3,6 +3,8 @@ imports:
   UpdateNammaTagRequest: Lib.Yudhishthira.Types
   APISuccess: Kernel.Types.APISuccess
   ChakraQueriesAPIEntity: Lib.Yudhishthira.Types
+  ChakraQueryUpdateReq: Lib.Yudhishthira.Types
+  ChakraQueryDeleteReq: Lib.Yudhishthira.Types
   AppDynamicLogicReq: Lib.Yudhishthira.Types
   AppDynamicLogicResp: Lib.Yudhishthira.Types
   LogicDomain: Lib.Yudhishthira.Types
@@ -21,6 +23,14 @@ imports:
   CreateNammaTagResponse: Lib.Yudhishthira.Types
   VerifyNammaTagRequest: Lib.Yudhishthira.Types
   VerifyNammaTagResponse: Lib.Yudhishthira.Types
+  UiConfigRequest: Lib.Yudhishthira.Types
+  UiConfigResponse: Lib.Yudhishthira.Types
+  CreateConfigRequest: Lib.Yudhishthira.Types
+  ConfigType: Lib.Yudhishthira.Types
+  ConfigDetailsResp: Lib.Yudhishthira.Types
+  TableDataResp: Lib.Yudhishthira.Types
+  ActionChangeRequest: Lib.Yudhishthira.Types
+
 
 module: NammaTag
 
@@ -74,6 +84,20 @@ apis:
       migrate:
         endpointV2:
         userActionType: ApiAuth DRIVER_OFFER_BPP_MANAGEMENT NAMMA_TAG CREATE_CHAKRA_QUERY
+  - POST:
+      endpoint: /query/update
+      auth: ApiAuthV2
+      request:
+        type: ChakraQueryUpdateReq
+      response:
+        type: APISuccess
+  - DELETE:
+      endpoint: /query/delete
+      auth: ApiAuthV2
+      request:
+        type: ChakraQueryDeleteReq
+      response:
+        type: APISuccess
   - POST:
       endpoint: /appDynamicLogic/verify
       auth: ApiAuthV2
@@ -180,3 +204,67 @@ apis:
         type: ChakraQueryResp
       migrate:
         userActionType: ApiAuth DRIVER_OFFER_BPP_MANAGEMENT NAMMA_TAG GET_CHAKRA_QUERY
+  - POST:
+      endpoint: /configPilot/getVersion
+      auth: ApiAuthV2
+      request:
+        type: UiConfigRequest
+      response:
+        type: Text
+      migrate:
+        userActionType: ApiAuth DRIVER_OFFER_BPP_MANAGEMENT NAMMA_TAG POST_RETRIEVE_VERSION
+  - POST:
+      endpoint: /configPilot/getConfig
+      auth: ApiAuthV2
+      request:
+        type: UiConfigRequest
+      response:
+        type: UiConfigResponse
+      migrate:
+        userActionType: ApiAuth DRIVER_OFFER_BPP_MANAGEMENT NAMMA_TAG POST_RETRIEVE_CONFIG
+  - POST:
+      endpoint: /configPilot/createUiConfig
+      auth: ApiAuthV2
+      request:
+        type: CreateConfigRequest
+      response:
+        type: APISuccess
+      migrate:
+        userActionType: ApiAuth DRIVER_OFFER_BPP_MANAGEMENT NAMMA_TAG CREATE_UI_CONFIG
+  - GET:
+      endpoint: /configPilot/allConfigs/
+      auth: ApiAuthV2
+      query:
+        underExperiment: Bool
+      response:
+        type: "[ConfigType]"
+      migrate:
+        userActionType: ApiAuth DRIVER_OFFER_BPP_MANAGEMENT NAMMA_TAG APP_DYNAMIC_LOGIC_VERIFY
+  - GET:
+      endpoint: /configPilot/configDetails
+      auth: ApiAuthV2
+      mandatoryQuery:
+        tableName: ConfigType
+      response:
+        type: "[ConfigDetailsResp]"
+      migrate:
+        userActionType: ApiAuth DRIVER_OFFER_BPP_MANAGEMENT NAMMA_TAG APP_DYNAMIC_LOGIC_VERIFY
+  - GET:
+      endpoint: /configPilot/getTableData
+      auth: ApiAuthV2
+      mandatoryQuery:
+        tableName: ConfigType
+      response:
+        type: TableDataResp
+      migrate:
+        userActionType: ApiAuth DRIVER_OFFER_BPP_MANAGEMENT NAMMA_TAG APP_DYNAMIC_LOGIC_VERIFY
+  - POST:
+      endpoint: /configPilot/actionChange
+      auth: ApiAuthV2
+      request:
+        type: ActionChangeRequest
+      response:
+        type: APISuccess
+      migrate:
+        endpointV2:
+        userActionType: ApiAuth DRIVER_OFFER_BPP_MANAGEMENT NAMMA_TAG APP_DYNAMIC_LOGIC_VERIFY

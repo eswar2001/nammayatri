@@ -34,6 +34,7 @@ module Domain.Action.Beckn.OnUpdate
     EditDestErrorReq (..),
     TollCrossedEventReq (..),
     PhoneCallRequestEventReq (..),
+    PhoneCallCompletedEventReq (..),
     DestinationReachedReq (..),
     EstimatedEndTimeRangeReq (..),
     ParcelImageFileUploadReq (..),
@@ -120,6 +121,7 @@ data OnUpdateReq
   | OUEditDestConfirmUpdateReq EditDestConfirmUpdateReq
   | OUTollCrossedEventReq TollCrossedEventReq
   | OUPhoneCallRequestEventReq PhoneCallRequestEventReq
+  | OUPhoneCallCompletedEventReq PhoneCallCompletedEventReq
   | OUEditDestError EditDestErrorReq
   | OUDestinationReachedReq DestinationReachedReq
   | OUEstimatedEndTimeRangeReq EstimatedEndTimeRangeReq
@@ -143,6 +145,7 @@ data ValidatedOnUpdateReq
   | OUValidatedEditDestConfirmUpdateReq ValidatedEditDestConfirmUpdateReq
   | OUValidatedTollCrossedEventReq ValidatedTollCrossedEventReq
   | OUValidatedPhoneCallRequestEventReq ValidatedPhoneCallRequestEventReq
+  | OUValidatedPhoneCallCompletedEventReq ValidatedPhoneCallCompletedEventReq
   | OUValidatedEditDestError ValidatedEditDestErrorReq
   | OUValidatedDestinationReachedReq ValidatedDestinationReachedReq
   | OUValidatedEstimatedEndTimeRangeReq ValidatedEstimatedEndTimeRangeReq
@@ -341,9 +344,17 @@ data PhoneCallRequestEventReq = PhoneCallRequestEventReq
   { transactionId :: Text
   }
 
+data PhoneCallCompletedEventReq = PhoneCallCompletedEventReq
+  { transactionId :: Text
+  }
+
 data ValidatedPhoneCallRequestEventReq = ValidatedPhoneCallRequestEventReq
   { booking :: DRB.Booking,
     person :: DPerson.Person
+  }
+
+newtype ValidatedPhoneCallCompletedEventReq = ValidatedPhoneCallCompletedEventReq
+  { booking :: DRB.Booking
   }
 
 data DestinationReachedReq = DestinationReachedReq
@@ -526,15 +537,18 @@ onUpdate = \case
       QJourneyLeg.updateAfterEditLocation booking.estimatedDuration booking.estimatedDistance (Maps.LatLngV2 {latitude = toLocation.lat, longitude = toLocation.lon}) journeyLegId
     Notify.notifyOnTripUpdate booking ride Nothing
   OUValidatedTollCrossedEventReq ValidatedTollCrossedEventReq {..} -> do
-    mbMerchantPN <- CPN.findMatchingMerchantPN booking.merchantOperatingCityId "TOLL_CROSSED" Nothing Nothing person.language
+    mbMerchantPN <- CPN.findMatchingMerchantPNInRideFlow booking.merchantOperatingCityId "TOLL_CROSSED" Nothing Nothing person.language booking.configInExperimentVersions
     whenJust mbMerchantPN $ \merchantPN -> do
       let entityData = TN.NotifReq {title = merchantPN.title, message = merchantPN.body}
       TN.notifyPersonOnEvents person entityData merchantPN.fcmNotificationType
   OUValidatedPhoneCallRequestEventReq ValidatedPhoneCallRequestEventReq {..} -> do
-    mbMerchantPN <- CPN.findMatchingMerchantPN booking.merchantOperatingCityId "FCM_CHAT_MESSAGE" Nothing Nothing person.language
+    mbMerchantPN <- CPN.findMatchingMerchantPNInRideFlow booking.merchantOperatingCityId "FCM_CHAT_MESSAGE" Nothing Nothing person.language booking.configInExperimentVersions
     whenJust mbMerchantPN $ \merchantPN -> do
       let entityData = TN.NotifReq {title = merchantPN.title, message = merchantPN.body}
       TN.notifyPersonOnEvents person entityData merchantPN.fcmNotificationType
+  OUValidatedPhoneCallCompletedEventReq ValidatedPhoneCallCompletedEventReq {..} -> do
+    mbRide <- QRide.findActiveByRBId booking.id
+    whenJust mbRide $ \ride -> QRide.updateTalkedWithDriver (Just True) ride.id
   OUValidatedEditDestError ValidatedEditDestErrorReq {..} -> do
     if bookingUpdateReqDetails.status == DBUR.SOFT
       then QBUR.updateErrorObjById (Just DBUR.ErrorObj {..}) bookingUpdateReqId
@@ -650,6 +664,9 @@ validateRequest = \case
     booking <- QEBooking.findByTransactionId transactionId >>= fromMaybeM (BookingDoesNotExist $ "transactionId - " <> transactionId)
     person <- QPerson.findById booking.riderId >>= fromMaybeM (PersonNotFound booking.riderId.getId)
     return $ OUValidatedPhoneCallRequestEventReq ValidatedPhoneCallRequestEventReq {..}
+  OUPhoneCallCompletedEventReq PhoneCallCompletedEventReq {..} -> do
+    booking <- QEBooking.findByTransactionId transactionId >>= fromMaybeM (BookingDoesNotExist $ "transactionId - " <> transactionId)
+    return $ OUValidatedPhoneCallCompletedEventReq ValidatedPhoneCallCompletedEventReq {..}
   OUEditDestError EditDestErrorReq {..} -> do
     bookingUpdateReqDetails <- runInReplica $ QBUR.findById (Id messageId) >>= fromMaybeM (InternalError $ "BookingUpdateRequest not found with Id:-" <> messageId)
     booking <- runInReplica $ QRB.findById bookingUpdateReqDetails.bookingId >>= fromMaybeM (BookingDoesNotExist $ "bookingUpdateReq bookingId:- " <> bookingUpdateReqDetails.bookingId.getId)

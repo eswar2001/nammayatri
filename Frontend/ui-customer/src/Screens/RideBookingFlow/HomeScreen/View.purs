@@ -40,7 +40,7 @@ import Animation as Anim
 import Animation.Config (AnimConfig, animConfig)
 import Animation.Config (Direction(..), translateFullYAnimWithDurationConfig, translateYAnimHomeConfig, messageInAnimConfig, messageOutAnimConfig)
 import CarouselHolder as CarouselHolder
-import Common.Types.App (LazyCheck(..), YoutubeData, CarouselData)
+import Common.Types.App (LazyCheck(..), YoutubeData, CarouselData, City(..))
 import Common.Types.App as CT
 import Common.Types.App as CTP
 import Components.Banner.Controller as BannerConfig
@@ -106,8 +106,7 @@ import Engineering.Helpers.Commons (flowRunner, getNewIDWithTag, liftFlow, os, s
 import Engineering.Helpers.Events as Events
 import Engineering.Helpers.LogEvent (logEvent)
 import Engineering.Helpers.Suggestions (getMessageFromKey, getSuggestionsfromKey, chatSuggestion, emChatSuggestion)
-import Engineering.Helpers.Utils (showAndHideLoader)
-import Engineering.Helpers.Utils (showAndHideLoader)
+import Engineering.Helpers.Utils (showAndHideLoader, getCityFromString)
 import Font.Size as FontSize
 import Font.Style as FontStyle
 import Halogen.VDom.DOM.Prop (Prop)
@@ -133,7 +132,7 @@ import PrestoDOM.Elements.Elements (bottomSheetLayout, coordinatorLayout)
 import PrestoDOM.Elements.Keyed as Keyed
 import PrestoDOM.Properties (cornerRadii, sheetState, alpha, nestedScrollView)
 import PrestoDOM.Types.DomAttributes (Corners(..))
-import Resources.LocalizableV2.Strings (getEN)
+import Resources.LocalizableV2.Strings (getEN, getStringV2)
 import Screens.AddNewAddressScreen.Controller as AddNewAddress
 import Screens.HomeScreen.Controller ( checkCurrentLocation, checkSavedLocations, dummySelectedQuotes, eval2, flowWithoutOffers, getPeekHeight, checkRecentRideVariant, findingQuotesSearchExpired)
 import Screens.HomeScreen.PopUpConfigs as PopUpConfigs
@@ -143,7 +142,7 @@ import Screens.NammaSafetyFlow.Components.ContactCircle as ContactCircle
 import Screens.NammaSafetyFlow.Components.ContactsList (contactCardView)
 import Screens.RideBookingFlow.HomeScreen.BannerConfig (getBannerConfigs)
 import Screens.Types (FareProductType(..)) as FPT
-import Screens.Types (Followers(..), CallType(..), HomeScreenState, LocationListItemState, PopupType(..), SearchLocationModelType(..), SearchResultType(..), Stage(..), ZoneType(..), SheetState(..), Trip(..), SuggestionsMap(..), Suggestions(..), City(..), BottomNavBarIcon(..), NewContacts, ReferralStatus(..), VehicleViewType(..))
+import Screens.Types (Followers(..), CallType(..), HomeScreenState, LocationListItemState, PopupType(..), SearchLocationModelType(..), SearchResultType(..), Stage(..), ZoneType(..), SheetState(..), Trip(..), SuggestionsMap(..), Suggestions(..), BottomNavBarIcon(..), NewContacts, ReferralStatus(..), VehicleViewType(..))
 import Screens.Types as ST
 import Services.API (GetDriverLocationResp(..), GetQuotesRes(..), GetRouteResp(..), LatLong(..), RideAPIEntity(..), RideBookingRes(..), Route(..), SavedLocationsListRes(..), SearchReqLocationAPIEntity(..), SelectListRes(..), Snapped(..), GetPlaceNameResp(..), PlaceName(..), RideBookingListRes(..))
 import Services.Backend (getDriverLocation, getQuotes, getRoute, makeGetRouteReq, rideBooking,ridebookingStatus, selectList, walkCoordinates, walkCoordinate, getSavedLocationList)
@@ -162,6 +161,7 @@ import Resources.Constants (markerArrowSize)
 import Constants (defaultDensity)
 import Resources.Constants (getEditDestPollingCount)
 import RemoteConfig as RemoteConfig
+import RemoteConfig.Utils (getCustomerVoipConfig)
 import Animation as Anim
 import Animation.Config (AnimConfig, animConfig)
 import Components.SourceToDestination as SourceToDestination
@@ -194,7 +194,7 @@ import JBridge as JB
 import Common.Types.App as CT
 import Effect.Unsafe (unsafePerformEffect)
 import Screens.Types (FareProductType(..)) as FPT
-import Helpers.Utils (decodeBookingTimeList, getCityFromString, getLanguageBasedCityName)
+import Helpers.Utils (decodeBookingTimeList, getLanguageBasedCityName)
 import Resources.LocalizableV2.Strings (getEN)
 import Screens.HomeScreen.PopUpConfigs as PopUpConfigs
 import Screens.HomeScreen.Controllers.Types
@@ -202,6 +202,7 @@ import Helpers.Utils as HU
 import Screens.NammaSafetyFlow.Components.SafetyUtils as SU
 import Screens.HomeScreen.ScreenData (dummyNewContacts)
 import Engineering.Helpers.Commons as EHC
+import Resources.LocalizableV2.Types
 
 screen :: HomeScreenState -> Screen Action HomeScreenState ScreenOutput
 screen initialState =
@@ -333,6 +334,7 @@ screen initialState =
               PickUpFarFromCurrentLocation ->
                 void $ pure $ removeMarker (getCurrentLocationMarker (getValueToLocalStore VERSION_NAME))
               RideAccepted -> do
+                initVoipIfEnabled initialState
                 when
                   (initialState.data.config.notifyRideConfirmationConfig.notify && any (_ == getValueToLocalStore NOTIFIED_CUSTOMER) ["false" , "__failed" , "(null)"])
                     $ startTimer 5 "notifyCustomer" "1" push NotifyDriverStatusCountDown
@@ -433,7 +435,7 @@ screen initialState =
               FindEstimateAndSearch -> do
                 push $ SearchForSelectedLocation
                 pure unit
-              ReAllocated ->
+              ReAllocated -> do
                 void $ launchAff $ flowRunner defaultGlobalState $ reAllocateConfirmation push initialState ReAllocate 3000.0
               ShortDistance -> do
                 when (initialState.props.suggestedRideFlow || initialState.props.isRepeatRide) $ push $ ShortDistanceActionController PopUpModal.OnButton2Click
@@ -469,6 +471,13 @@ screen initialState =
 
 isCurrentLocationEnabled :: Boolean
 isCurrentLocationEnabled = isLocalStageOn HomeScreen
+
+initVoipIfEnabled :: HomeScreenState -> Effect Unit
+initVoipIfEnabled state = do
+  let voipConfig = getCustomerVoipConfig $ DS.toLower $ getValueToLocalStore CUSTOMER_LOCATION
+  if voipConfig.customer.enableVoipFeature 
+    then void $ pure $ JB.initSignedCall state.data.driverInfoCardState.bppRideId false
+    else pure unit
 
 view :: forall w. (Action -> Effect Unit) -> HomeScreenState -> PrestoDOM (Effect Unit) w
 view push state =
@@ -1001,7 +1010,7 @@ trackingCardCallView push state item =
           , gravity CENTER_VERTICAL
           , color Color.black800
           ]
-        , if(item.type == ANONYMOUS_CALLER) then labelView push state else linearLayout[][]
+        , if(item.type == ANONYMOUS_CALLER) then labelView push state (getString RECOMMENDED) state.data.config.showRecommendedText else labelView push state (getStringV2 faster) state.data.config.showFasterText
       ]
       , textView
         $
@@ -1019,15 +1028,15 @@ trackingCardCallView push state item =
         ]
     ]
 
-labelView :: forall w. (Action -> Effect Unit) -> HomeScreenState -> PrestoDOM (Effect Unit) w
-labelView push state =
+labelView :: forall w. (Action -> Effect Unit) -> HomeScreenState -> String -> Boolean ->  PrestoDOM (Effect Unit) w
+labelView push state label toShow =
     linearLayout[
       height WRAP_CONTENT
     , width WRAP_CONTENT
     , cornerRadii $ Corners 8.0 true true true true
     , background Color.green900
     , margin (MarginHorizontal 10 10)
-    , visibility $ boolToVisibility $ state.data.config.showRecommendedText
+    , visibility $ boolToVisibility $ toShow
     ][
       textView $ [
         width WRAP_CONTENT
@@ -1036,7 +1045,7 @@ labelView push state =
       , gravity CENTER
       , padding (Padding 8 1 8 1)
       , textSize FontSize.a_13
-      , text (getString RECOMMENDED)
+      , text label
       ]
     ]
 
@@ -3690,7 +3699,7 @@ homeScreenContent push state =  let
       linearLayout
       [ width $ V $ screenWidth unit
       , height $ V 172
-      , visibility $ boolToVisibility $ state.props.city /= ST.AnyCity && (not $ null banners)
+      , visibility $ boolToVisibility $ state.props.city /= AnyCity && (not $ null banners)
       ]$[
         -- imageView
         --   [ imageWithFallback "ny_ic_cab_banner,https://assets.moving.tech/beckn/nammayatri/nammayatricommon/images/ny_ic_cab_banner.png"

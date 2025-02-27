@@ -85,7 +85,7 @@ createJobIn merchantId merchantOperatingCityId inTime jobData = do
       logDebug "DB BASED JOB "
       DBQ.createJobIn @t @e merchantId merchantOperatingCityId uuid inTime maxShards jobData
 
-isLongRunning :: (JobCreator r m) => Text -> m Bool
+isLongRunning :: (HasJobInfoMap r, JobMonad r m) => Text -> m Bool
 isLongRunning jType = do
   jobInfoMap <- asks (.jobInfoMap)
   logDebug $ "jobInfoMap : " <> show jobInfoMap
@@ -139,6 +139,20 @@ getTasksById jobs = do
   case schedulerType of
     RedisBased -> RQ.getTasksById jobs
     DbBased -> DBQ.getTasksById jobs
+
+getJobByTypeAndScheduleTime :: forall t m r. (FromTType'' BeamST.SchedulerJob (AnyJob t), JobMonad r m, JobProcessor t, HasJobInfoMap r) => Text -> UTCTime -> UTCTime -> m [AnyJob t]
+getJobByTypeAndScheduleTime jobType minScheduleTime maxScheduleTime = do
+  schedulerType <- asks (.schedulerType)
+  case schedulerType of
+    RedisBased -> do
+      longRunning <- isLongRunning jobType
+      logDebug $ "LONG RUNNING " <> show longRunning <> " getJobByTypeAndScheduleTime: " <> show jobType <> " minScheduleTime: " <> show minScheduleTime <> " maxScheduleTime: " <> show maxScheduleTime
+      if longRunning
+        then do
+          DBQ.getJobByTypeAndScheduleTime jobType minScheduleTime maxScheduleTime
+        else do
+          RQ.getJobByTypeAndScheduleTime jobType minScheduleTime maxScheduleTime
+    DbBased -> DBQ.getJobByTypeAndScheduleTime jobType minScheduleTime maxScheduleTime
 
 getReadyTasks ::
   forall t m r.

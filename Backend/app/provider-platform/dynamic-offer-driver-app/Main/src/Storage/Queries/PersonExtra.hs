@@ -106,7 +106,7 @@ findAllDriversWithInfoAndVehicle ::
   Maybe Text ->
   m [(Person, DriverInformation, Maybe Vehicle)]
 findAllDriversWithInfoAndVehicle merchant opCity limitVal offsetVal mbVerified mbEnabled mbBlocked mbSubscribed mbSearchPhoneDBHash mbVehicleNumberSearchString mbNameSearchString = do
-  dbConf <- getMasterBeamConfig
+  dbConf <- getReplicaBeamConfig
   result <- L.runDB dbConf $
     L.findRows $
       B.select $
@@ -262,7 +262,7 @@ data DriverWithRidesCount = DriverWithRidesCount
 
 fetchDriverInfo :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Merchant -> DMOC.MerchantOperatingCity -> Maybe (DbHash, Text) -> Maybe Text -> Maybe DbHash -> Maybe DbHash -> Maybe Text -> Maybe (Id Person) -> m (Maybe (Person, DriverInformation, Maybe Vehicle))
 fetchDriverInfo merchant moCity mbMobileNumberDbHashWithCode mbVehicleNumber mbDlNumberHash mbRcNumberHash mbEmail mbPersonId = do
-  dbConf <- getMasterBeamConfig
+  dbConf <- getReplicaBeamConfig
   now <- getCurrentTime
   result <- L.runDB dbConf $
     L.findRows $
@@ -370,9 +370,10 @@ updatePersonVersionsAndMerchantOperatingCity ::
   Maybe Version ->
   Maybe Text ->
   Maybe Text ->
+  Maybe Text ->
   Id DMOC.MerchantOperatingCity ->
   m ()
-updatePersonVersionsAndMerchantOperatingCity person mbBundleVersion mbClientVersion mbConfigVersion mbDevice' mbBackendApp city = do
+updatePersonVersionsAndMerchantOperatingCity person mbBundleVersion mbClientVersion mbConfigVersion mbClientId mbDevice' mbBackendApp city = do
   let mbDevice = getDeviceFromText mbDevice'
   let isBundleDataPresent = isJust mbBundleVersion || isJust mbClientVersion || isJust mbDevice' || isJust mbConfigVersion
   let isAnyMismatchPresent = or [person.clientBundleVersion /= mbBundleVersion, person.clientSdkVersion /= mbClientVersion, person.clientConfigVersion /= mbConfigVersion, person.clientDevice /= mbDevice, person.backendAppVersion /= mbBackendApp, person.merchantOperatingCityId /= city]
@@ -384,6 +385,7 @@ updatePersonVersionsAndMerchantOperatingCity person mbBundleVersion mbClientVers
         mbOsVersion = deviceVersion <$> (mbDevice <|> person.clientDevice)
         mbOsType = deviceType <$> (mbDevice <|> person.clientDevice)
         mbModelName = deviceModel <$> (mbDevice <|> person.clientDevice)
+        mbClientId' = mbClientId <|> person.clientId
         mbManufacturer = deviceManufacturer =<< (mbDevice <|> person.clientDevice)
     updateOneWithKV
       [ Se.Set BeamP.clientSdkVersion mbClientVersionText,
@@ -391,6 +393,7 @@ updatePersonVersionsAndMerchantOperatingCity person mbBundleVersion mbClientVers
         Se.Set BeamP.clientConfigVersion mbConfigVersionText,
         Se.Set BeamP.clientOsVersion mbOsVersion,
         Se.Set BeamP.clientOsType mbOsType,
+        Se.Set BeamP.clientId mbClientId',
         Se.Set BeamP.clientModelName mbModelName,
         Se.Set BeamP.clientManufacturer mbManufacturer,
         Se.Set BeamP.backendAppVersion mbBackendApp,
@@ -415,7 +418,7 @@ findAllPersonWithDriverInfos dInfos merchantId = findAllWithKV [Se.And [Se.Is Be
 findAllPersonAndDriverInfoWithDriverIds :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => [Id Person] -> m [(Person, DriverInformation)]
 findAllPersonAndDriverInfoWithDriverIds driverIds = do
   let allDriverIds = map (\driverId -> driverId.getId) driverIds
-  dbConf <- getMasterBeamConfig
+  dbConf <- getReplicaBeamConfig
   result <- L.runDB dbConf $
     L.findRows $
       B.select $

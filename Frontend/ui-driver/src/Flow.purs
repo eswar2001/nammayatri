@@ -77,7 +77,7 @@ import Foreign.Generic (encodeJSON)
 import Helpers.API (callApiBT, callApi)
 import Helpers.Utils (isYesterday, LatLon(..), decodeErrorCode, decodeErrorMessage, getCurrentLocation, getDatebyCount, getDowngradeOptions, getGenderIndex, getNegotiationUnit, getPastDays, getPastWeeks, getTime, getcurrentdate, isDateGreaterThan, onBoardingSubscriptionScreenCheck, parseFloat, secondsLeft, toStringJSON, translateString, getDistanceBwCordinates, getCityConfig, getDriverStatus, getDriverStatusFromMode, updateDriverStatus, getLatestAndroidVersion, isDateNDaysAgo, getHvErrorMsg)
 import Helpers.Utils as HU
-import JBridge (cleverTapCustomEvent, cleverTapCustomEventWithParams, cleverTapEvent, cleverTapSetLocation, drawRoute, factoryResetApp, firebaseLogEvent, firebaseLogEventWithTwoParams, firebaseUserID, generateSessionId, getAndroidVersion, getCurrentLatLong, getCurrentPosition, getVersionCode, getVersionName, hideKeyboardOnNavigation, initiateLocationServiceClient, isBatteryPermissionEnabled, isInternetAvailable, isLocationEnabled, isLocationPermissionEnabled, isNotificationPermissionEnabled, isOverlayPermissionEnabled, metaLogEvent, metaLogEventWithTwoParams, openNavigation, removeAllPolylines, removeMarker, saveSuggestionDefs, saveSuggestions, setCleverTapUserData, setCleverTapUserProp, showMarker, startLocationPollingAPI, stopChatListenerService, stopLocationPollingAPI, toast, toggleBtnLoader, unregisterDateAndTime, withinTimeRange, mkRouteConfig)
+import JBridge (cleverTapCustomEvent, cleverTapCustomEventWithParams, cleverTapEvent, cleverTapSetLocation, drawRoute, factoryResetApp, firebaseLogEvent, firebaseLogEventWithTwoParams, firebaseUserID, generateSessionId, getAndroidVersion, getCurrentLatLong, getCurrentPosition, getVersionCode, getVersionName, fetchPackageName, hideKeyboardOnNavigation, initiateLocationServiceClient, isBatteryPermissionEnabled, isInternetAvailable, isLocationEnabled, isLocationPermissionEnabled, isNotificationPermissionEnabled, isOverlayPermissionEnabled, metaLogEvent, metaLogEventWithTwoParams, openNavigation, removeAllPolylines, removeMarker, saveSuggestionDefs, saveSuggestions, setCleverTapUserData, setCleverTapUserProp, showMarker, startLocationPollingAPI, stopChatListenerService, stopLocationPollingAPI, toast, toggleBtnLoader, unregisterDateAndTime, withinTimeRange, mkRouteConfig, destroySignedCall)
 import JBridge as JB
 import Language.Strings (getString)
 import Language.Types (STR(..))
@@ -179,10 +179,10 @@ import Data.Function.Uncurried as UC
 import Screens.Benefits.BenefitsScreen.Controller as BSC
 import PrestoDOM.Core (getPushFn)
 import Screens.NotificationsScreen.Controller (notificationTransformer, notifisDetailStateTransformer)
+import Engineering.Helpers.Utils as EHU
 
 baseAppFlow :: Boolean -> Maybe Event -> Maybe (Either ErrorResponse GetDriverInfoResp) -> FlowBT String Unit
 baseAppFlow baseFlow event driverInfoResponse = do
-    lift $ lift $ void $ fork $ doAff $ makeAff \cb -> runEffectFn3 renewFile "v1-assets_downloader.jsa" "https://assets.moving.tech/beckn/bundles/mobility-core/0.0.11/v1-assets_downloader.jsa" (cb <<< Right) $> nonCanceler
     when baseFlow $ do 
       lift $ lift $ initUI
     let bundleSplashConfig = RemoteConfig.getBundleSplashConfig "splash"
@@ -227,11 +227,13 @@ baseAppFlow baseFlow event driverInfoResponse = do
           appSessionCount = getValueToLocalStore APP_SESSION_TRACK_COUNT
           movedToOfflineDate = getValueToLocalStore MOVED_TO_OFFLINE_DUE_TO_HIGH_DUE
       versionName <- lift $ lift $ liftFlow $ getVersionName
+      packageName <- lift $ lift $ liftFlow $ fetchPackageName unit
       void $ pure $ setCleverTapUserProp [{key : "App Version", value : unsafeToForeign versionName},
                                           {key : "Bundle version", value : unsafeToForeign bundle},
                                           {key : "Platform", value : unsafeToForeign os}]
       setValueToLocalStore VERSION_NAME versionName
       setValueToLocalStore BUNDLE_VERSION bundle
+      setValueToLocalStore PACKAGE_NAME packageName
       setValueToLocalStore CONFIG_VERSION config
       setValueToLocalStore BASE_URL (getBaseUrl "dummy")
       setValueToLocalStore RIDE_REQUEST_BUFFER "0"
@@ -246,6 +248,8 @@ baseAppFlow baseFlow event driverInfoResponse = do
       setValueToLocalStore DISABLE_WIDGET "false"
       setValueToLocalStore BUNDLE_TIME_OUT "500"
       setValueToLocalStore ENABLE_SPECIAL_PICKUP_WIDGET "true"
+      setValueToLocalStore POINTS_FACTOR "3"
+      setValueToLocalStore ACCURACY_THRESHOLD "23.0"
       setValueToLocalStore LOGS_TRACKING "false"
       setValueToLocalStore FUNCTION_EXECUTED_IN_SESSION "false"
       when baseFlow $ setValueToLocalStore APP_SESSION_TRACK_COUNT if (appSessionCount /= "false") then "false" else "true"
@@ -1438,7 +1442,7 @@ driverProfileFlow = do
                                                                                             , vehicleName = state.data.vehicleModelName
                                                                                             , vehicleCapacity = state.data.capacity
                                                                                             , downgradeOptions = downgradeOptions}
-                                                                                     , props{ downgraded = not (length (filter (not _.isSelected) downgradeOptions) > 0) && not (null downgradeOptions) , canSwitchToRental = state.props.canSwitchToRental, canSwitchToInterCity = state.props.canSwitchToInterCity}
+                                                                                     , props{ downgraded = not (length (filter (not _.isSelected) downgradeOptions) > 0) && not (null downgradeOptions) , canSwitchToRental = state.props.canSwitchToRental, canSwitchToInterCity = state.props.canSwitchToInterCity, canSwitchToIntraCity = state.props.canSwitchToIntraCity}
                                                                                      })
       bookingOptionsFlow
     GO_TO_ACTIVATE_OR_DEACTIVATE_RC state -> do
@@ -1865,6 +1869,7 @@ bookingOptionsFlow = do
       ridePreferences' = transfromRidePreferences filterByDeliveryBike
       canSwitchToInterCity' = resp.canSwitchToInterCity
       canSwitchToRental' = resp.canSwitchToRental
+      canSwitchToIntraCity' = resp.canSwitchToIntraCity
       defaultRide = fromMaybe BookingOptionsScreenData.defaultRidePreferenceOption $ find (\item -> item.isDefault) ridePreferences'
 
   modifyScreenState $ BookingOptionsScreenType (\bookingOptions ->  bookingOptions
@@ -1876,7 +1881,8 @@ bookingOptionsFlow = do
           }, 
      props {
              canSwitchToRental = canSwitchToRental',
-             canSwitchToInterCity = canSwitchToInterCity'
+             canSwitchToInterCity = canSwitchToInterCity',
+             canSwitchToIntraCity = canSwitchToIntraCity'
            } 
     })
 
@@ -1915,9 +1921,9 @@ bookingOptionsFlow = do
         driverProfileFlow
     ENABLE_RENTAL_INTERCITY_RIDE state -> do
       let initialData = mkUpdateDriverInfoReq ""
-          requiredData = initialData{canSwitchToRental = state.props.canSwitchToRental, canSwitchToInterCity = state.props.canSwitchToInterCity}
+          requiredData = initialData{canSwitchToRental = state.props.canSwitchToRental, canSwitchToInterCity = state.props.canSwitchToInterCity, canSwitchToIntraCity = state.props.canSwitchToIntraCity}
       (UpdateDriverInfoResp (GetDriverInfoResp updateDriverResp)) <- Remote.updateDriverInfoBT ((UpdateDriverInfoReq) requiredData)
-      modifyScreenState $ DriverProfileScreenStateType (\driverProfile -> driverProfile{ props{ canSwitchToRental = updateDriverResp.canSwitchToRental, canSwitchToInterCity = updateDriverResp.canSwitchToInterCity} })
+      modifyScreenState $ DriverProfileScreenStateType (\driverProfile -> driverProfile{ props{ canSwitchToRental = updateDriverResp.canSwitchToRental, canSwitchToInterCity = updateDriverResp.canSwitchToInterCity, canSwitchToIntraCity = updateDriverResp.canSwitchToIntraCity} })
       bookingOptionsFlow
     GO_TO_PROFILE -> driverProfileFlow
     EXIT_TO_RATE_CARD_SCREEN bopState -> do
@@ -2099,7 +2105,8 @@ myRidesScreenFlow = do
       specialZoneLayoutBackground = selectedCard.specialZoneLayoutBackground,
       specialZoneImage = selectedCard.specialZoneImage,
       specialZoneText = selectedCard.specialZoneText,
-      specialZonePickup = selectedCard.specialZonePickup
+      specialZonePickup = selectedCard.specialZonePickup, 
+      stops = fst <<< HU.getStopName <$> selectedCard.stops
       }})
 
       tripDetailsScreenFlow
@@ -2180,18 +2187,18 @@ issueReportChatScreenFlow = do
       (IssueInfoRes issueInfoRes) <- Remote.issueInfoBT postIssueRes.issueReportId
       void $ pure $ hideKeyboardOnNavigation true
       let showDescription = DS.length (trim issueInfoRes.description) > 0
-          descMessages = if showDescription then snoc state.data.chatConfig.messages (makeChatComponent' issueInfoRes.description Nothing Nothing "Driver" (getCurrentUTC "") "Text" 500) else state.data.chatConfig.messages
-          mediaMessages' = mapWithIndex (\index media -> makeChatComponent' media.url Nothing Nothing "Driver" (getCurrentUTC "") media._type ((index + if showDescription then 2 else 1) * 500)) issueInfoRes.mediaFiles
+          descMessages = if showDescription then snoc state.data.chatConfig.messages (makeChatComponent' issueInfoRes.description Nothing Nothing Nothing "Driver" (getCurrentUTC "") "Text" 500) else state.data.chatConfig.messages
+          mediaMessages' = mapWithIndex (\index media -> makeChatComponent' media.url Nothing Nothing Nothing "Driver" (getCurrentUTC "") media._type ((index + if showDescription then 2 else 1) * 500)) issueInfoRes.mediaFiles
       if state.props.isReversedFlow
       then do
         let options'  = map (\x -> x.option) state.data.options
         let message = (getString SELECT_OPTION_REVERSED) <> "\n"
                       <> joinWith "\n" options'
-        let messages' = concat [ descMessages, mediaMessages', [ (makeChatComponent' message Nothing Nothing "Bot" (getCurrentUTC "") "Text" (500 * (length mediaMessages' + 2))) ] ]
+        let messages' = concat [ descMessages, mediaMessages', [ (makeChatComponent' message Nothing Nothing Nothing "Bot" (getCurrentUTC "") "Text" (500 * (length mediaMessages' + 2))) ] ]
         modifyScreenState $ ReportIssueChatScreenStateType (\reportIssueScreen -> state { data { issueId = Just postIssueRes.issueReportId, chatConfig { enableSuggestionClick = false, messages = messages', chatSuggestionsList = options', suggestionDelay = 500 * (length mediaMessages' + 3) } }, props { showSubmitComp = false } })
         issueReportChatScreenFlow
       else do
-        let message = makeChatComponent' (getString ISSUE_SUBMITTED_MESSAGE) Nothing Nothing "Bot" (getCurrentUTC "") "Text" (500 * (length mediaMessages' + 2))
+        let message = makeChatComponent' (getString ISSUE_SUBMITTED_MESSAGE) Nothing Nothing Nothing "Bot" (getCurrentUTC "") "Text" (500 * (length mediaMessages' + 2))
         let messages' = concat [descMessages, mediaMessages', [message]]
         modifyScreenState $ ReportIssueChatScreenStateType (\reportIssueScreen -> state { data { issueId = Just postIssueRes.issueReportId, chatConfig { messages = messages' } }, props { showSubmitComp = false } })
         issueReportChatScreenFlow
@@ -2202,7 +2209,7 @@ issueReportChatScreenFlow = do
                        void $ lift $ lift $ toggleLoader true
                        resp <- Remote.callCustomerBT tripId
                        void $ lift $ lift $ toggleLoader false
-                       let message = makeChatComponent' (getString ISSUE_SUBMITTED_MESSAGE) Nothing Nothing "Bot" (getCurrentUTC "") "Text" 500
+                       let message = makeChatComponent' (getString ISSUE_SUBMITTED_MESSAGE) Nothing Nothing Nothing "Bot" (getCurrentUTC "") "Text" 500
                        let messages' = snoc state.data.chatConfig.messages message
                        modifyScreenState $ ReportIssueChatScreenStateType (\reportIssueScreen -> state { data  { chatConfig { messages = messages' } } })
                        issueReportChatScreenFlow
@@ -2327,6 +2334,7 @@ currentRideFlow activeRideResp isActiveRide = do
                 state = allState.homeScreen
                 activeRide = (activeRideDetail state (RidesInfo ride))
                 stage = (if activeRide.status == NEW then (if (any (\c -> c == ChatWithCustomer) [state.props.currentStage, state.props.advancedRideStage]) then ChatWithCustomer else RideAccepted) else RideStarted)
+                voipConfig = getDriverVoipConfig $ DS.toLower $ getValueToLocalStore DRIVER_LOCATION
             sourceMod <- translateString decodedSource 500
             destinationMod <- maybe (pure Nothing) (\decodedDestination' -> do 
               destMod <- translateString decodedDestination' 500
@@ -2337,9 +2345,11 @@ currentRideFlow activeRideResp isActiveRide = do
             lastStopAddressMod <- maybe (pure Nothing) (\decodedLastStopAddress' -> do 
               lastStopMod <- translateString decodedLastStopAddress' 500
               pure $ Just lastStopMod)  decodeLastStopAddress
-
+            if (voipConfig.driver.enableVoipFeature) then do
+              void $ pure $ JB.initSignedCall activeRide.id true
+            else pure unit
             setValueToLocalNativeStore IS_RIDE_ACTIVE  "true"
-            
+          
             -- Night Ride Safety PopUp 
             when (activeRide.disabilityTag == Just ST.SAFETY) $ do 
               let curr_time = convertUTCtoISC (getCurrentUTC "") "HH:mm:ss"
@@ -2547,6 +2557,7 @@ homeScreenFlow = do
           void $ pure $ setValueToLocalStore RIDE_START_TIME (getCurrentUTC "")
           void $ pure $ clearTimerWithId updatedState.data.activeRide.waitTimerId
           void $ lift $ lift $ toggleLoader false
+          void $ pure $ JB.destroySignedCall unit
           currentRideFlow Nothing Nothing
         Left errorPayload -> do
           let errResp = errorPayload.response
@@ -2658,6 +2669,10 @@ homeScreenFlow = do
             void $ pure $ setValueToLocalNativeStore DRIVER_STATUS_N "Online"
             void $ lift $ lift $ Remote.driverActiveInactive "true" $ toUpper $ show Online
             void $ pure $ setValueToLocalNativeStore TRIP_STATUS "ended"
+            void $ pure $ JB.destroySignedCall unit
+            when (state.props.currentStage == RideStarted) $ for_  state.data.activeRide.stops $ \(API.Stop stop) -> do
+              let (API.LocationInfo stopLocation) = stop.location
+              pure $ removeMarker $ "stop" <> show stopLocation.lat <> show stopLocation.lon
             liftFlowBT $ logEventWithMultipleParams logField_ "ny_driver_ride_completed" $ [{key : "Service Tier", value : unsafeToForeign state.data.activeRide.serviceTier},
                                                                                             {key : "Driver Vehicle", value : unsafeToForeign state.data.activeRide.driverVehicle}]
             void $ pure $ setValueToLocalStore IS_DRIVER_STATS_CALLED "false"
@@ -2707,6 +2722,7 @@ homeScreenFlow = do
                     vehicleServiceTier = response.vehicleServiceTier,
                     tripType = RC.rideTypeConstructor response.tripCategory 
                   , parkingCharge = fromMaybe 0.0 response.parkingCharge
+                  , stops = (fst <<< HU.getStopName) <$> (fromMaybe [] response.stops)
                   }})
                 let payerVpa = fromMaybe "" response.payerVpa
                 modifyScreenState $ HomeScreenStateType (\homeScreen -> homeScreen 
@@ -2773,6 +2789,8 @@ homeScreenFlow = do
       handleDriverActivityResp resp
       void $ pure $ setValueToLocalStore RENTAL_RIDE_STATUS_POLLING "False"
       void $ updateStage $ HomeScreenStage HomeScreen
+      void $ pure $ JB.destroySignedCall unit
+
       when state.data.driverGotoState.isGotoEnabled do
         driverInfoResp <- Remote.getDriverInfoBT ""
         modifyScreenState $ GlobalPropsType (\globalProps -> globalProps {driverInformation = Just driverInfoResp, gotoPopupType = if (fromMaybe false cancelRideResp.isGoHomeDisabled) then ST.REDUCED 0 else ST.NO_POPUP_VIEW})
@@ -2790,6 +2808,7 @@ homeScreenFlow = do
           void $ pure $ setValueToLocalStore WAITING_TIME_STATUS (show ST.NoStatus)
           void $ pure $ setValueToLocalStore PARCEL_IMAGE_UPLOADED "false"
           void $ pure $ clearTimerWithId state.data.activeRide.waitTimerId
+          void $ pure $ JB.destroySignedCall unit
           removeChatService ""
           void $ updateStage $ HomeScreenStage HomeScreen
           updateDriverDataToStates
@@ -2879,9 +2898,12 @@ homeScreenFlow = do
             modifyScreenState $ HomeScreenStateType (\homeScreen -> homeScreen{data{activeRide{notifiedCustomer = true}}})
           Left _ -> pure unit
       homeScreenFlow
-    UPDATE_ROUTE state -> do
+    UPDATE_ROUTE state callDrawRoute -> do
       void $ pure $ JB.exitLocateOnMap ""   
+      -- let srcDestConfig = HU.getSrcDestConfig state
+      void $ pure $ JB.removeAllMarkers ""
       let srcDestConfig = HU.getSrcDestConfig state
+          hasStops = not $ null state.data.activeRide.stops
           srcLat = srcDestConfig.srcLat
           srcLon = srcDestConfig.srcLon
           destLat = srcDestConfig.destLat
@@ -2889,10 +2911,14 @@ homeScreenFlow = do
           source = srcDestConfig.source
           destination = srcDestConfig.destination
           routeType = if state.props.currentStage == RideAccepted then "pickup" else "trip"
-
-          srcMarkerConfig = JB.defaultMarkerConfig{ markerId = "ny_ic_src_marker", pointerIcon = "ny_ic_src_marker", primaryText = source }
-          destMarkerConfig = JB.defaultMarkerConfig{ markerId = "ny_ic_dest_marker", pointerIcon = "ny_ic_dest_marker", primaryText = destination, anchorU = 0.5, anchorV = 1.0}
-          
+          city = EHU.getCityFromString $ getValueToLocalStore DRIVER_LOCATION
+          driverVehicle = getValueToLocalStore VEHICLE_VARIANT
+          sourcePointerIcon = if hasStops then EHU.getCitySpecificMarker city driverVehicle (Just $ show state.props.currentStage) else "ny_ic_src_marker"
+          destinationMarkericon = if state.props.currentStage == RideAccepted && hasStops then "ny_ic_src_marker" else "ny_ic_dest_marker"
+          srcMarkerConfig = JB.defaultMarkerConfig{ markerId = sourcePointerIcon, pointerIcon = sourcePointerIcon, primaryText = source }
+          destMarkerConfig = JB.defaultMarkerConfig{ markerId = "ny_ic_dest_marker", pointerIcon = destinationMarkericon, primaryText = destination, anchorU = 0.5, anchorV = 1.0}
+          drawRouteType = if hasStops then "DRIVER_LOCATION_UPDATE" else "NORMAL"
+                
       if (state.data.activeRide.tripType == ST.Rental) && (state.props.currentStage == RideStarted ) && isNothing state.data.activeRide.nextStopAddress then do
           modifyScreenState $ HomeScreenStateType (\homeScreen -> homeScreen { props { routeVisible = true } })
           void $ pure $ removeAllPolylines ""
@@ -2920,7 +2946,7 @@ homeScreenFlow = do
         let normalRoute = JB.mkRouteConfig coors srcMarkerConfig destMarkerConfig Nothing "NORMAL" "DOT" false JB.DEFAULT (mapRouteConfig "" "" false getPolylineAnimationConfig) 
         liftFlowBT $ drawRoute [normalRoute] (getNewIDWithTag "DriverTrackingHomeScreenMap")
         homeScreenFlow
-      else if not null state.data.route then do
+      else if not null state.data.route && not callDrawRoute then do
         let shortRoute = (state.data.route !! 0)
         case shortRoute of
           Just (Route route) -> do
@@ -2928,26 +2954,58 @@ homeScreenFlow = do
             modifyScreenState $ HomeScreenStateType (\homeScreen -> homeScreen { props { routeVisible = true } })
             pure $ removeMarker "ic_vehicle_side"
             void $ pure $ removeAllPolylines ""
-            let normalRoute = JB.mkRouteConfig coor srcMarkerConfig destMarkerConfig Nothing "NORMAL" "LineString" true JB.DEFAULT (mapRouteConfig "" "" false getPolylineAnimationConfig) 
+            let normalRoute = JB.mkRouteConfig coor srcMarkerConfig destMarkerConfig Nothing drawRouteType "LineString" true JB.DEFAULT (mapRouteConfig "" "" false getPolylineAnimationConfig) 
             liftFlowBT $ drawRoute [normalRoute] (getNewIDWithTag "DriverTrackingHomeScreenMap")
             pure unit
           Nothing -> pure unit
       else do
+        -- eRouteAPIResponse <- lift $ lift $ Remote.getRoute (makeGetRouteReq srcLat srcLon destLat destLon) routeType
+        -- case eRouteAPIResponse of
+        --   Right (GetRouteResp routeApiResponse) -> do
+        --     let shortRoute = (routeApiResponse !! 0)
+        --     case shortRoute of
+        --       Just (Route route) -> do
+        --         let coor = walkCoordinates route.points
+        --         modifyScreenState $ HomeScreenStateType (\homeScreen -> homeScreen { data { activeRide { actualRideDistance = if state.props.currentStage == RideStarted then (toNumber route.distance) else state.data.activeRide.actualRideDistance , duration = route.duration } , route = routeApiResponse}, props { routeVisible = true } })
+        --         pure $ removeMarker "ny_ic_auto"
+        --         void $ pure $ removeAllPolylines ""
+        --         let normalRoute = JB.mkRouteConfig coor srcMarkerConfig destMarkerConfig Nothing "NORMAL" "LineString" true JB.DEFAULT (mapRouteConfig "" "" false getPolylineAnimationConfig) 
+        --         liftFlowBT $ drawRoute [normalRoute] (getNewIDWithTag "DriverTrackingHomeScreenMap")
+        --         pure unit
+        --       Nothing -> pure unit   
+        --   Left err -> pure unit          
+        let leftStops = DA.filter (\(API.Stop item) -> maybe true (\(API.StopInformation stopInfo) -> isNothing stopInfo.stopEndLatLng) item.stopInfo) state.data.activeRide.stops
+            points = (DA.singleton $ API.LatLong {lat : srcLat, lon : srcLon}) 
+                      <> (if state.props.currentStage == RideAccepted 
+                            then [] 
+                            else map (\(API.Stop item) -> getLatlon item.location ) leftStops)
+                      <> (DA.singleton $ API.LatLong {lat : destLat, lon : destLon}) 
+            getLatlon (API.LocationInfo location) = API.LatLong {lat : location.lat, lon : location.lon} 
         eRouteAPIResponse <- lift $ lift $ Remote.getRoute (makeGetRouteReq srcLat srcLon destLat destLon) routeType
         case eRouteAPIResponse of
           Right (GetRouteResp routeApiResponse) -> do
             let shortRoute = (routeApiResponse !! 0)
             case shortRoute of
               Just (Route route) -> do
-                let coor = walkCoordinates route.points
+                let coor = JB.getExtendedPath $ walkCoordinates route.points
                 modifyScreenState $ HomeScreenStateType (\homeScreen -> homeScreen { data { activeRide { actualRideDistance = if state.props.currentStage == RideStarted then (toNumber route.distance) else state.data.activeRide.actualRideDistance , duration = route.duration } , route = routeApiResponse}, props { routeVisible = true } })
                 pure $ removeMarker "ny_ic_auto"
                 void $ pure $ removeAllPolylines ""
-                let normalRoute = JB.mkRouteConfig coor srcMarkerConfig destMarkerConfig Nothing "NORMAL" "LineString" true JB.DEFAULT (mapRouteConfig "" "" false getPolylineAnimationConfig) 
+                let normalRoute = JB.mkRouteConfig coor srcMarkerConfig destMarkerConfig Nothing drawRouteType "LineString" true JB.DEFAULT (mapRouteConfig "" "" false getPolylineAnimationConfig) 
                 liftFlowBT $ drawRoute [normalRoute] (getNewIDWithTag "DriverTrackingHomeScreenMap")
                 pure unit
               Nothing -> pure unit   
-          Left err -> pure unit          
+          Left err -> pure unit        
+      when (state.props.currentStage == RideStarted) $ for_  state.data.activeRide.stops $ \(API.Stop stop) -> do
+        let (API.LocationInfo stopLocation) = stop.location
+        pure $ removeMarker $ "stop" <> show stopLocation.lat <> show stopLocation.lon
+        when (maybe true (\(API.StopInformation sInfo) -> isNothing sInfo.stopEndLatLng) stop.stopInfo) $ do
+          let markerId = "stop" <> show stopLocation.lat <> show stopLocation.lon
+              pt = {lat : stopLocation.lat, lng : stopLocation.lon}
+              Tuple sourceArea _ = HU.getStopName (API.Stop stop)
+          void $ liftFlowBT $ showMarker JB.defaultMarkerConfig{ markerId = markerId, pointerIcon = "ny_ic_stop_grey"} stopLocation.lat stopLocation.lon 40 0.5 0.9 (getNewIDWithTag "DriverTrackingHomeScreenMap")
+          liftFlowBT $ runEffectFn1 upsertMarkerLabel  { id: markerId <> "label" , title: sourceArea, actionImage: "", actionCallBack: "", position: pt, markerImage : ""}
+          pure unit
       homeScreenFlow
     UPDATE_STAGE stage -> do
       void $ updateStage $ HomeScreenStage stage
@@ -3143,6 +3201,42 @@ homeScreenFlow = do
       updateWarriorSettings $ not state.data.isSpecialLocWarrior
       homeScreenFlow
     GO_TO_METRO_WARRIOR state -> metroWarriorsScreenFlow
+    UPDATE_STOPS_STATUS state -> do
+      let driverLocation = 
+            API.LatLong 
+            { lat : state.data.currentDriverLat
+            , lon : state.data.currentDriverLon
+            }
+          stopToDepart = HU.getStopToDepart state.data.activeRide.stops
+          upcomingStop = HU.getUpcomingStop state.data.activeRide.stops
+          locationId = case stopToDepart of 
+                          Just (API.Stop stop) -> fromMaybe "" (unwrap stop.location).id
+                          Nothing -> maybe "" (\(API.Stop stop) -> fromMaybe "" (unwrap stop.location).id) upcomingStop
+      void $ lift $ lift $ loaderText (getString LOADING) (getString PLEASE_WAIT)
+      void $ lift $ lift $ toggleLoader true
+      (resp :: (Either ErrorResponse API.ApiSuccessResult)) <- lift $ lift $ HelpersAPI.callApi $ API.UpdateStopStatusReq state.data.activeRide.id locationId (isNothing stopToDepart) driverLocation
+      case resp of
+        Right _ -> do
+          void $ lift $ lift $ loaderText (getString LOADING) (getString PLEASE_WAIT)
+          case stopToDepart of
+            Just (API.Stop stop) -> do
+              let (API.LocationInfo stopLocation) = stop.location
+                  markerId = "stop" <> show stopLocation.lat <> show stopLocation.lon
+              pure $ removeMarker markerId
+              pure $ removeMarker $ markerId <> "label"
+            Nothing -> pure unit
+          (GetRidesHistoryResp activeRideResponse) <- Remote.getRideHistoryReqBT "2" "0" "true" "null" "null"
+          case (DA.find (\(RidesInfo x) -> x.bookingType == Just CURRENT) activeRideResponse.list) of
+            Just ride -> do
+              let advancedRide = (DA.find (\(RidesInfo x) -> x.bookingType == Just ADVANCED) activeRideResponse.list)
+                  currActiveRideDetails = activeRideDetail state ride
+                  advancedRideDetails = activeRideDetail state <$> advancedRide
+              modifyScreenState $ HomeScreenStateType (\homeScreen -> state{ data {activeRide = currActiveRideDetails, advancedRideData = advancedRideDetails}, props{triggerGMapsIntent = isJust stopToDepart}})
+            Nothing -> do
+              setValueToLocalStore IS_RIDE_ACTIVE "false"
+              pure unit
+        Left err -> pure unit
+      void $ lift $ lift $ toggleLoader false
   homeScreenFlow
 
 clearPendingDuesFlow :: Boolean -> FlowBT String Unit
@@ -3777,7 +3871,7 @@ updateDriverDataToStates = do
     , capacity = fromMaybe 2 linkedVehicle.capacity
     , downgradeOptions = getDowngradeOptions linkedVehicle.variant
     , vehicleSelected = getDowngradeOptionsSelected (GetDriverInfoResp getDriverInfoResp)
-    , profileImg = getDriverInfoResp.aadhaarCardPhoto},props {canSwitchToRental =  (getDriverInfoResp.canSwitchToRental),canSwitchToInterCity = getDriverInfoResp.canSwitchToInterCity}})
+    , profileImg = getDriverInfoResp.aadhaarCardPhoto},props {canSwitchToRental =  (getDriverInfoResp.canSwitchToRental),canSwitchToInterCity = getDriverInfoResp.canSwitchToInterCity, canSwitchToIntraCity = getDriverInfoResp.canSwitchToIntraCity}})
   modifyScreenState $ ReferralScreenStateType (\ referralScreen -> referralScreen{ data { driverInfo  
     {  driverName = getDriverInfoResp.firstName
     , driverMobile = getDriverInfoResp.mobileNumber
@@ -4042,7 +4136,6 @@ logoutFlow = do
   lift $ lift $ liftFlow $ stopLocationPollingAPI
   deleteValueFromLocalStore REGISTERATION_TOKEN
   deleteValueFromLocalStore VERSION_NAME
-  deleteValueFromLocalStore BASE_URL
   deleteValueFromLocalStore TEST_FLOW_FOR_REGISTRATOION
   deleteValueFromLocalStore IS_DRIVER_ENABLED
   deleteValueFromLocalStore DRIVER_STATUS
@@ -4453,6 +4546,7 @@ driverEarningsFlow = do
           vehicleServiceTier = selectedCard.vehicleServiceTier,
           tripType = selectedCard.tripType
         , parkingCharge = selectedCard.parkingCharge
+        , stops = fst <<< HU.getStopName <$> selectedCard.stops
         }
       })
       tripDetailsScreenFlow

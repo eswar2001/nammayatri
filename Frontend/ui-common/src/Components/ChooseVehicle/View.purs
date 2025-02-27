@@ -9,7 +9,7 @@ import Prelude (Unit, const, ($), (<>), (==), (&&), not, pure, unit, (+), show, 
 import PrestoDOM (Gravity(..), Length(..), Margin(..), Orientation(..), Padding(..), PrestoDOM, Visibility(..), Shadow(..), Accessiblity(..), background, clickable, color, cornerRadius, gravity, height, imageView, imageWithFallback, linearLayout, margin, onClick, orientation, padding, relativeLayout, stroke, text, textView, visibility, weight, width, id, afterRender, layoutGravity, singleLine, ellipsize, frameLayout, onAnimationEnd, shimmerFrameLayout, alpha, shadow, pivotY, accessibility, clipChildren, maxLines, accessibilityHint, accessibility, Accessiblity(..), accessibilityFocusable)
 import Common.Styles.Colors as Color
 import Engineering.Helpers.Commons as EHC
-import Helpers.Utils (fetchImage, FetchImageFrom(..) , isAmbulance)
+import Helpers.Utils (fetchImage, FetchImageFrom(..))
 import Debug
 import MerchantConfig.Utils (Merchant(..), getMerchant)
 import Mobility.Prelude (boolToVisibility)
@@ -318,6 +318,7 @@ getVehicleName config =
     "AMBULANCE_AC_OXY" -> "AC" <> "\x00B7" <> "O₂"
     "AMBULANCE_VENTILATOR" -> "Ventilator"
     "EV_AUTO_RICKSHAW" -> "EV Auto Rickshaw"
+    "HERITAGE_CAB" -> "Heritage Cab"
     _ -> "Non-AC Mini"
 
 priceDetailsView :: forall w. (Action -> Effect Unit) -> Config -> PrestoDOM (Effect Unit) w
@@ -445,7 +446,7 @@ vehicleInfoView imageName description vehicleVariant = do
     [ width WRAP_CONTENT
     , height WRAP_CONTENT
     , gravity CENTER_VERTICAL
-    , visibility $ boolToVisibility $ not (isAmbulance vehicleVariant)
+    , visibility $ boolToVisibility $ not (EHU.isAmbulance vehicleVariant)
     ][ imageView
         [ imageWithFallback $ fetchImage FF_ASSET imageName
         , width $ V 14

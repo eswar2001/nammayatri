@@ -72,7 +72,8 @@ newtype TriggerOTPReq = TriggerOTPReq {
   merchantId :: String,
   merchantOperatingCity :: Maybe String,
   registrationLat :: Maybe Number,
-  registrationLon :: Maybe Number
+  registrationLon :: Maybe Number,
+  packageName :: String
 }
 
 newtype TriggerOTPResp = TriggerOTPResp {
@@ -465,6 +466,7 @@ newtype GetDriverInfoResp = GetDriverInfoResp
     , operatingCity         :: Maybe String
     , isVehicleSupported    :: Maybe Boolean
     , canSwitchToRental     :: Maybe Boolean
+    , canSwitchToIntraCity  :: Maybe Boolean
     , checkIfACWorking      :: Maybe Boolean
     , canSwitchToInterCity  :: Maybe Boolean
     , payoutVpa             :: Maybe String 
@@ -701,7 +703,8 @@ newtype RidesInfo = RidesInfo
       roundTrip :: Boolean,
       returnTime :: Maybe String,
       senderDetails :: Maybe PersonDetails,
-      receiverDetails :: Maybe PersonDetails
+      receiverDetails :: Maybe PersonDetails,
+      stops :: Maybe (Array Stop)
 }
 
 newtype CoinsEarned = CoinsEarned CoinsEarnedType
@@ -799,7 +802,8 @@ newtype LocationInfo = LocationInfo
         areaCode :: Maybe String,
         lon :: Number,
         instructions :: Maybe String,
-        extras :: Maybe String
+        extras :: Maybe String,
+        id :: Maybe String
       }
 
 data BookingTypes = CURRENT | ADVANCED
@@ -838,6 +842,7 @@ instance standardEncodeLocationInfo :: StandardEncode LocationInfo where standar
 instance showLocationInfo :: Show LocationInfo where show = genericShow
 instance decodeLocationInfo :: Decode LocationInfo where decode = defaultDecode
 instance encodeLocationInfo :: Encode LocationInfo where encode = defaultEncode
+instance eqLocationInfo :: Eq LocationInfo where eq = genericEq
 
 derive instance genericRidesInfo :: Generic RidesInfo _
 derive instance newtypeRidesInfo :: Newtype RidesInfo _
@@ -846,7 +851,7 @@ instance showRidesInfo :: Show RidesInfo where show = genericShow
 instance decodeRidesInfo :: Decode RidesInfo where decode = defaultDecode
 instance encodeRidesInfo :: Encode RidesInfo where encode = defaultEncode
 
-data VehicleVariant = SEDAN | SUV | HATCHBACK | AUTO_VARIANT | BIKE | AMBULANCE_TAXI | AMBULANCE_TAXI_OXY | AMBULANCE_AC | AMBULANCE_AC_OXY | AMBULANCE_VENTILATOR_ | SUV_PLUS | DELIVERY_LIGHT_GOODS_VEHICLE | BUS_NON_AC | BUS_AC | EV_AUTO_VARIANT
+data VehicleVariant = SEDAN | SUV | HATCHBACK | AUTO_VARIANT | BIKE | AMBULANCE_TAXI | AMBULANCE_TAXI_OXY | AMBULANCE_AC | AMBULANCE_AC_OXY | AMBULANCE_VENTILATOR_ | SUV_PLUS | DELIVERY_LIGHT_GOODS_VEHICLE | BUS_NON_AC | BUS_AC | EV_AUTO_VARIANT | HERITAGE_CAB
 
 derive instance genericVehicleVariant :: Generic VehicleVariant _
 instance showVehicleVariant :: Show VehicleVariant where show = genericShow
@@ -869,6 +874,7 @@ instance standardEncodeVehicleVariant :: StandardEncode VehicleVariant
  standardEncode BUS_NON_AC = standardEncode {}
  standardEncode BUS_AC = standardEncode {}
  standardEncode EV_AUTO_VARIANT = standardEncode {}
+ standardEncode HERITAGE_CAB = standardEncode {}
 
 data Status = NEW | INPROGRESS | COMPLETED | CANCELLED | NOTHING | UPCOMING
 
@@ -981,6 +987,7 @@ type UpdateDriverInfoReqEntity =
   , vehicleName :: Maybe String
   , availableUpiApps :: Maybe String
   , canSwitchToRental :: Maybe Boolean
+  , canSwitchToIntraCity :: Maybe Boolean
   , canSwitchToInterCity :: Maybe Boolean
   , isSpecialLocWarrior :: Maybe Boolean
   }
@@ -1120,6 +1127,7 @@ instance standardEncodeLatLong :: StandardEncode LatLong where standardEncode (L
 instance showLatLong :: Show LatLong where show = genericShow
 instance decodeLatLong :: Decode LatLong where decode = defaultDecode
 instance encodeLatLong:: Encode LatLong where encode = defaultEncode
+instance eqLatLong :: Eq LatLong where eq = genericEq
 
 ------------------------------------------------------------OnBoarding Flow---------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -1424,6 +1432,7 @@ newtype MessageAPIEntityResponse = MessageAPIEntityResponse
   , likeCount :: Int
   , viewCount :: Int
   , likeStatus :: Boolean
+  , shareable :: Maybe Boolean
   }
 
 newtype MediaFileApiResponse = MediaFileApiResponse
@@ -2056,6 +2065,32 @@ instance showDriversInfo :: Show DriversInfo where show = genericShow
 instance standardEncodeDriversInfo :: StandardEncode DriversInfo where standardEncode (DriversInfo res) = standardEncode res
 instance decodeDriversInfo :: Decode DriversInfo where decode = defaultDecode
 instance encodeDriversInfo :: Encode DriversInfo where encode = defaultEncode
+
+----------------------------------------------------------------------- voipCall api -------------------------------------------------------------------
+
+newtype VoipCallReq = VoipCallReq
+  {
+     callId :: String,
+     callStatus :: String,
+     rideId :: String,
+     errorCode :: Maybe Int,
+     userType :: String,
+     networkType :: String,
+     networkQuality :: String,
+     merchantId :: String,
+     merchantOperatingCity :: String
+  }
+
+instance makeVoipCallReq :: RestEndpoint VoipCallReq where
+ makeRequest reqBody headers = defaultMakeRequestWithoutLogs POST (EP.voipCall "") headers reqBody Nothing
+ encodeRequest req = standardEncode req
+
+derive instance genericVoipCallReq :: Generic VoipCallReq _
+derive instance newtypeVoipCallReq:: Newtype VoipCallReq _
+instance standardEncodeVoipCallReq :: StandardEncode VoipCallReq where standardEncode (VoipCallReq req) = standardEncode req
+instance showVoipCallReq :: Show VoipCallReq where show = genericShow
+instance decodeVoipCallReq :: Decode VoipCallReq where decode = defaultDecode
+instance encodeVoipCallReq :: Encode VoipCallReq where encode = defaultEncode
 
 ------------------------------------------ currentDateAndTime --------------------------------------
 
@@ -4420,6 +4455,7 @@ data ServiceTierType
   | TAXI
   | TAXI_PLUS
   | RENTALS
+  | LOCAL
   | INTERCITY
   | BIKE_TIER
   | SUV_PLUS_TIER
@@ -4430,6 +4466,7 @@ data ServiceTierType
   | AMBULANCE_AC_OXY_TIER
   | AMBULANCE_VENTILATOR
   | EV_AUTO_RICKSHAW
+  | HERITAGE_CAB_TIER
 
 data AirConditionedRestrictionType
   = ToggleAllowed
@@ -4449,6 +4486,7 @@ newtype DriverVehicleServiceTierResponse = DriverVehicleServiceTierResponse {
   tiers :: Array DriverVehicleServiceTier,
   airConditioned :: Maybe AirConditionedTier,
   canSwitchToInterCity :: Maybe Boolean,
+  canSwitchToIntraCity :: Maybe Boolean,
   canSwitchToRental :: Maybe Boolean
 }
 
@@ -4489,6 +4527,7 @@ instance decodeServiceTierType :: Decode ServiceTierType
                   "TAXI_PLUS"    -> except $ Right TAXI_PLUS
                   "RENTALS"      -> except $ Right RENTALS
                   "INTERCITY"    -> except $ Right INTERCITY
+                  "LOCAL"        -> except $ Right LOCAL
                   "BIKE"         -> except $ Right BIKE_TIER
                   "SUV_PLUS"     -> except $ Right SUV_PLUS_TIER
                   "DELIVERY_BIKE" -> except $ Right DELIVERY_BIKE
@@ -4498,6 +4537,7 @@ instance decodeServiceTierType :: Decode ServiceTierType
                   "AMBULANCE_AC_OXY" -> except $ Right AMBULANCE_AC_OXY_TIER
                   "AMBULANCE_VENTILATOR" -> except $ Right AMBULANCE_VENTILATOR
                   "EV_AUTO_RICKSHAW" -> except $ Right EV_AUTO_RICKSHAW
+                  "HERITAGE_CAB"  -> except $ Right HERITAGE_CAB_TIER
                   _              -> except $ Right COMFY
 instance encodeServiceTierType :: Encode ServiceTierType where encode = defaultEnumEncode
 instance eqServiceTierType :: Eq ServiceTierType where eq = genericEq
@@ -4515,6 +4555,7 @@ instance standardEncodeServiceTierType :: StandardEncode ServiceTierType
     standardEncode BIKE_TIER = standardEncode "BIKE"
     standardEncode DELIVERY_BIKE = standardEncode "DELIVERY_BIKE"
     standardEncode RENTALS = standardEncode "RENTALS"
+    standardEncode LOCAL = standardEncode "LOCAL"
     standardEncode INTERCITY = standardEncode "INTERCITY"
     standardEncode SUV_PLUS_TIER = standardEncode "SUV_PLUS"
     standardEncode AMBULANCE_TAXI_TIER = standardEncode "AMBULANCE_TAXI"
@@ -4523,6 +4564,7 @@ instance standardEncodeServiceTierType :: StandardEncode ServiceTierType
     standardEncode AMBULANCE_AC_OXY_TIER = standardEncode "AMBULANCE_AC_OXY"
     standardEncode AMBULANCE_VENTILATOR = standardEncode "AMBULANCE_VENTILATOR"
     standardEncode EV_AUTO_RICKSHAW = standardEncode "EV_AUTO_RICKSHAW"
+    standardEncode HERITAGE_CAB_TIER = standardEncode "HERITAGE_CAB"
 
 derive instance genericAirConditionedRestrictionType :: Generic AirConditionedRestrictionType _
 instance showAirConditionedRestrictionType :: Show AirConditionedRestrictionType where show = genericShow
@@ -5165,7 +5207,7 @@ instance decodeLocation:: Decode Location where decode = defaultDecode
 instance encodeLocation :: Encode Location where encode = defaultEncode
 instance eqLocation :: Eq Location where eq = genericEq
 
-newtype LocationAddress  = LocationAddress {
+newtype LocationAddress = LocationAddress {
   area :: Maybe String,
   areaCode :: Maybe String,
   building :: Maybe String,
@@ -5469,3 +5511,49 @@ instance standardEncodeSpecialLocationListRes :: StandardEncode SpecialLocationL
 instance showSpecialLocationListRes :: Show SpecialLocationListRes where show = genericShow
 instance decodeSpecialLocationListRes :: Decode SpecialLocationListRes where decode = defaultDecode
 instance encodeSpecialLocationListRes :: Encode SpecialLocationListRes where encode = defaultEncode
+
+newtype Stop = Stop {
+  location :: LocationInfo,
+  stopInfo :: Maybe StopInformation 
+}
+
+newtype StopInformation = StopInformation
+  { id :: String,
+    rideId :: String,
+    stopEndLatLng :: Maybe LatLong,
+    stopLocId :: String,
+    stopOrder :: Int,
+    stopStartLatLng :: LatLong,
+    waitingTimeEnd :: Maybe String,
+    waitingTimeStart :: String,
+    merchantId :: Maybe String,
+    merchantOperatingCityId :: Maybe String
+  }
+
+derive instance genericStop :: Generic Stop _
+derive instance newtypeStop :: Newtype Stop _
+instance standardEncodeStop :: StandardEncode Stop where standardEncode (Stop req) = standardEncode req
+instance showStop :: Show Stop where show = genericShow
+instance decodeStop :: Decode Stop where decode = defaultDecode
+instance encodeStop :: Encode Stop where encode = defaultEncode
+instance eqStop :: Eq Stop where eq = genericEq
+
+derive instance genericStopInformation :: Generic StopInformation _
+derive instance newtypeStopInformation :: Newtype StopInformation _
+instance standardEncodeStopInformation :: StandardEncode StopInformation where standardEncode (StopInformation req) = standardEncode req
+instance showStopInformation :: Show StopInformation where show = genericShow
+instance decodeStopInformation :: Decode StopInformation where decode = defaultDecode
+instance encodeStopInformation :: Encode StopInformation where encode = defaultEncode
+instance eqStopInformation :: Eq StopInformation where eq = genericEq
+
+data UpdateStopStatusReq = UpdateStopStatusReq String String Boolean LatLong
+
+instance makeUpdateStopStatusReq :: RestEndpoint UpdateStopStatusReq where
+    makeRequest reqBody@(UpdateStopStatusReq rideId stopId hasArrived (LatLong rqBody)) headers = defaultMakeRequestWithoutLogs POST ((if hasArrived then EP.arrivedStop else EP.departedStop) rideId stopId) headers reqBody Nothing
+    encodeRequest req = standardEncode req
+
+derive instance genericUpdateStopStatusReq :: Generic UpdateStopStatusReq _
+instance standardEncodeUpdateStopStatusReq :: StandardEncode UpdateStopStatusReq where standardEncode (UpdateStopStatusReq rideId stopId hasArrived req) = standardEncode req
+instance showUpdateStopStatusReq :: Show UpdateStopStatusReq where show = genericShow
+instance decodeUpdateStopStatusReq :: Decode UpdateStopStatusReq where decode = defaultDecode
+instance encodeUpdateStopStatusReq :: Encode UpdateStopStatusReq where encode = defaultEncode

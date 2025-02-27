@@ -1221,7 +1221,7 @@ getOd =
     , enter_referral_code: "ରେଫରାଲ କୋଡ୍ ପ୍ରବେଶ କରନ୍ତୁ"
     , have_a_referral_code: "ରେଫରାଲ କୋଡ୍ ଅଛି କି?"
     , complete_steps_to_apply_referral: "ରେଫରାଲ କୋଡ୍ ଲାଗୁ କରିବାକୁ ଉପରୋକ୍ତ ପଦକ୍ଷେପଗୁଡିକ ସମାପ୍ତ କରନ୍ତୁ"
-    , download_namma_yatri: (\_ -> "ନମ୍ମା ଯାତ୍ରି ଡାଉନଲୋଡ୍ କରନ୍ତୁ")
+    , download_namma_yatri: (\appName -> appName <> " ଡାଉନଲୋଡ୍ କରନ୍ତୁ")
     , enter_code: "କୋଡ୍ ପ୍ରବେଶ କରନ୍ତୁ"
     , complete_registration: "ପଞ୍ଜିକରଣ ସମାପ୍ତ କରନ୍ତୁ"
     , help_faq: "ସହଯୋଗ"
@@ -1692,6 +1692,7 @@ getOd =
     , your_ride_starts_in: "ଆପଣଙ୍କର ରାଇଡ୍ ଆରମ୍ଭ ହେବ"
     , away: " ଦୂରେ"
     , intercity: "ଇଣ୍ଟରସିଟି"
+    , local: "ସ୍ଥାନୀୟ"
     , intercity_return: "ଇଣ୍ଟରସିଟି ଫେରିବା"
     , rental: "ଭାଡା"
     , regular: "ନିୟମିତ"
@@ -1788,4 +1789,7 @@ getOd =
     , drivers_are_permitted_to_cancel_ambulance_bookings : "ଡ୍ରାଇଭର୍ମାନେ ସେମାନଙ୍କର ଚିକିତ୍ସା କାରଣ କିମ୍ବା ଗାଡ଼ିର ତ୍ରୁଟି ଦ୍ୱାରା ପରିବାହନ ବୁକିଂ ରଦ୍ଦ କରିବାକୁ ଅନୁମତି ଦିଆଯାଇଛି"
     , payment_under_maintenance : "ଅଦାନ-ପ୍ରଦାନ ରକ୍ଷାଣବେକ୍ଷଣ ଅଧୀନରେ ଅଛି"
     , payments_temporarily_unavailable : "ଅଦାନ-ପ୍ରଦାନ ସମୟୀନ ଭାବେ ଅପଲବ୍ଧ ନୁହଁ, ଶୀଘ୍ର ଫେରି ଆସିବ। ଦୟାକରି ପରେ ପୁଣିଥରେ ଚେଷ୍ଟା କରନ୍ତୁ।"
+    , resume_ride : "ଯାତ୍ରା ପୁନରାରମ୍ଭ କରନ୍ତୁ"
+    , end_ride_with_stops : "ଆପଣଙ୍କ ଗମନ ଅବସ୍ଥାକୁ ପହଞ୍ଚିବା ପୂର୍ବରୁ ଆଉ କିଛି ଠିଆ ଅଛି। ଏହା ସତ୍ତ୍ୱେ ଯାତ୍ରା ସମାପ୍ତ କରିବେ?"
+    , stop: (\n -> "ଠିଆ " <> n)
   }

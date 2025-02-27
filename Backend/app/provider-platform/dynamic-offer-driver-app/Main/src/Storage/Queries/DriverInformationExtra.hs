@@ -40,7 +40,7 @@ getEnabledAt driverId = do
 
 findAllDriverIdExceptProvided :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Merchant -> DMOC.MerchantOperatingCity -> [Id Driver] -> m [Id Driver]
 findAllDriverIdExceptProvided merchant opCity driverIdsToBeExcluded = do
-  dbConf <- getMasterBeamConfig
+  dbConf <- getReplicaBeamConfig
   result <- L.runDB dbConf $
     L.findRows $
       B.select $
@@ -225,7 +225,7 @@ findAllWithLimitOffsetByMerchantId ::
   Id Merchant ->
   m [(Person, DriverInformation)]
 findAllWithLimitOffsetByMerchantId mbSearchString mbSearchStrDBHash mbLimit mbOffset merchantId = do
-  dbConf <- getMasterBeamConfig
+  dbConf <- getReplicaBeamConfig
   res <- L.runDB dbConf $
     L.findRows $
       B.select $
@@ -277,7 +277,7 @@ fetchDriverIDsFromInfo = map DriverInfo.driverId
 countDrivers :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Id Merchant -> m (Int, Int)
 countDrivers merchantID =
   getResults <$> do
-    dbConf <- getMasterBeamConfig
+    dbConf <- getReplicaBeamConfig
     res <- L.runDB dbConf $
       L.findRows $
         B.select $
@@ -365,3 +365,16 @@ updateIsBlockedForReferralPayout driverIds isBlocked = do
       Se.Set BeamDI.updatedAt now
     ]
     [Se.Is BeamDI.driverId (Se.In (getId <$> driverIds))]
+
+updateForwardBatchingEnabledOrIsInteroperable :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Id Person.Driver -> Maybe Bool -> Maybe Bool -> m ()
+updateForwardBatchingEnabledOrIsInteroperable driverId isAdvancedBookingEnabled isInteroperable = do
+  if isNothing isAdvancedBookingEnabled && isNothing isInteroperable
+    then pure ()
+    else do
+      now <- getCurrentTime
+      updateOneWithKV
+        ( [Se.Set BeamDI.updatedAt now]
+            <> [Se.Set BeamDI.forwardBatchingEnabled isAdvancedBookingEnabled | isJust isAdvancedBookingEnabled]
+            <> [Se.Set BeamDI.isInteroperable isInteroperable | isJust isInteroperable]
+        )
+        [Se.Is BeamDI.driverId (Se.Eq (getId driverId))]

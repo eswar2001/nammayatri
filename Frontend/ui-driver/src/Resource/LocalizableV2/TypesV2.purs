@@ -1727,6 +1727,7 @@ newtype Keymap
   , your_ride_starts_in :: String
   , away :: String
   , intercity :: String
+  , local :: String
   , intercity_return :: String
   , rental :: String
   , regular :: String
@@ -1803,6 +1804,9 @@ newtype Keymap
   , drivers_are_permitted_to_cancel_ambulance_bookings :: String
   , payment_under_maintenance :: String
   , payments_temporarily_unavailable :: String
+  , resume_ride :: String
+  , end_ride_with_stops :: String
+  , stop :: String -> String 
   }
 
 derive instance ntL :: Newtype Languages _
@@ -6927,6 +6931,9 @@ away = a
 intercity :: Proxy "intercity"
 intercity = a
 
+local :: Proxy "local"
+local = a
+
 intercity_return :: Proxy "intercity_return"
 intercity_return = a
 
@@ -7160,3 +7167,12 @@ payment_under_maintenance = Proxy
 
 payments_temporarily_unavailable :: Proxy "payments_temporarily_unavailable"
 payments_temporarily_unavailable = Proxy
+
+resume_ride :: Proxy "resume_ride"
+resume_ride = a
+
+end_ride_with_stops :: Proxy "end_ride_with_stops"
+end_ride_with_stops = a
+
+stop :: Proxy "stop"
+stop = a 

@@ -79,4 +79,4 @@ data RiderConfig = RiderConfig
     createdAt :: Kernel.Prelude.UTCTime,
     updatedAt :: Kernel.Prelude.UTCTime
   }
-  deriving (Show, Generic, ToJSON, FromJSON)
+  deriving (Show, Generic, ToJSON, FromJSON, Eq)

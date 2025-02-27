@@ -248,7 +248,7 @@ handler ValidatedDSearchReq {..} sReq = do
       _ -> return (Nothing, Nothing, sReq.routeDistance, sReq.routeDuration, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing) -- estimate distance and durations by user
   let localTimeZoneSeconds = 19800 -- fix this ------once live in another country
   localTime <- getLocalCurrentTime localTimeZoneSeconds
-  (_, mbVersion) <- getAppDynamicLogic (cast merchantOpCityId) LYT.DYNAMIC_PRICING_UNIFIED localTime Nothing
+  (_, mbVersion) <- getAppDynamicLogic (cast merchantOpCityId) LYT.DYNAMIC_PRICING_UNIFIED localTime Nothing Nothing
   allFarePoliciesProduct <- combineFarePoliciesProducts <$> ((getAllFarePoliciesProduct merchant.id merchantOpCityId sReq.isDashboardRequest sReq.pickupLocation sReq.dropLocation (Just (TransactionId (Id sReq.transactionId))) fromLocGeohash toLocGeohash mbDistance mbDuration mbVersion) `mapM` possibleTripOption.tripCategories)
   let farePolicies = selectFarePolicy (fromMaybe 0 mbDistance) (fromMaybe 0 mbDuration) mbIsAutoRickshawAllowed mbIsTwoWheelerAllowed allFarePoliciesProduct.farePolicies
   now <- getCurrentTime
@@ -450,7 +450,7 @@ selectDriversAndMatchFarePolicies merchant merchantOpCityId mbDistance fromLocat
       else pure []
   let driverPool =
         driverPoolNotOnRide
-          <> map (\DriverPoolResultCurrentlyOnRide {..} -> DriverPoolResult {customerTags = Nothing, score = Nothing, ..}) driverPoolCurrentlyOnRide
+          <> map (\DriverPoolResultCurrentlyOnRide {..} -> DriverPoolResult {customerTags = Nothing, ..}) driverPoolCurrentlyOnRide
   logDebug $ "Search handler: driver pool " <> show driverPool
   let onlyFPWithDrivers = filter (\fp -> (isScheduled || (skipDriverPoolCheck fp.tripCategory) || isJust (find (\dp -> dp.serviceTier == fp.vehicleServiceTier) driverPool)) && (isValueAddNP || fp.vehicleServiceTier `elem` offUsVariants)) farePolicies
   return (driverPool, onlyFPWithDrivers)

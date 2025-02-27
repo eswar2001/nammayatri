@@ -7,8 +7,9 @@ import Data.Array (mapWithIndex, (!!), elem)
 import Data.Maybe 
 import Data.String as DS
 import Helpers.Utils as HU
+import Data.Int
 import Storage (getValueToLocalStore, KeyStore(..))
-import Screens.Types (City(..), TipViewProps(..), TipViewStage(..), TipViewData(..))
+import Screens.Types (TipViewProps(..), TipViewStage(..), TipViewData(..))
 import Locale.Utils
 import MerchantConfig.Types
 import Effect (Effect)
@@ -16,9 +17,10 @@ import Foreign.Class (class Encode)
 import Storage (KeyStore(..), getValueToLocalStore, setValueToLocalStore)
 import Foreign.Generic (decodeJSON, encodeJSON)
 import MerchantConfig.Utils (getMerchant, Merchant(..))
-import Common.Types.App (LazyCheck(..))
+import Common.Types.App (City(..), LazyCheck(..))
 import RemoteConfig (getTipConfigRC)
 import Debug (spy)
+import Engineering.Helpers.Utils as EHU
 
 type TipConfig = {
   customerTipArray :: Array String,
@@ -34,7 +36,8 @@ type TipVehicleConfig = {
   taxiPlus :: TipConfig,
   bike :: TipConfig,
   evAutoRickshaw :: TipConfig,
-  suvPlus :: TipConfig
+  suvPlus :: TipConfig,
+  heritageCab :: TipConfig
 }
 
 
@@ -57,6 +60,7 @@ getTipConfig variant = do
     "AMBULANCE_AC" -> mkTipConfig tipsConfig.ambulanceAc
     "AMBULANCE_VENTILATOR" -> mkTipConfig tipsConfig.ambulanceVentilator
     "BIKE" -> mkTipConfig tipsConfig.bike
+    "HERITAGE_CAB" -> mkTipConfig tipsConfig.heritageCab
     _ -> mkTipConfig tipsConfig.default
 
 mkTipConfig :: Array Int -> TipConfig
@@ -76,20 +80,19 @@ yatriSathiConfig variant =
   case variant of
     "BIKE" -> mkTipConfig [0, 10, 20, 30]
     "AUTO_RICKSHAW" -> mkTipConfig [0, 10, 20, 30]
-    _ | HU.isAmbulance variant -> mkTipConfig []
+    _ | EHU.isAmbulance variant -> mkTipConfig []
     _ -> mkTipConfig [0, 20, 30, 50]
 
 getTipViewProps :: TipViewProps -> String -> Maybe String -> Maybe Int -> TipViewProps
 getTipViewProps tipViewProps vehicleVariant smartTipReason smartTipSuggestion = do
   let smartTipSuggestionValue = fromMaybe 10 smartTipSuggestion
       tipConfig = getTipConfig vehicleVariant
-      customerTipArrWithValues = if smartTipSuggestion == Nothing then tipConfig.customerTipArrayWithValues else if smartTipSuggestionValue <= 10 then [0, 10, 20, 30] else [0, roundUpToNearest10 (smartTipSuggestionValue `div` 2), smartTipSuggestionValue, smartTipSuggestionValue + 10]
+      customerTipArrWithValues = if smartTipSuggestion == Nothing then tipConfig.customerTipArrayWithValues else if smartTipSuggestionValue <= 10 then [0, 10, 20, 30] else [0, roundUpToNearest10 (smartTipSuggestionValue `div` 2), smartTipSuggestionValue, roundUpToNearest10 (ceil (toNumber smartTipSuggestionValue * 1.5))]
       customerTipArray = if smartTipSuggestion == Nothing then tipConfig.customerTipArray else getTips customerTipArrWithValues
-      tipViewPropsModified = tipViewProps{customerTipArray = if tipViewProps.customerTipArray == [] then customerTipArray else tipViewProps.customerTipArray, customerTipArrayWithValues = if tipViewProps.customerTipArrayWithValues == [] then customerTipArrWithValues else tipViewProps.customerTipArrayWithValues}
+      suggestedActiveIndex = if smartTipSuggestion == Nothing then Nothing else if smartTipSuggestionValue <= 10 then Just 1 else Just 2  
+      tipViewPropsModified = tipViewProps{suggestedActiveIndex = suggestedActiveIndex, customerTipArray = if tipViewProps.customerTipArray == [] then customerTipArray else tipViewProps.customerTipArray, customerTipArrayWithValues = if tipViewProps.customerTipArrayWithValues == [] then customerTipArrWithValues else tipViewProps.customerTipArrayWithValues}
   case tipViewProps.stage of
     DEFAULT -> do
-      let activeIndex = if smartTipSuggestion == Nothing then tipViewProps.activeIndex else if smartTipSuggestionValue <= 10 then 1 else 2
-          tipViewPropsModified' = tipViewPropsModified{activeIndex = activeIndex}
       tipViewProps{ stage = if smartTipSuggestion == Nothing then DEFAULT else TIP_AMOUNT_SELECTED
                             , onlyPrimaryText = false
                             , isprimaryButtonVisible = if smartTipSuggestion == Nothing then false else true
@@ -97,8 +100,7 @@ getTipViewProps tipViewProps vehicleVariant smartTipReason smartTipSuggestion = 
                             , secondaryText = getString IT_SEEMS_TO_BE_TAKING_LONGER_THAN_USUAL
                             , customerTipArray = customerTipArray
                             , customerTipArrayWithValues = customerTipArrWithValues
-                            , primaryButtonText = getTipViewText tipViewPropsModified' vehicleVariant (getString CONTINUE_SEARCH_WITH)
-                            , activeIndex = activeIndex
+                            , primaryButtonText = getTipViewText tipViewPropsModified vehicleVariant (getString CONTINUE_SEARCH_WITH)
                             }
     TIP_AMOUNT_SELECTED -> tipViewPropsModified{ stage = TIP_AMOUNT_SELECTED
                                        , onlyPrimaryText = false
@@ -113,15 +115,16 @@ getTipViewProps tipViewProps vehicleVariant smartTipReason smartTipSuggestion = 
 getTipViewText :: TipViewProps -> String-> String -> String
 getTipViewText tipViewProps vehicleVariant prefixString = do
   let tipConfig = getTipConfig vehicleVariant
-      tip = show (fromMaybe 10 (tipViewProps.customerTipArrayWithValues !! tipViewProps.activeIndex))
+      tip = show (fromMaybe 0 (tipViewProps.customerTipArrayWithValues !! tipViewProps.activeIndex))
   if tip == "0" then 
     case tipViewProps.stage of
       TIP_AMOUNT_SELECTED -> getString CONTINUE_SEARCH_WITH_NO_TIP
+      DEFAULT -> getString CONTINUE_SEARCH_WITH_NO_TIP
       _ -> getString SEARCHING_WITH_NO_TIP
   else  
     case (getLanguageLocale languageKey) of
-      "EN_US" -> prefixString <> (if tipViewProps.stage == TIP_AMOUNT_SELECTED then " +₹" else " ₹")<>tip<>" "<> (getString TIP)
-      _ -> "+₹"<>tip<>" "<>(getString TIP) <> " " <> prefixString
+      "EN_US" -> prefixString <> (if tipViewProps.stage == TIP_AMOUNT_SELECTED then " ₹" else " ₹")<>tip<>" "<> (getString TIP)
+      _ -> "₹"<>tip<>" "<>(getString TIP) <> " " <> prefixString
 
 isTipEnabled :: CustomerTip -> String -> Boolean
 isTipEnabled tipConfig vehicleVariant =

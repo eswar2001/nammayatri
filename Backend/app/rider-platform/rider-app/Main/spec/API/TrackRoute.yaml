@@ -4,34 +4,37 @@ imports:
   LatLong: Kernel.External.Maps.Types
   UTCTime: Kernel.Prelude
   Double: Kernel.Prelude
-
+  VehicleCategory: BecknV2.FRFS.Enums
 
 module: TrackRoute
 
 types:
   TrackingResp:
-    vehicleTrackingInfo : "[VehicleInfo]"
+    vehicleTrackingInfo: "[VehicleInfo]"
 
   VehicleInfoForRoute:
-    startTime : Maybe UTCTime
-    startDate : Maybe Text
-    scheduleRelationship : Maybe Text
-    tripId : Maybe Text
-    latitude : Maybe Double
-    longitude : Maybe Double
-    speed : Maybe Double
-    timestamp : Maybe Text
+    startTime: Maybe UTCTime
+    startDate: Maybe Text
+    scheduleRelationship: Maybe Text
+    tripId: Maybe Text
+    latitude: Maybe Double
+    longitude: Maybe Double
+    speed: Maybe Double
+    timestamp: Maybe Text
     derive: "Show"
 
   VehicleInfo:
     nextStop: RouteStopMapping
     nextStopTravelTime: Maybe Seconds
+    nextStopTravelDistance: Meters
     vehicleId: Text
     vehicleInfo: VehicleInfoForRoute
 
 apis:
   - GET:
       endpoint: /track/{routeCode}/vehicles
+      query:
+        vehicleType: VehicleCategory
       params:
         routeCode: Text
       response:

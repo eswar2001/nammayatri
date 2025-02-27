@@ -18,7 +18,7 @@ module Services.Backend where
 import Data.Maybe
 import Locale.Utils
 import Services.API
-
+import DecodeUtil
 import Common.Types.App (Version(..))
 import Control.Monad.Except (runExcept)
 import Control.Monad.Except.Trans (lift)
@@ -33,7 +33,7 @@ import Data.String.Common as DSC
 import Data.Foldable as DF
 import Debug (spy)
 import Effect.Class (liftEffect)
-import Data.Function.Uncurried (runFn2)
+import Data.Function.Uncurried (runFn2, runFn3)
 import Engineering.Helpers.Commons (liftFlow, isInvalidUrl)
 import Engineering.Helpers.Utils (toggleLoader, checkConditionToShowInternetScreen)
 import Foreign.Generic (encode, decode)
@@ -48,7 +48,7 @@ import Language.Types (STR(..))
 import Log (printLog)
 import Prelude
 import Presto.Core.Types.API (ErrorResponse(..), Header(..), Headers(..))
-import Presto.Core.Types.Language.Flow (Flow, callAPI, doAff, loadS, fork)
+import Presto.Core.Types.Language.Flow (Flow, doAff, loadS, fork)
 import Screens.Types (DriverStatus)
 import Services.Config as SC
 import Services.EndPoints as EP
@@ -73,6 +73,7 @@ import Screens.NoInternetScreen.Handler as NoInternetScreen
 import Helpers.API as HAPI
 import Resource.Localizable.TypesV2 as LT2
 import Resource.Localizable.StringsV2 as StringsV2
+import Services.CallAPI (callAPI)
 
 
 getHeaders :: String -> Boolean -> Flow GlobalState Headers
@@ -83,6 +84,7 @@ getHeaders dummy isGzipCompressionEnabled = do
                         Header "x-client-version" (getValueToLocalStore VERSION_NAME),
                         Header "x-config-version" (getValueFromWindow "CONFIG_VERSION"),
                         Header "x-bundle-version" (getValueToLocalStore BUNDLE_VERSION),
+                        Header "x-package" (getValueToLocalStore PACKAGE_NAME),
                         Header "session_id" (getValueToLocalStore SESSION_ID),
                         Header "x-device" getDeviceDetails
                     ] <> case regToken of
@@ -97,7 +99,8 @@ getHeaders' dummy isGzipCompressionEnabled = do
     _ <- pure $ spy "import headers" regToken
     lift $ lift $ pure $ Headers $ [   Header "Content-Type" "application/json",
                         Header "x-client-version" (getValueToLocalStore VERSION_NAME),
-                         Header "x-config-version" (getValueToLocalStore CONFIG_VERSION),
+                        Header "x-config-version" (getValueToLocalStore CONFIG_VERSION),
+                        Header "x-package" (getValueToLocalStore PACKAGE_NAME),
                         Header "x-bundle-version" (getValueToLocalStore BUNDLE_VERSION),
                         Header "session_id" (getValueToLocalStore SESSION_ID),
                         Header "x-device" getDeviceDetails
@@ -124,7 +127,6 @@ withAPIResult url f flow = do
                 else if (err.code == 401 && (codeMessage == "INVALID_TOKEN" || codeMessage == "TOKEN_EXPIRED")) || (err.code == 400 && codeMessage == "TOKEN_EXPIRED") then do
                     _ <- pure $ deleteValueFromLocalStore REGISTERATION_TOKEN
                     _ <- pure $ deleteValueFromLocalStore VERSION_NAME
-                    _ <- pure $ deleteValueFromLocalStore BASE_URL
                     _ <- pure $ deleteValueFromLocalStore TEST_FLOW_FOR_REGISTRATOION
                     _ <- pure $ deleteValueFromLocalStore IS_RIDE_ACTIVE
                     _ <- pure $ deleteValueFromLocalStore IS_DRIVER_ENABLED
@@ -156,7 +158,6 @@ withAPIResultBT url f errorHandler flow = do
                 else if (err.code == 401 && (codeMessage == "INVALID_TOKEN" || codeMessage == "TOKEN_EXPIRED")) || (err.code == 400 && codeMessage == "TOKEN_EXPIRED") then do
                     deleteValueFromLocalStore REGISTERATION_TOKEN
                     deleteValueFromLocalStore VERSION_NAME
-                    deleteValueFromLocalStore BASE_URL
                     deleteValueFromLocalStore TEST_FLOW_FOR_REGISTRATOION
                     deleteValueFromLocalStore IS_RIDE_ACTIVE
                     deleteValueFromLocalStore IS_DRIVER_ENABLED
@@ -207,6 +208,7 @@ triggerOTPBT payload = do
 makeTriggerOTPReq :: String → LatLon -> TriggerOTPReq
 makeTriggerOTPReq mobileNumber (LatLon lat lng _) = TriggerOTPReq
     let operatingCity = getValueToLocalStore DRIVER_LOCATION
+        packageName = getValueToLocalStore PACKAGE_NAME
         latitude = mkLatLon lat
         longitude = mkLatLon lng
     in
@@ -216,7 +218,8 @@ makeTriggerOTPReq mobileNumber (LatLon lat lng _) = TriggerOTPReq
       "merchantId" : if (SC.getMerchantId "") == "NA" then getValueToLocalNativeStore MERCHANT_ID else (SC.getMerchantId "" ),
       "merchantOperatingCity" : mkOperatingCity operatingCity,
       "registrationLat" : latitude,
-      "registrationLon" : longitude
+      "registrationLon" : longitude,
+      "packageName" : packageName
     }
     where 
         mkOperatingCity :: String -> Maybe String
@@ -565,11 +568,23 @@ getRideHistoryReq limit offset onlyActive status day = do
 
 getRideHistoryReqBT :: String -> String -> String -> String -> String -> FlowBT String GetRidesHistoryResp
 getRideHistoryReqBT limit offset onlyActive status day= do
+    if limit == "2" && offset == "0" && onlyActive == "true" 
+      then do
+        let listResp = runFn3 getFromWindow "RideList" Nothing Just
+            _ = removeFromWindow "RideList"
+        case listResp of
+          Nothing -> callRideList
+          Just resp -> 
+            case runExcept $ decode resp of
+                Right decodedResp -> pure decodedResp
+                Left _ -> callRideList
+      else callRideList
+    where
+      callRideList = do 
         headers <- lift $ lift $ getHeaders "" true
         withAPIResultBT (EP.getRideHistory limit offset onlyActive status day) identity errorHandler (lift $ lift $ callAPI headers (GetRidesHistoryReq limit offset onlyActive status day))
-    where
-    errorHandler (ErrorPayload errorPayload) =  do
-        BackT $ pure GoBack
+      errorHandler (ErrorPayload errorPayload) =  do
+          BackT $ pure GoBack
 
 --------------------------------- GetRidesSummaryListResp --------------------------------------------------------------------------------------------------
 getRideSummaryListReq :: Array String -> Flow GlobalState (Either ErrorResponse GetRidesSummaryListResp)
@@ -625,6 +640,7 @@ mkUpdateDriverInfoReq dummy
     , vehicleName: Nothing
     , availableUpiApps: Nothing
     , canSwitchToRental: Nothing
+    , canSwitchToIntraCity : Nothing
     , canSwitchToInterCity: Nothing
     , isSpecialLocWarrior: Nothing
     }

@@ -9,6 +9,7 @@ import qualified Domain.Types.Estimate
 import qualified Domain.Types.Journey
 import qualified Domain.Types.Location
 import qualified Domain.Types.LocationAddress
+import qualified Domain.Types.RouteStopMapping
 import qualified Domain.Types.Trip
 import EulerHS.Prelude hiding (id)
 import qualified Kernel.External.Maps.Google.MapsClient.Types
@@ -50,6 +51,14 @@ data JourneyBookingPaymentStatus = JourneyBookingPaymentStatus {journeyId :: Ker
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
+data JourneyConfirmReq = JourneyConfirmReq {journeyConfirmReqElements :: [JourneyConfirmReqElement]}
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data JourneyConfirmReqElement = JourneyConfirmReqElement {journeyLegOrder :: Kernel.Prelude.Int, skipBooking :: Kernel.Prelude.Bool}
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
 data JourneyFeedBackForm = JourneyFeedBackForm {additionalFeedBack :: Kernel.Prelude.Maybe Kernel.Prelude.Text, rateTravelMode :: [RateMultiModelTravelModes], rating :: Kernel.Prelude.Maybe Kernel.Prelude.Int}
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
@@ -68,12 +77,16 @@ data JourneyInfoResp = JourneyInfoResp
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
-data JourneyStatusResp = JourneyStatusResp {journeyStatus :: Domain.Types.Journey.JourneyStatus, legs :: [LegStatus]}
+data JourneyStatusResp = JourneyStatusResp {journeyPaymentStatus :: Kernel.Prelude.Maybe API.Types.UI.FRFSTicketService.FRFSBookingPaymentStatusAPI, journeyStatus :: Domain.Types.Journey.JourneyStatus, legs :: [LegStatus]}
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
 data LegStatus = LegStatus
   { legOrder :: Kernel.Prelude.Int,
+    nextStop :: Kernel.Prelude.Maybe Domain.Types.RouteStopMapping.RouteStopMapping,
+    nextStopTravelDistance :: Kernel.Prelude.Maybe Kernel.Types.Common.Meters,
+    nextStopTravelTime :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
+    mode :: Domain.Types.Trip.MultimodalTravelMode,
     status :: Lib.JourneyLeg.Types.JourneyLegStatus,
     userPosition :: Kernel.Prelude.Maybe Kernel.External.Maps.Types.LatLong,
     vehiclePosition :: Kernel.Prelude.Maybe Kernel.External.Maps.Types.LatLong

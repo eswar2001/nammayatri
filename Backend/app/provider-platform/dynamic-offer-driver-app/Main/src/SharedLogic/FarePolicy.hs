@@ -441,7 +441,7 @@ mkFarePolicyBreakups mkValue mkBreakupItem mbDistance mbTollCharges estimatedTot
         <> (newNightShiftChargeBreakups det.nightShiftCharge)
 
     mkAdditionalProgressiveBreakups det = do
-      let perExtraKmFareSections = NE.sortBy (comparing (.startDistance)) det.perExtraKmRateSections
+      let perExtraKmFareSections = NE.nubBy (\x y -> x.perExtraKmRate == y.perExtraKmRate) $ NE.sortBy (comparing (.startDistance)) det.perExtraKmRateSections
 
           mkPerExtraKmFareItem section = do
             let perExtraKmFareCaption = show Tags.EXTRA_PER_KM_FARE
@@ -758,7 +758,7 @@ getCongestionChargeMultiplierFromModel' timeDiffFromUtc (Just fromLocGeohash) to
   mbActualQARCity <- Hedis.withCrossAppRedis $ Hedis.get $ mkActualQARKeyWithCity merchantOperatingCityId.getId serviceTier
   let actualQAR = mbActualQARFromLocGeohash <|> mbActualQARCity
   mbSupplyDemandRatioToLoc <- join <$> traverse (\locgeohash -> Hedis.withCrossAppRedis $ Hedis.get $ mkSupplyDemandRatioKeyWithGeohash locgeohash serviceTier) toLocGeohash
-  (allLogics, mbVersion) <- getAppDynamicLogic (cast merchantOperatingCityId) LYT.DYNAMIC_PRICING_UNIFIED localTime (Just dynamicPricingLogicVersion)
+  (allLogics, mbVersion) <- getAppDynamicLogic (cast merchantOperatingCityId) LYT.DYNAMIC_PRICING_UNIFIED localTime (Just dynamicPricingLogicVersion) Nothing
   let dynamicPricingData = DynamicPricingData {serviceTier, speedKmh, distanceInKm, supplyDemandRatioFromLoc = fromMaybe 0.0 mbSupplyDemandRatioFromLoc, supplyDemandRatioToLoc = fromMaybe 0.0 mbSupplyDemandRatioToLoc, toss, actualQAR = fromMaybe 0.0 actualQAR}
   if null allLogics
     then do

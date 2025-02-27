@@ -1235,7 +1235,7 @@ getTa =
     , enter_referral_code: "பரிந்துரை குறியீட்டை உள்ளிடவும்"
     , have_a_referral_code: "பரிந்துரை குறியீடு உள்ளதா?"
     , complete_steps_to_apply_referral: "பரிந்துரை குறியீட்டைப் பயன்படுத்த மேலே உள்ள படிகளை முடிக்கவும்"
-    , download_namma_yatri: (\_ -> "நம்ம யாத்ரி பதிவிறக்கம்")
+    , download_namma_yatri: (\appName -> appName <> " பதிவிறக்கம்")
     , enter_code: "குறியீட்டை உள்ளிடவும்"
     , complete_registration: "முழுமையான பதிவு"
     , cant_find_option: "விருப்பத்தைக் கண்டுபிடிக்க முடியவில்லை"
@@ -1711,6 +1711,7 @@ getTa =
     , your_ride_starts_in: "உங்கள் பயணம் இல் தொடங்குகிறது"
     , away: " தொலைவில்"
     , intercity: "நகரங்களுக்கிடையிலான"
+    , local: "உள்ளகம்"
     , intercity_return: "நகரங்களுக்கிடையிலான திரும்ப"
     , rental: "வாடகை"
     , regular: "சாதாரண"
@@ -1788,4 +1789,7 @@ getTa =
     , drivers_are_permitted_to_cancel_ambulance_bookings : "ஓட்டுனர்கள் தங்களின் மருத்துவ காரணங்கள் அல்லது வாகனம் முறிவுக்கான காரணங்களுக்கே ரத்து செய்ய அனுமதிக்கப்படுகிறார்கள்"
     , payment_under_maintenance : "கட்டணம் பராமரிப்பில் உள்ளது"
     , payments_temporarily_unavailable : "கட்டணங்கள் தற்காலிகமாக கிடைக்கவில்லை, விரைவில் திரும்பும். தயவுசெய்து பிறகு முயற்சிக்கவும்."
+    , resume_ride : "பயணத்தை மீண்டும் தொடங்கவும்"
+    , end_ride_with_stops : "உங்களிடம் இன்னும் நிறுத்தங்கள் உள்ளன. இருப்பினும் பயணத்தை முடிக்கவா?"  
+    , stop: (\n -> "நிறுத்தம் " <> n)
     }

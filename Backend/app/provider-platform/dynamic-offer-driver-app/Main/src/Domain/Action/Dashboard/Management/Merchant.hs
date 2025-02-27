@@ -384,8 +384,8 @@ getMerchantConfigDriverPool merchantShortId opCity reqTripDistance reqTripDistan
         distanceToMeters <$> (Distance <$> reqTripDistanceValue <*> reqDistanceUnit)
           <|> reqTripDistance
   configs <- case mbTripDistance of
-    Nothing -> CQDPC.findAllByMerchantOpCityId merchantOpCityId
-    Just tripDistance -> maybeToList <$> CQDPC.findByMerchantOpCityIdAndTripDistance merchantOpCityId tripDistance
+    Nothing -> CQDPC.findAllByMerchantOpCityId merchantOpCityId (Just []) Nothing
+    Just tripDistance -> maybeToList <$> CQDPC.findByMerchantOpCityIdAndTripDistance merchantOpCityId tripDistance (Just []) Nothing
   pure $ mkDriverPoolConfigRes <$> configs
 
 mkDriverPoolConfigRes :: DDPC.DriverPoolConfig -> Common.DriverPoolConfigItem
@@ -428,7 +428,7 @@ postMerchantConfigDriverPoolUpdate merchantShortId opCity reqTripDistanceValue r
   let tripDistance = maybe reqTripDistance distanceToMeters (Distance <$> reqTripDistanceValue <*> reqDistanceUnit)
   let tripCategory = fromMaybe "All" mbTripCategory
   let serviceTier = DVeh.castVariantToServiceTier <$> mbVariant
-  config <- CQDPC.findByMerchantOpCityIdAndTripDistanceAndAreaAndDVeh merchantOpCityId tripDistance serviceTier tripCategory area >>= fromMaybeM (DriverPoolConfigDoesNotExist merchantOpCityId.getId tripDistance)
+  config <- CQDPC.findByMerchantOpCityIdAndTripDistanceAndAreaAndDVeh merchantOpCityId tripDistance serviceTier tripCategory area (Just []) Nothing >>= fromMaybeM (DriverPoolConfigDoesNotExist merchantOpCityId.getId tripDistance)
   let updConfig =
         config{minRadiusOfSearch = mkDistanceField config.minRadiusOfSearch req.minRadiusOfSearchWithUnit req.minRadiusOfSearch,
                maxRadiusOfSearch = mkDistanceField config.maxRadiusOfSearch req.maxRadiusOfSearchWithUnit req.maxRadiusOfSearch,
@@ -487,7 +487,7 @@ postMerchantConfigDriverPoolCreate merchantShortId opCity reqTripDistanceValue r
   let tripDistance = maybe reqTripDistance distanceToMeters (Distance <$> reqTripDistanceValue <*> reqDistanceUnit)
   let tripCategory = fromMaybe "All" mbTripCategory
   let serviceTier = DVeh.castVariantToServiceTier <$> mbVariant
-  mbConfig <- CQDPC.findByMerchantOpCityIdAndTripDistanceAndAreaAndDVeh merchantOpCityId tripDistance serviceTier tripCategory area
+  mbConfig <- CQDPC.findByMerchantOpCityIdAndTripDistanceAndAreaAndDVeh merchantOpCityId tripDistance serviceTier tripCategory area (Just []) Nothing
   whenJust mbConfig $ \_ -> throwError (DriverPoolConfigAlreadyExists merchantOpCityId.getId tripDistance)
   newConfig <- buildDriverPoolConfig merchant.id merchantOpCityId tripDistance distanceUnit area serviceTier tripCategory req
   _ <- CQDPC.create newConfig
@@ -1007,6 +1007,7 @@ data FarePolicyCSVRow = FarePolicyCSVRow
     defaultStepFee :: Text,
     extraKmRateStartDistance :: Text,
     perExtraKmRate :: Text,
+    baseFareDepreciation :: Text,
     peakTimings :: Text,
     peakDays :: Text,
     cancellationFarePolicyDescription :: Text,
@@ -1091,6 +1092,7 @@ instance FromNamedRecord FarePolicyCSVRow where
       <*> r .: "default_step_fee"
       <*> r .: "extra_km_rate_start_distance"
       <*> r .: "per_extra_km_rate"
+      <*> r .: "base_fare_depreciation"
       <*> r .: "peak_timings"
       <*> r .: "peak_days"
       <*> r .: "cancellation_fare_policy_description"
@@ -1459,7 +1461,8 @@ postMerchantConfigFarePolicyUpsert merchantShortId opCity req = do
                       }
             startDistance :: Meters <- readCSVField idx row.extraKmRateStartDistance "Extra Km Rate Start Distance"
             perExtraKmRate :: HighPrecMoney <- readCSVField idx row.perExtraKmRate "Per Extra Km Rate"
-            let perExtraKmRateSections = NE.fromList [FarePolicy.FPProgressiveDetailsPerExtraKmRateSection {startDistance, distanceUnit, perExtraKmRate}]
+            let baseFareDepreciation :: HighPrecMoney = fromMaybe (HighPrecMoney 0.0) (readMaybeCSVField idx row.baseFareDepreciation "Base fare depreciation")
+            let perExtraKmRateSections = NE.fromList [FarePolicy.FPProgressiveDetailsPerExtraKmRateSection {startDistance, distanceUnit, perExtraKmRate, baseFareDepreciation}]
             -- TODO: Add support for per min rate sections in csv file
             let perMinRateSections = Nothing
             return $ FarePolicy.ProgressiveDetails FarePolicy.FPProgressiveDetails {nightShiftCharge = mbNightCharges, ..}
@@ -1709,9 +1712,10 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
 
   -- city
   baseOperatingCity <- CQMOC.findById baseOperatingCityId >>= fromMaybeM (InvalidRequest "Base Operating City not found")
+  let newMerchantShortId = maybe merchantShortId (.shortId) mbNewMerchant
   let mbNewOperatingCity =
         case cityAlreadyCreated of
-          Nothing -> Just $ buildMerchantOperatingCity newMerchantId baseOperatingCity newMerchantOperatingCityId
+          Nothing -> Just $ buildMerchantOperatingCity newMerchantId baseOperatingCity newMerchantOperatingCityId newMerchantShortId
           _ -> Nothing
 
   -- intelligent pool config
@@ -1725,9 +1729,9 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
 
   -- driver pool config
   mbDriverPoolConfigs <-
-    CQDPC.findAllByMerchantOpCityId newMerchantOperatingCityId >>= \case
+    CQDPC.findAllByMerchantOpCityId newMerchantOperatingCityId (Just []) Nothing >>= \case
       [] -> do
-        driverPoolConfigs <- CQDPC.findAllByMerchantOpCityId baseOperatingCityId
+        driverPoolConfigs <- CQDPC.findAllByMerchantOpCityId baseOperatingCityId (Just []) Nothing
         newDriverPoolConfigs <- mapM (buildPoolConfig newMerchantId newMerchantOperatingCityId now) driverPoolConfigs
         return $ Just newDriverPoolConfigs
       _ -> return Nothing
@@ -1770,9 +1774,9 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
 
   -- merchant message
   mbMerchantMessages <-
-    CQMM.findAllByMerchantOpCityId newMerchantOperatingCityId >>= \case
+    CQMM.findAllByMerchantOpCityId newMerchantOperatingCityId Nothing >>= \case
       [] -> do
-        merchantMessages <- CQMM.findAllByMerchantOpCityId baseOperatingCityId
+        merchantMessages <- CQMM.findAllByMerchantOpCityId baseOperatingCityId Nothing
         let newMerchantMessages = map (buildMerchantMessage newMerchantId newMerchantOperatingCityId now) merchantMessages
         return $ Just newMerchantMessages
       _ -> return Nothing
@@ -1815,9 +1819,9 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
 
   -- merchant push notification
   mbMerchantPushNotification <-
-    CQMPN.findAllByMerchantOpCityId newMerchantOperatingCityId >>= \case
+    CQMPN.findAllByMerchantOpCityIdInRideFlow newMerchantOperatingCityId [] >>= \case
       [] -> do
-        merchantPushNotification <- CQMPN.findAllByMerchantOpCityId baseOperatingCityId
+        merchantPushNotification <- CQMPN.findAllByMerchantOpCityIdInRideFlow baseOperatingCityId []
         newMerchantPushNotifications <- mapM (buildMerchantPushNotification newMerchantId newMerchantOperatingCityId now) merchantPushNotification
         return $ Just newMerchantPushNotifications
       _ -> return Nothing
@@ -1833,9 +1837,9 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
 
   -- payout config
   mbPayoutConfigs <-
-    CPC.findAllByMerchantOpCityId newMerchantOperatingCityId >>= \case
+    CPC.findAllByMerchantOpCityId newMerchantOperatingCityId Nothing >>= \case
       [] -> do
-        payoutConfigs <- CPC.findAllByMerchantOpCityId baseOperatingCityId
+        payoutConfigs <- CPC.findAllByMerchantOpCityId baseOperatingCityId Nothing
         let newPayoutConfigs = map (buildPayoutConfig newMerchantId newMerchantOperatingCityId now) payoutConfigs
         return $ Just newPayoutConfigs
       _ -> return Nothing
@@ -2014,11 +2018,11 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
           ..
         }
 
-    buildMerchantOperatingCity merchantId baseCity newCityId = do
+    buildMerchantOperatingCity merchantId baseCity newCityId newMerchantShortId = do
       DMOC.MerchantOperatingCity
         { id = newCityId,
           merchantId,
-          merchantShortId,
+          merchantShortId = newMerchantShortId,
           location = Maps.LatLong req.lat req.long,
           city = req.city,
           state = req.state,
@@ -2391,7 +2395,7 @@ postMerchantPayoutConfigUpdate :: ShortId DM.Merchant -> Context.City -> Common.
 postMerchantPayoutConfigUpdate merchantShortId city req = do
   merchant <- findMerchantByShortId merchantShortId
   merchantOpCity <- CQMOC.findByMerchantIdAndCity merchant.id city >>= fromMaybeM (MerchantOperatingCityNotFound $ "merchantShortId: " <> merchantShortId.getShortId <> " ,city: " <> show city)
-  payoutConfig <- CPC.findByPrimaryKey merchantOpCity.id req.vehicleCategory >>= fromMaybeM (PayoutConfigNotFound (show req.vehicleCategory) merchantOpCity.id.getId)
+  payoutConfig <- CPC.findByPrimaryKey merchantOpCity.id req.vehicleCategory Nothing >>= fromMaybeM (PayoutConfigNotFound (show req.vehicleCategory) merchantOpCity.id.getId)
   QPC.updateConfigValues req payoutConfig merchantOpCity.id
   CPC.clearConfigCache merchantOpCity.id req.vehicleCategory
   pure Success

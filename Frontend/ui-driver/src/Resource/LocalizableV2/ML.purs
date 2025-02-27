@@ -1234,7 +1234,7 @@ getMl =
     , enter_referral_code: "റഫറൽ കോഡ് നൽകുക"
     , have_a_referral_code: "ഒരു റഫറൽ കോഡ് ഉണ്ടോ?"
     , complete_steps_to_apply_referral: "റഫറൽ കോഡ് പ്രയോഗിക്കുന്നതിന് മുകളിലുള്ള ഘട്ടങ്ങൾ പൂർത്തിയാക്കുക"
-    , download_namma_yatri: (\_ -> "നമ്മ യാത്രി ഡൗൺലോഡ് ചെയ്യുക")
+    , download_namma_yatri: (\appName -> appName <> " ഡൗൺലോഡ് ചെയ്യുക")
     , enter_code: "കോഡ് നൽകുക"
     , complete_registration: "പൂർണ്ണമായ രജിസ്ട്രേഷൻ"
     , cant_find_option: "ഓപ്ഷൻ കണ്ടെത്താൻ കഴിയുന്നില്ല"
@@ -1711,6 +1711,7 @@ getMl =
     , your_ride_starts_in: "നിങ്ങളുടെ യാത്രയിൽ ആരംഭിക്കുന്നു"
     , away: " അകലെ"
     , intercity: "നഗരാന്തര"
+    , local: "സ്ഥലം"
     , intercity_return: "നഗരാന്തര തിരിച്ചു"
     , rental: "വാടക"
     , regular: "സ്ഥിരം"
@@ -1788,4 +1789,7 @@ getMl =
     , drivers_are_permitted_to_cancel_ambulance_bookings : "ഡ്രൈവർമാർ അവരുടെ വൈദ്യശാസ്ത്ര കാരണം അല്ലെങ്കിൽ veículo തകരാറുകൾ മൂലം മാത്രമേ റദ്ദുചെയ്യേണ്ടു"
     , payment_under_maintenance : "പേയ്മെന്റ് പരിപാലനത്തിലാണ്"
     , payments_temporarily_unavailable : "പേയ്മെന്റുകൾ താൽക്കാലികമായി ലഭ്യമല്ല, ഉടൻ തിരിച്ചുവരും. ദയവായി പിന്നീടു ശ്രമിക്കുക."
+    , resume_ride : "യാത്ര പുനരാരംഭിക്കുക"
+    , end_ride_with_stops : "നിങ്ങൾക്ക് ഇനിയും நிறുത്തലുകൾ ഉണ്ട്. എങ്കിലും യാത്ര അവസാനിപ്പിക്കണോ?"
+    , stop: (\n -> "തുറക്ക് " <> n)
     }

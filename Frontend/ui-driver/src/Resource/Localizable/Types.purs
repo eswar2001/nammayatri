@@ -1729,6 +1729,7 @@ data STR = LETS_GET_STARTED
         | YOUR_RIDE_STARTS_IN   
         | AWAY   
         | INTERCITY
+        | LOCAL
         | INTERCITY_RETURN
         | RENTAL
         | REGULAR
@@ -1795,6 +1796,9 @@ data STR = LETS_GET_STARTED
         | SEARCH
         | BUS__
         | DRIVER_UNSUBSCRIBED
+        | RESUME_RIDE
+        | END_RIDE_WITH_STOPS
+        | STOP String
 
 -- instance showSTR :: Show STR
 --   show = case _ of

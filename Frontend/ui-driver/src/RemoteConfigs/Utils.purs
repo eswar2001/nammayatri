@@ -28,6 +28,8 @@ import Presto.Core.Utils.Encoding (defaultDecode)
 import RemoteConfig.Types
 import Data.String (null, toLower)
 import Data.Maybe (Maybe(..), fromMaybe)
+import Common.RemoteConfig (defaultVoipConfig)
+import Common.RemoteConfig.Types as CT
 import Common.RemoteConfig.Utils
 import Screens.Types as ST
 import Resource.Constants (oneDayInMS)
@@ -246,6 +248,12 @@ getCoinsConfigData city = do
         value = decodeForeignObject (parseJSON config) $ defaultCityRemoteConfig defaultCoinsConfig
     getCityBasedConfig value $ toLower city
 
+getDriverVoipConfig :: String -> CT.VoipConfig
+getDriverVoipConfig city = do
+    let config = fetchRemoteConfigString "voip_config"
+        value = decodeForeignObject (parseJSON config) $ defaultCityRemoteConfig defaultVoipConfig
+    getCityBasedConfig value $ toLower city
+
 getLocationUpdateServiceConfig :: String -> LocationUpdateServiceConfig
 getLocationUpdateServiceConfig stage = do
   let config = fetchRemoteConfigString "location_update_service_config"
@@ -325,6 +333,7 @@ defaultMetroWarriorConfig =
   , ambulanceAcOxy : Nothing
   , ambulanceVentilator : Nothing
   , evAutoRickshaw: Nothing
+  , heritageCab: Nothing
   , default: Nothing
   }
 

@@ -5,6 +5,7 @@ module Domain.Types.RouteStopMapping where
 
 import qualified BecknV2.FRFS.Enums
 import Data.Aeson
+import qualified Domain.Types.IntegratedBPPConfig
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.MerchantOperatingCity
 import qualified Kernel.External.Maps.Types
@@ -16,6 +17,7 @@ import qualified Tools.Beam.UtilsTH
 
 data RouteStopMapping = RouteStopMapping
   { estimatedTravelTimeFromPreviousStop :: Kernel.Prelude.Maybe Kernel.Types.Time.Seconds,
+    integratedBppConfigId :: Kernel.Types.Id.Id Domain.Types.IntegratedBPPConfig.IntegratedBPPConfig,
     merchantId :: Kernel.Types.Id.Id Domain.Types.Merchant.Merchant,
     merchantOperatingCityId :: Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity,
     providerCode :: Kernel.Prelude.Text,
@@ -29,4 +31,4 @@ data RouteStopMapping = RouteStopMapping
     createdAt :: Kernel.Prelude.UTCTime,
     updatedAt :: Kernel.Prelude.UTCTime
   }
-  deriving (Generic, Show, Eq, FromJSON, ToJSON, ToSchema)
+  deriving (Generic, Show, Eq, FromJSON, ToJSON, ToSchema, Ord)

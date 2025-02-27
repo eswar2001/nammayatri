@@ -151,6 +151,7 @@ getAppBasedConfig :: forall a. AppConfigRC a -> String -> a
 getAppBasedConfig config app = case app of
   "Namma Yatri Partner" -> fromMaybe config.default config.nammaYatriPartner
   "Odisha Yatri Partner" -> fromMaybe config.default config.odishaYatriPartner
+  "Kerala Savaari Partner" -> fromMaybe config.default config.keralaSavaariPartner
   "Yatri Driver" -> fromMaybe config.default config.yatriPartner
   "Namma Yatri" -> fromMaybe config.default config.nammaYatri
   "Odisha Yatri" -> fromMaybe config.default config.odishaYatri
@@ -238,6 +239,7 @@ tipConfigData city variant = do
         "AMBULANCE_VENTILATOR" -> config.ambulanceVentilator
         "AMBULANCE_TAXI" -> config.ambulanceTaxi
         "AMBULANCE_TAXI_OXY" -> config.ambulanceTaxiOxy
+        "HERITAGE_CAB" -> config.heritageCab
         _ -> config.default
 
 defaultTipsConfig :: TipsConfig
@@ -257,6 +259,7 @@ defaultTipsConfig =
   , ambulanceAcOxy : Nothing
   , ambulanceVentilator : Nothing
   , evAutoRickshaw: Nothing
+  , heritageCab: Nothing
   , default: Nothing
   }
 
@@ -277,6 +280,7 @@ defaultSubscriptionsConfigVariantLevel =
   , ambulanceAcOxy : Nothing
   , ambulanceVentilator : Nothing
   , evAutoRickshaw: Nothing
+  , heritageCab: Nothing
   , default: Nothing
   }
 
@@ -374,6 +378,7 @@ subscriptionsConfigVariantLevel city variant = do
         "AMBULANCE_VENTILATOR" -> config.ambulanceVentilator
         "AMBULANCE_TAXI" -> config.ambulanceTaxi
         "AMBULANCE_TAXI_OXY" -> config.ambulanceTaxiOxy
+        "HERITAGE_CAB" -> config.heritageCab
         _ -> config.default
 
 defaultGullakConfig :: GullakConfig
@@ -396,6 +401,7 @@ defaultAppRemoteConfig defaultValue =
   , nammaYatriPartner: Just defaultValue
   , odishaYatri: Just defaultValue
   , odishaYatriPartner: Just defaultValue
+  , keralaSavaariPartner: Just defaultValue
   , yatri: Just defaultValue
   , yatriPartner: Just defaultValue
   , manaYatri: Just defaultValue
@@ -485,6 +491,7 @@ getConfigForVariant variant config =
     "AMBULANCE_VENTILATOR" -> config.ambulanceVentilator
     "AMBULANCE_TAXI" -> config.ambulanceTaxi
     "AMBULANCE_TAXI_OXY" -> config.ambulanceTaxiOxy
+    "HERITAGE_CAB" -> config.heritageCab
     _ -> config.default
       
 getInvoiceConfig :: String -> String -> InvoiceConfig
@@ -514,5 +521,18 @@ defaultInvoiceVariantConfig =
   , ambulanceAcOxy : Nothing
   , ambulanceVentilator : Nothing
   , evAutoRickshaw: Nothing
+  , heritageCab: Nothing
   , default: Nothing
   }
+
+defaultVoipConfig :: Types.VoipConfig
+defaultVoipConfig = {
+  customer : {
+    enableVoipFeature : false,
+    enableVoipCalling : false
+  },
+  driver : {
+    enableVoipFeature : false,
+    enableVoipCalling : false
+  }
+}

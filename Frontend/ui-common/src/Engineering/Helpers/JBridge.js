@@ -1763,7 +1763,6 @@ export const refreshFlowCallback = function (key,cb) {
     const callback = function () {
       cb();
     }
-    console.log ("onResumeListenersMap",callback);
     if (window.onResumeListenersMap) {
       window.onResumeListenersMap[key] = callback;
     }
@@ -1940,7 +1939,7 @@ export const isInternetAvailable = function (unit) {
 
 export const emitJOSEvent = function (mapp, eventType, payload) {
   console.log("payload", payload);
-  JOS.emitEvent(mapp)(eventType)(JSON.stringify(payload))()()
+  JOS.emitEvent(mapp,eventType,JSON.stringify(payload))()
 };
 
 export const restartApp = function () {
@@ -1949,23 +1948,14 @@ export const restartApp = function () {
     if (window.__OS == "IOS") {
       emitJOSEvent("java","onEvent",{event: "show_splash"})
       emitJOSEvent("java","onEvent",{event: "reboot"})
-    } else if (JBridge.restartApp){
-      JBridge.restartApp();
-    } else {
-      JBridge.factoryResetApp();
     }
   }
 }
 
 // Deprecated
 export const factoryResetApp = function (str) {
-  console.log("HERE IN RESET ===--->>")
-  if (window.__OS == "IOS") {
-    emitJOSEvent("java","onEvent",{event: "show_splash"})
-    emitJOSEvent("java","onEvent",{event: "reboot"})
-  } else {
-    JBridge.factoryResetApp()
-  }
+  emitJOSEvent("java","onEvent",{event: "show_splash"})
+  emitJOSEvent("java","onEvent",{event: "reboot"})
 }
 
 export const uploadFile = function (aspectRatio) {
@@ -2115,7 +2105,7 @@ export const shareImageMessage = function (message) {
 }
 
 export const showInAppNotification = function (payload) {
-  return window.JOS.emitEvent("java")("onEvent")(JSON.stringify(payload))()
+  return window.JOS.emitEvent("java","onEvent",JSON.stringify(payload))
 }
 
 export const openWhatsAppSupport = function (contactNumber) {
@@ -2388,6 +2378,63 @@ export const cleverTapEvent = function (_event) {
   }
 }
 
+export const voipDialer = function (rideId, isDriver, phoneNum, isMissed, cb, action) {
+  const callback = callbackMapper.map(function (callId, status, rideId, errorCode, driverFlag, networkType, networkQuality, merchantId) {
+    cb(action(callId)(status)(rideId)(errorCode)(driverFlag)(networkType)(networkQuality)(merchantId))();
+  });
+  const sanitizedCuid = rideId.replace("-", "");
+  if (sanitizedCuid.length < 10) {
+    window.showDialer(phoneNum);
+    return;
+  }
+  const receiverCuid = isDriver ? "customer" + sanitizedCuid.substring(0, 10) : "driver" + sanitizedCuid.substring(0, 10);
+  const callerCuid = isDriver ? "driver" + sanitizedCuid.substring(0, 10) : "customer" + sanitizedCuid.substring(0, 10);
+  const config = JSON.stringify({
+    rideId: rideId,
+    isDriver: isDriver,
+    isMissed: isMissed,
+    receiverCuid: receiverCuid,
+    callerCuid: callerCuid,
+    callContext: isDriver ? "Customer" : "Driver",
+    remoteContext: isDriver ? "Driver" : "Customer"
+  });
+  if (JBridge.voipDialer) {
+    window.JBridge.voipDialer(config, phoneNum, callback);
+  }
+};
+
+export const isSignedCallInitialized = function () {
+  if (JBridge.isSignedCallInitialized) {
+    return JBridge.isSignedCallInitialized();
+  } 
+  return false;
+};
+
+export const initSignedCall = function (rideId) {
+  return function (isDriver) {
+    const sanitizedCuid = rideId.replace("-", "");
+    if (sanitizedCuid.length < 10) {
+      return;
+    }
+    const userCuid = isDriver ? "driver" + sanitizedCuid.substring(0, 10) : "customer" + sanitizedCuid.substring(0, 10);
+    const config = JSON.stringify({
+      rideId: rideId,
+      cuid: userCuid,
+      isDriver: isDriver
+    });
+  
+    if (JBridge.initSignedCall) {
+      return JBridge.initSignedCall(config);
+    }
+  }
+};
+
+export const destroySignedCall = function () {
+  if (JBridge.destroySignedCall) {
+    return window.JBridge.destroySignedCall();
+  } 
+};
+
 export const getLocationNameV2 = function (lat, lon) {
   try {
     if (JBridge.getLocationNameSDK) {
@@ -2428,9 +2475,9 @@ export const getLatLonFromAddress = function (address) {
 
 export const hideLoader = function () {
   return function () {
-    JOS.emitEvent("java")("onEvent")(JSON.stringify({
+    JOS.emitEvent("java","onEvent",JSON.stringify({
       event: "hide_loader"
-    }))()()
+    }))()
   }
 };
 
@@ -2927,7 +2974,7 @@ export const initHVSdk = function (accessToken, workFLowId, transactionId, useLo
       inputJson: inputJson,
       callback: callback
     };
-    window.JOS.emitEvent("java")("onEvent")(JSON.stringify(jsonObjectPayload))()();
+    window.JOS.emitEvent("java","onEvent",JSON.stringify(jsonObjectPayload));
   }
   catch (err) {
     console.error(err);
@@ -3028,7 +3075,7 @@ export const emitJOSEventWithCb = function (eventName, innerPayload, cb, action)
   const callback = callbackMapper.map(function (stringifyPayload) {
     cb(action(stringifyPayload))();
   });
-  return window.JOS.emitEvent("java")("onEvent")(JSON.stringify({ event: eventName, action: callback, innerPayload: JSON.stringify(innerPayload)}))()();
+  return window.JOS.emitEvent("java", "onEvent", JSON.stringify({ event: eventName, action: callback, innerPayload: JSON.stringify(innerPayload)}))();
 }
 
 export const triggerReloadApp = function (lazy){

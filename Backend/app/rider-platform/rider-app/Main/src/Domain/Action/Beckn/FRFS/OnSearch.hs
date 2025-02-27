@@ -16,6 +16,7 @@ module Domain.Action.Beckn.FRFS.OnSearch where
 
 import qualified API.Types.UI.FRFSTicketService as API
 import qualified BecknV2.FRFS.Enums as Spec
+import BecknV2.FRFS.Utils
 import Data.Aeson
 -- import Data.Text hiding(map,zip,find,length,null,any)
 import Data.List (sortBy)
@@ -24,9 +25,10 @@ import qualified Data.Text as T
 import Domain.Types.Extra.FRFSCachedQuote as CachedQuote
 import qualified Domain.Types.FRFSQuote as Quote
 import qualified Domain.Types.FRFSSearch as Search
+import qualified Domain.Types.IntegratedBPPConfig as DIBC
 import Domain.Types.Merchant
 import qualified Domain.Types.StationType as Station
-import EulerHS.Prelude (comparing, toStrict)
+import EulerHS.Prelude (comparing, toStrict, (+||), (||+))
 import Kernel.Beam.Functions
 import Kernel.External.Maps.Types
 import Kernel.Prelude
@@ -35,7 +37,9 @@ import Kernel.Types.Error
 import Kernel.Types.Id
 import Kernel.Utils.Common
 import qualified SharedLogic.CreateFareForMultiModal as SLCF
+import qualified SharedLogic.FRFSUtils as SFU
 import qualified Storage.CachedQueries.FRFSConfig as CQFRFSConfig
+import Storage.CachedQueries.IntegratedBPPConfig as QIBC
 import qualified Storage.CachedQueries.Merchant as QMerch
 import qualified Storage.Queries.FRFSQuote as QQuote
 import qualified Storage.Queries.FRFSSearch as QSearch
@@ -121,8 +125,8 @@ validateRequest DOnSearch {..} = do
   search <- runInReplica $ QSearch.findById (Id transactionId) >>= fromMaybeM (SearchRequestDoesNotExist transactionId)
   let merchantId = search.merchantId
   merchant <- QMerch.findById merchantId >>= fromMaybeM (MerchantNotFound merchantId.getId)
-  frfsConfig <- CQFRFSConfig.findByMerchantOperatingCityId search.merchantOperatingCityId >>= fromMaybeM (InternalError $ "FRFS config not found for merchant operating city Id " <> show search.merchantOperatingCityId)
-  if frfsConfig.isEventOngoing == Just True
+  frfsConfig <- CQFRFSConfig.findByMerchantOperatingCityIdInRideFlow search.merchantOperatingCityId [] >>= fromMaybeM (InternalError $ "FRFS config not found for merchant operating city Id " <> show search.merchantOperatingCityId)
+  if frfsConfig.isEventOngoing == Just True && search.riderId /= SFU.partnerOrgRiderId
     then do
       stats <- QPStats.findByPersonId search.riderId >>= fromMaybeM (InternalError "Person stats not found")
       return ValidatedDOnSearch {merchant, search, ticketsBookedInEvent = fromMaybe 0 stats.ticketsBookedInEvent, isEventOngoing = True, mbFreeTicketInterval = frfsConfig.freeTicketInterval, mbMaxFreeTicketCashback = frfsConfig.maxFreeTicketCashback}
@@ -170,24 +174,18 @@ mkQuotes :: (EsqDBFlow m r, EsqDBReplicaFlow m r, CacheFlow m r) => DOnSearch ->
 mkQuotes dOnSearch ValidatedDOnSearch {..} DQuote {..} = do
   dStartStation <- getStartStation stations & fromMaybeM (InternalError "Start station not found")
   dEndStation <- getEndStation stations & fromMaybeM (InternalError "End station not found")
-
-  startStation <- QStation.findByStationCodeAndMerchantOperatingCityId dStartStation.stationCode search.merchantOperatingCityId >>= fromMaybeM (InternalError $ "Station not found for stationCode: " <> dStartStation.stationCode <> " and merchantOperatingCityId: " <> search.merchantOperatingCityId.getId)
-  endStation <- QStation.findByStationCodeAndMerchantOperatingCityId dEndStation.stationCode search.merchantOperatingCityId >>= fromMaybeM (InternalError $ "Station not found for stationCode: " <> dEndStation.stationCode <> " and merchantOperatingCityId: " <> search.merchantOperatingCityId.getId)
-  let freeTicketInterval = fromMaybe (maxBound :: Int) mbFreeTicketInterval
+  let merchantOperatingCityId = search.merchantOperatingCityId
+  integratedBPPConfig <-
+    QIBC.findByDomainAndCityAndVehicleCategory (show Spec.FRFS) merchantOperatingCityId (frfsVehicleCategoryToBecknVehicleCategory vehicleType) DIBC.APPLICATION
+      >>= fromMaybeM (IntegratedBPPConfigNotFound $ "MerchantOperatingCityId:" +|| merchantOperatingCityId.getId ||+ "Domain:" +|| Spec.FRFS ||+ "Vehicle:" +|| frfsVehicleCategoryToBecknVehicleCategory vehicleType ||+ "Platform Type:" +|| DIBC.APPLICATION ||+ "")
+  startStation <- QStation.findByStationCode dStartStation.stationCode integratedBPPConfig.id >>= fromMaybeM (InternalError $ "Station not found for stationCode: " <> dStartStation.stationCode <> " and integratedBPPConfigId: " <> integratedBPPConfig.id.getId)
+  endStation <- QStation.findByStationCode dEndStation.stationCode integratedBPPConfig.id >>= fromMaybeM (InternalError $ "Station not found for stationCode: " <> dEndStation.stationCode <> " and integratedBPPConfigId: " <> integratedBPPConfig.id.getId)
   let stationsJSON = stations & map castStationToAPI & encodeToText
   let routeStationsJSON = routeStations & map castRouteStationToAPI & encodeToText
   let discountsJSON = discounts & map castDiscountToAPI & encodeToText
-  let maxFreeTicketCashback = fromMaybe 0 mbMaxFreeTicketCashback
   uid <- generateGUID
   now <- getCurrentTime
-  (discountedTickets, eventDiscountAmount) <-
-    if isEventOngoing
-      then do
-        let perTicketCashback = min maxFreeTicketCashback price.amountInt.getMoney
-            discountedTickets = ((ticketsBookedInEvent + search.quantity) `div` freeTicketInterval) - (ticketsBookedInEvent `div` freeTicketInterval)
-            eventDiscountAmount = toHighPrecMoney $ discountedTickets * perTicketCashback
-        return (Just discountedTickets, Just eventDiscountAmount)
-      else return (Nothing, Nothing)
+  let (discountedTickets, eventDiscountAmount) = SFU.getDiscountInfo isEventOngoing mbFreeTicketInterval mbMaxFreeTicketCashback price search.quantity ticketsBookedInEvent
   let validTill = fromMaybe (addUTCTime (intToNominalDiffTime 900) now) dOnSearch.validTill -- If validTill is not present, set it to 15 minutes from now
   return
     Quote.FRFSQuote

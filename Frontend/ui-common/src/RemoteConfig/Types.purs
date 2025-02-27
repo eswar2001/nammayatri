@@ -78,6 +78,7 @@ type AppConfigRC a =
   , nammaYatriPartner :: Maybe a
   , odishaYatri :: Maybe a
   , odishaYatriPartner :: Maybe a
+  , keralaSavaariPartner :: Maybe a
   , yatri :: Maybe a
   , yatriPartner :: Maybe a
   , manaYatri :: Maybe a
@@ -102,7 +103,8 @@ type VariantLevelRemoteConfig a =
       ambulanceVentilator :: a,
       default :: a,
       deliveryBike :: a,
-      evAutoRickshaw :: a
+      evAutoRickshaw :: a,
+      heritageCab :: a
     }
 
 
@@ -202,7 +204,8 @@ type TipsConfig
       ambulanceTaxiOxy ::  Maybe (Array Int),
       ambulanceAc ::  Maybe (Array Int),
       ambulanceAcOxy ::  Maybe (Array Int),
-      ambulanceVentilator :: Maybe (Array Int)
+      ambulanceVentilator :: Maybe (Array Int),
+      heritageCab :: Maybe (Array Int)
     }
 
 type SubscriptionConfigVariantLevel 
@@ -323,3 +326,14 @@ type InvoiceConfig = {
 }
 
 type DriverInvoiceConfigVariantLevel = VariantLevelRemoteConfig (Maybe InvoiceConfig)
+
+type VoipConfig = {
+  customer :: {
+    enableVoipFeature :: Boolean,
+    enableVoipCalling :: Boolean
+  },
+  driver :: {
+    enableVoipFeature :: Boolean,
+    enableVoipCalling :: Boolean
+  }
+}

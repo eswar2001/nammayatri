@@ -1235,7 +1235,7 @@ getTe =
     , enter_referral_code: "రెఫరల్ కోడ్‌ని నమోదు చేయండి"
     , have_a_referral_code: "రెఫరల్ కోడ్ ఉందా?"
     , complete_steps_to_apply_referral: "రెఫరల్ కోడ్‌ని వర్తింపజేయడానికి పై దశలను పూర్తి చేయండి"
-    , download_namma_yatri: (\_ -> "డౌన్లోడ్ నమ్మ యాత్రి")
+    , download_namma_yatri: (\appName -> "డౌన్లోడ్ " <> appName)
     , enter_code: "కోడ్ వ్రాయండి"
     , complete_registration: "నమోదును పూర్తి చెయ్యండి"
     , cant_find_option: "ఎంపికను కనుగొనలేకపోయాము"
@@ -1711,6 +1711,7 @@ getTe =
     , your_ride_starts_in: "మీ ప్రయాణం లో ప్రారంభమవుతుంది"
     , away: " దూరంగా"
     , intercity: "అంతర నగర"
+    , local: "స్థానిక"
     , intercity_return: "అంతర నగర తిరుగు"
     , rental: "అద్దె"
     , regular: "సాధారణ"
@@ -1788,4 +1789,7 @@ getTe =
     , drivers_are_permitted_to_cancel_ambulance_bookings : "డ్రైవర్లు తమ వైద్య కారణాలు లేదా వాహన విఫలమై ఉన్న కారణాల వల్ల మాత్రమే రద్దు చేయడానికి అనుమతించబడతారు"
     , payment_under_maintenance : "చెల్లింపు నిర్వహణలో ఉంది"
     , payments_temporarily_unavailable : "చెల్లింపులు తాత్కాలికంగా అందుబాటులో లేవు, త్వరలో తిరిగి అందుబాటులోకి వస్తాయి. దయచేసి తరువాత ప్రయత్నించండి."
+    , resume_ride : "ప్రయాణాన్ని తిరిగి ప్రారంభించండి"
+    , end_ride_with_stops : "మీరు గమ్యస్థానం చేరుకునే వరకు ఇంకా కొన్ని స్టాప్‌లు ఉన్నాయి. అయినప్పటికీ రైడ్‌ను ముగించాలా?" 
+    , stop: (\n -> "ఆగడం " <> n)
     }

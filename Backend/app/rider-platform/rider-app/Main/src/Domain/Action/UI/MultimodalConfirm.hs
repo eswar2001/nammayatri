@@ -9,6 +9,7 @@ module Domain.Action.UI.MultimodalConfirm
     postMultimodalJourneyCancel,
     postMultimodalExtendLeg,
     postMultimodalJourneyLegSkip,
+    postMultimodalJourneyLegAddSkippedLeg,
     getMultimodalJourneyStatus,
     postMultimodalExtendLegGetfare,
     postMultimodalJourneyFeedback,
@@ -17,10 +18,12 @@ module Domain.Action.UI.MultimodalConfirm
   )
 where
 
+import API.Types.UI.FRFSTicketService as FRFSTicketService
 import qualified API.Types.UI.MultimodalConfirm
 import qualified API.Types.UI.MultimodalConfirm as ApiTypes
 import qualified Domain.Action.UI.FRFSTicketService as FRFSTicketService
 import qualified Domain.Types.CancellationReason as SCR
+import qualified Domain.Types.Common as DTrip
 import qualified Domain.Types.Estimate as DEst
 import qualified Domain.Types.Journey
 import qualified Domain.Types.JourneyFeedback as JFB
@@ -73,10 +76,15 @@ postMultimodalConfirm ::
     ) ->
     Kernel.Types.Id.Id Domain.Types.Journey.Journey ->
     Kernel.Prelude.Maybe Kernel.Prelude.Int ->
+    API.Types.UI.MultimodalConfirm.JourneyConfirmReq ->
     Environment.Flow Kernel.Types.APISuccess.APISuccess
   )
-postMultimodalConfirm (_, _) journeyId forcedBookLegOrder = do
+postMultimodalConfirm (_, _) journeyId forcedBookLegOrder journeyConfirmReq = do
   journey <- JM.getJourney journeyId
+  let confirmElements = journeyConfirmReq.journeyConfirmReqElements
+  forM_ confirmElements $ \element ->
+    when (element.skipBooking) $
+      JM.skipLeg journeyId element.journeyLegOrder
   void $ JM.startJourney forcedBookLegOrder journey.id
   JM.updateJourneyStatus journey Domain.Types.Journey.CONFIRMED
   pure Kernel.Types.APISuccess.Success
@@ -221,7 +229,11 @@ postMultimodalRiderLocation ::
   Environment.Flow ApiTypes.JourneyStatusResp
 postMultimodalRiderLocation personOrMerchantId journeyId req = do
   addPoint journeyId req
-  getMultimodalJourneyStatus personOrMerchantId journeyId
+  journeyStatus <- getMultimodalJourneyStatus personOrMerchantId journeyId
+  forM_ (zip journeyStatus.legs (drop 1 journeyStatus.legs)) $ \(currentLeg, nextLeg) -> do
+    when ((currentLeg.status == JL.Finishing || currentLeg.status == JL.Completed) && nextLeg.status == JL.InPlan && nextLeg.mode == DTrip.Taxi) $
+      void $ JM.startJourney (Just nextLeg.legOrder) journeyId
+  return journeyStatus
 
 postMultimodalJourneyCancel ::
   ( Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person),
@@ -268,16 +280,49 @@ postMultimodalJourneyLegSkip (_, _) journeyId legOrder = do
   JM.skipLeg journeyId legOrder
   pure Kernel.Types.APISuccess.Success
 
+postMultimodalJourneyLegAddSkippedLeg ::
+  ( ( Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person),
+      Kernel.Types.Id.Id Domain.Types.Merchant.Merchant
+    ) ->
+    Kernel.Types.Id.Id Domain.Types.Journey.Journey ->
+    Int ->
+    Environment.Flow Kernel.Types.APISuccess.APISuccess
+  )
+postMultimodalJourneyLegAddSkippedLeg (_, _) journeyId legOrder = do
+  JM.addSkippedLeg journeyId legOrder
+  pure Kernel.Types.APISuccess.Success
+
 getMultimodalJourneyStatus ::
   ( Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person),
     Kernel.Types.Id.Id Domain.Types.Merchant.Merchant
   ) ->
   Kernel.Types.Id.Id Domain.Types.Journey.Journey ->
   Environment.Flow ApiTypes.JourneyStatusResp
-getMultimodalJourneyStatus (_, _) journeyId = do
+getMultimodalJourneyStatus (mbPersonId, merchantId) journeyId = do
   journey <- JM.getJourney journeyId
   legs <- JM.getAllLegsStatus journey
-  return $ ApiTypes.JourneyStatusResp {legs = map transformLeg legs, journeyStatus = journey.status}
+  paymentStatus <-
+    if journey.isPaymentSuccess /= Just True
+      then do
+        personId <- fromMaybeM (InvalidRequest "Invalid person id") mbPersonId
+        allJourneyFrfsBookings <- QFRFSTicketBooking.findAByJourneyIdCond (Just journeyId)
+        frfsBookingStatusArr <- mapM (FRFSTicketService.frfsBookingStatus (personId, merchantId)) allJourneyFrfsBookings
+        let anyFirstBooking = listToMaybe frfsBookingStatusArr
+            paymentOrder =
+              anyFirstBooking >>= (.payment)
+                <&> ( \p ->
+                        ApiTypes.PaymentOrder {sdkPayload = p.paymentOrder, status = p.status}
+                    )
+            mbPaymentStatus = paymentOrder <&> (.status)
+        whenJust mbPaymentStatus $ \pstatus -> do
+          when (pstatus == FRFSTicketService.SUCCESS) $ void $ QJourney.updatePaymentStatus (Just True) journeyId
+        return $ paymentOrder <&> (.status)
+      else
+        if journey.isPaymentSuccess == Just True
+          then do
+            return (Just FRFSTicketService.SUCCESS)
+          else return Nothing
+  return $ ApiTypes.JourneyStatusResp {legs = map transformLeg legs, journeyStatus = journey.status, journeyPaymentStatus = paymentStatus}
   where
     transformLeg :: JMTypes.JourneyLegState -> ApiTypes.LegStatus
     transformLeg legState =
@@ -285,7 +330,11 @@ getMultimodalJourneyStatus (_, _) journeyId = do
         { legOrder = legState.legOrder,
           status = legState.status,
           userPosition = legState.userPosition,
-          vehiclePosition = legState.vehiclePosition
+          vehiclePosition = legState.vehiclePosition,
+          mode = legState.mode,
+          nextStop = legState.nextStop,
+          nextStopTravelTime = legState.nextStopTravelTime,
+          nextStopTravelDistance = legState.nextStopTravelDistance
         }
 
 postMultimodalJourneyFeedback :: (Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person), Kernel.Types.Id.Id Domain.Types.Merchant.Merchant) -> Kernel.Types.Id.Id Domain.Types.Journey.Journey -> API.Types.UI.MultimodalConfirm.JourneyFeedBackForm -> Environment.Flow Kernel.Types.APISuccess.APISuccess

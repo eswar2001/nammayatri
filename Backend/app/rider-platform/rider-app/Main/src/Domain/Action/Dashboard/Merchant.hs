@@ -33,6 +33,7 @@ where
 
 import qualified "dashboard-helper-api" API.Types.RiderPlatform.Management.Merchant as Common
 import Control.Applicative
+import qualified Data.Aeson as JSON
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Csv
@@ -111,6 +112,7 @@ import qualified Storage.Queries.ServicePeopleCategoryExtra as SQSPCE
 import qualified Storage.Queries.TicketPlace as SQTP
 import qualified Storage.Queries.TicketService as SQTS
 import Tools.Error
+import qualified Tools.Payment as Payment
 
 ---------------------------------------------------------------------
 postMerchantUpdate :: ShortId DM.Merchant -> Context.City -> Common.MerchantUpdateReq -> Flow APISuccess
@@ -445,19 +447,20 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
       Just newCity -> return newCity.id
       Nothing -> generateGUID
 
+  let newMerchantShortId = maybe merchantShortId (.shortId) mbNewMerchant
   -- city
   let mbNewOperatingCity =
         case cityAlreadyCreated of
           Nothing -> do
-            let newOperatingCity = buildMerchantOperatingCity newMerchantId newMerchantOperatingCityId now
+            let newOperatingCity = buildMerchantOperatingCity newMerchantId newMerchantOperatingCityId now newMerchantShortId
             Just newOperatingCity
           _ -> Nothing
 
   -- merchant message
   mbMerchantMessages <-
-    CQMM.findAllByMerchantOpCityId newMerchantOperatingCityId >>= \case
+    CQMM.findAllByMerchantOpCityIdInRideFlow newMerchantOperatingCityId [] >>= \case
       [] -> do
-        merchantMessages <- CQMM.findAllByMerchantOpCityId baseOperatingCityId
+        merchantMessages <- CQMM.findAllByMerchantOpCityId baseOperatingCityId Nothing
         let newMerchantMessages = map (buildMerchantMessage newMerchantId newMerchantOperatingCityId now) merchantMessages
         return $ Just newMerchantMessages
       _ -> return Nothing -- ignore
@@ -491,7 +494,7 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
 
   -- rider_config
   mbRiderConfig <- do
-    let baseVersion = LYT.ConfigVersionMap {version = 1, config = LYT.RiderConfig}
+    let baseVersion = LYT.ConfigVersionMap {version = 1, config = LYT.RIDER_CONFIG LYT.RiderConfig}
     QRC.findByMerchantOperatingCityId newMerchantOperatingCityId (Just [baseVersion]) >>= \case
       Nothing -> do
         riderConfig <- QRC.findByMerchantOperatingCityId baseOperatingCityId (Just [baseVersion]) >>= fromMaybeM (InvalidRequest "Rider Config not found")
@@ -581,7 +584,7 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
         CQMM.clearCacheById newMerchantOperatingCityId
         CQMPM.clearCache newMerchantOperatingCityId
         CQMSUC.clearCache newMerchantOperatingCityId
-        QRC.clearCache newMerchantOperatingCityId Nothing
+        QRC.clearCache newMerchantOperatingCityId
         CQIssueConfig.clearIssueConfigCache (cast newMerchantOperatingCityId) ICommon.CUSTOMER
         exoPhone <- CQExophone.findAllByMerchantOperatingCityId newMerchantOperatingCityId
         CQExophone.clearCache newMerchantOperatingCityId exoPhone
@@ -630,11 +633,11 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
           ..
         }
 
-    buildMerchantOperatingCity newMerchantId cityId currentTime = do
+    buildMerchantOperatingCity newMerchantId cityId currentTime newMerchantShortId = do
       DMOC.MerchantOperatingCity
         { id = cityId,
           merchantId = newMerchantId,
-          merchantShortId,
+          merchantShortId = newMerchantShortId,
           lat = req.lat,
           long = req.long,
           city = req.city,
@@ -827,7 +830,8 @@ data TicketConfigCSVRow = TicketConfigCSVRow
     peakDays :: Text,
     cancellationType :: Text,
     cancellationTime :: Text,
-    cancellationFee :: Text
+    cancellationFee :: Text,
+    vendorSplitDetails :: Text
   }
   deriving (Show)
 
@@ -879,6 +883,7 @@ instance FromNamedRecord TicketConfigCSVRow where
       <*> r .: "cancellation_type"
       <*> r .: "cancellation_time"
       <*> r .: "cancellation_fee"
+      <*> r .: "vendor_split_details"
 
 postMerchantTicketConfigUpsert :: ShortId DM.Merchant -> Context.City -> Common.UpsertTicketConfigReq -> Flow Common.UpsertTicketConfigResp
 postMerchantTicketConfigUpsert merchantShortId opCity request = do
@@ -1134,7 +1139,8 @@ postMerchantTicketConfigUpsert merchantShortId opCity request = do
       priceAmount :: HighPrecMoney <- readCSVField idx row.priceAmount "Price Amount"
       pricingType :: PricingType <- readCSVField idx row.pricingType "Pricing Type"
       priceCurrency :: Currency <- readCSVField idx row.priceCurrency "Price Currency"
-      let pricePerUnit = Price (round priceAmount) priceAmount priceCurrency
+      let vendorSplitDetails = (map Payment.roundVendorFee) <$> (cleanField row.vendorSplitDetails >>= JSON.decodeStrict . encodeUtf8)
+          pricePerUnit = Price (round priceAmount) priceAmount priceCurrency
           mbPeakTimings = cleanField row.peakTimings
           svcPeopleCategoryId = peopleCategoryName <> separator <> svcCategoryId
           mbCancellationType = cleanField row.cancellationType

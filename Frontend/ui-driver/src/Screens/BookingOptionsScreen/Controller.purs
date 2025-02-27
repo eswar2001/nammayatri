@@ -48,6 +48,7 @@ data Action
   | OpenLink String
   | ToggleRentalRide 
   | ToggleIntercityRide
+  | ToggleLocalRide
   | UpdateRateCard API.GetDriverRateCardRes
   | ShowRateCard ST.RidePreference
   | RateCardAction RateCard.Action
@@ -75,6 +76,8 @@ eval (ToggleRidePreference service) state =
 eval ToggleRentalRide state = updateAndExit state { props {canSwitchToRental = not <$> state.props.canSwitchToRental} } $ ToggleRentalIntercityRide state { props {canSwitchToRental = not <$> state.props.canSwitchToRental} }
 
 eval ToggleIntercityRide state = updateAndExit state {props {canSwitchToInterCity = not <$> state.props.canSwitchToInterCity}} $ ToggleRentalIntercityRide state {props {canSwitchToInterCity = not <$> state.props.canSwitchToInterCity}}
+
+eval ToggleLocalRide state = updateAndExit state {props {canSwitchToIntraCity = not <$> state.props.canSwitchToIntraCity}} $ ToggleRentalIntercityRide state {props {canSwitchToIntraCity = not <$> state.props.canSwitchToIntraCity}}
 
 eval (UpdateACAvailability acServiceToggle) state = exit $ ToggleACAvailability state $ not acServiceToggle
 
@@ -173,6 +176,7 @@ getVehicleCapacity vehicleType = case vehicleType of
   "AMBULANCE_AC_OXY" -> "Ambulance AC Oxy" <> " · " <> "4 " <> getString PEOPLE
   "AMBULANCE_VENTILATOR" -> "Ambulance Ventilator" <> " · " <> "4 " <> getString PEOPLE
   "SUV_PLUS" -> "AC, " <> getString SPACIOUS <> " · " <> "6 " <> getString PEOPLE
+  "HERITAGE_CAB" -> "AC, " <> "Signature Cabs" <> " · " <> "4 " <> getString PEOPLE
   _ -> getString COMFY <> " · " <> "4 " <> getString PEOPLE
 
 dummyVehicleP :: VehicleP

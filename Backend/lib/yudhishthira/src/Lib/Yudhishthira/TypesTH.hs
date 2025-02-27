@@ -3,10 +3,14 @@
 module Lib.Yudhishthira.TypesTH (generateGenericDefault, GenericDefaults (..)) where
 
 import Control.Monad
+import Data.Aeson
+import qualified Data.Aeson.KeyMap
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as DL
 import qualified Data.Text as DT
 import qualified Data.Time
+import qualified Data.Time.LocalTime
+import qualified Data.Vector
 import Kernel.Prelude hiding (Type)
 import Kernel.Types.Common
 import qualified Kernel.Types.Id
@@ -53,6 +57,18 @@ getFieldDefaultValues fieldTypeName = do
       | fieldTypeName == ''BaseUrl = ListE [AppE (AppE (AppE (AppE (ConE 'BaseUrl) (ConE 'Servant.Client.Core.Https)) (LitE (StringL "example.com"))) (LitE (IntegerL 443))) (LitE (StringL "/this"))]
       | fieldTypeName == ''Kernel.Types.Id.Id = ListE [LitE (StringL "random-1000-4000-8000-uuid")]
       | fieldTypeName == ''Kernel.Types.Id.ShortId = ListE [LitE (StringL "randomShortId")]
+      | fieldTypeName == ''NominalDiffTime = ListE [AppE (VarE 'fromInteger) (LitE (IntegerL 1))]
+      | fieldTypeName == ''Data.Time.LocalTime.TimeOfDay = ListE [AppE (AppE (AppE (ConE 'Data.Time.LocalTime.TimeOfDay) (LitE (IntegerL 11))) (LitE (IntegerL 10))) (LitE (IntegerL 10))]
+      | fieldTypeName == ''Object =
+        ListE
+          [ AppE
+              (VarE 'Data.Aeson.KeyMap.fromList)
+              ( ListE
+                  [ TupE [Just (LitE (StringL "z")), Just (LitE (StringL "someString"))],
+                    TupE [Just (LitE (StringL "a")), Just (LitE (StringL "someString"))]
+                  ]
+              )
+          ]
       | otherwise = ListE []
 
 -- below just to ease the process a little
@@ -110,6 +126,25 @@ generateGenericDefaultDefaultForType fieldType = do
       fieldGenericDefaults <- getFieldDefaultValues rawFieldType
       let fieldDefaultValues = fst fieldGenericDefaults
       pure (fieldDefaultValues, snd fieldGenericDefaults)
+    AppT (ConT vecConst) (ConT rawFieldType) | vecConst == ''Data.Vector.Vector -> do
+      fieldGenericDefaults <- getFieldDefaultValues rawFieldType
+      let fieldDefaultValues = fst fieldGenericDefaults
+      pure (ListE [AppE (VarE 'Data.Vector.fromList) fieldDefaultValues], snd fieldGenericDefaults)
+    AppT ListT (AppT (AppT (TupleT 2) (ConT typeName1)) (ConT typeName2)) -> do
+      fieldGenericDefaults1 <- getFieldDefaultValues typeName1
+      fieldGenericDefaults2 <- getFieldDefaultValues typeName2
+      let fieldDefaultValues1' = fst fieldGenericDefaults1
+      let fieldDefaultValues2' = fst fieldGenericDefaults2
+      let combinedDes = snd fieldGenericDefaults1 ++ snd fieldGenericDefaults2
+      let fieldDefaultValues1 = case fieldDefaultValues1' of
+            ListE elems -> elems
+            val -> fail $ "broke in tuple expected a list" <> show val
+          fieldDefaultValues2 = case fieldDefaultValues2' of
+            ListE elems -> elems
+            val -> fail $ "broke in tuple expected a list" <> show val
+      let elements = ListE [ListE $ zipWith (\k v -> TupE [Just k, Just v]) fieldDefaultValues1 fieldDefaultValues2]
+
+      pure (elements, combinedDes)
     AppT (AppT (ConT hashMapName) type1) type2 | hashMapName == ''HashMap.HashMap -> do
       domain1Defaults <- generateGenericDefaultDefaultForType type1
       domain2Defaults <- generateGenericDefaultDefaultForType type2

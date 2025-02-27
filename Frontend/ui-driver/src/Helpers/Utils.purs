@@ -40,7 +40,7 @@ import Data.Either (Either(..), hush, either)
 import Data.Eq.Generic (genericEq)
 import Data.Generic.Rep (class Generic)
 import Data.Show.Generic (genericShow)
-import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe, isNothing)
 import Data.Number (pi, sin, cos, asin, sqrt)
 import Data.Show.Generic (genericShow)
 import Data.String (Pattern(..), split, take) as DS
@@ -70,7 +70,7 @@ import PaymentPage(PaymentPagePayload, UpiApps(..))
 import Presto.Core.Types.Language.Flow (Flow, doAff, loadS)
 import Control.Monad.Except.Trans (lift)
 import Foreign.Generic (Foreign)
-import Data.Newtype (class Newtype)
+import Data.Newtype (class Newtype, unwrap)
 import Presto.Core.Types.API (class StandardEncode, standardEncode)
 import Services.API (PromotionPopupConfig, BookingTypes(..), RidesInfo, GetCategoriesRes(..), Category(..))
 import Services.API as SA
@@ -117,7 +117,8 @@ import Data.Ord (compare)
 import JBridge as JB
 import Resource.Localizable.StringsV2 (getStringV2)
 import Resource.Localizable.TypesV2
-
+import Data.Tuple as DT
+import Resource.Constants (decodeAddress)
 
 type AffSuccess s = (s -> Effect Unit)
 
@@ -296,30 +297,20 @@ toRad :: Number -> Number
 toRad n = (n * pi) / 180.0
 
 getDowngradeOptions :: String -> Array String
-getDowngradeOptions variant = case (getMerchant FunctionCall) of
-                                YATRISATHI -> case variant of
-                                                "TAXI"  -> []
-                                                "SUV"   -> ["SEDAN", "HATCHBACK"]
-                                                "SEDAN" -> ["TAXI", "HATCHBACK"] 
-                                                "BIKE"  -> []
-                                                "AMBULANCE_TAXI" -> []
-                                                "AMBULANCE_TAXI_OXY" -> []
-                                                "AMBULANCE_AC" -> []
-                                                "AMBULANCE_AC_OXY" -> []
-                                                "AMBULANCE_VENTILATOR" -> []
-                                                "SUV_PLUS" -> ["SUV", "SEDAN", "HATCHBACK"]
-                                                _       -> ["TAXI"]
-                                _ -> case variant of
-                                        "SUV"   -> ["SEDAN", "HATCHBACK"]
-                                        "SEDAN" -> ["HATCHBACK"]
-                                        "BIKE"  -> []
-                                        "AMBULANCE_TAXI" -> []
-                                        "AMBULANCE_TAXI_OXY" -> []
-                                        "AMBULANCE_AC" -> []
-                                        "AMBULANCE_AC_OXY" -> []
-                                        "AMBULANCE_VENTILATOR" -> []
-                                        "SUV_PLUS" -> ["SUV", "SEDAN", "HATCHBACK"]
-                                        _       -> []
+getDowngradeOptions variant = 
+  case variant of
+    "TAXI"  -> []
+    "SUV"   -> ["SEDAN", "HATCHBACK"]
+    "SEDAN" -> ["HATCHBACK"]
+    "BIKE"  -> []
+    "AMBULANCE_TAXI" -> []
+    "AMBULANCE_TAXI_OXY" -> []
+    "AMBULANCE_AC" -> []
+    "AMBULANCE_AC_OXY" -> []
+    "AMBULANCE_VENTILATOR" -> []
+    "SUV_PLUS" -> ["SUV", "SEDAN", "HATCHBACK"]
+    "HERITAGE_CAB" -> ["HATCHBACK"] 
+    _       -> []
 
 
 getDowngradeOptionsText :: String -> String
@@ -339,30 +330,20 @@ getDowngradeOptionsText vehicleType = do
   getString DOWNGRADING_VEHICLE_WILL_ALLOW_YOU_TO_TAKE_BOTH_1 <> downgradeFrom <> downgradedToString <> getString DOWNGRADING_VEHICLE_WILL_ALLOW_YOU_TO_TAKE_BOTH_3
 
 getUIDowngradeOptions :: String -> Array String
-getUIDowngradeOptions variant = case (getMerchant FunctionCall) of
-                                YATRISATHI -> case variant of
-                                                "TAXI"  -> []
-                                                "BIKE"  -> []
-                                                "SUV"   -> ["SEDAN", "HATCHBACK"]
-                                                "SEDAN" -> ["TAXI"] 
-                                                "AMBULANCE_TAXI" -> []
-                                                "AMBULANCE_TAXI_OXY" -> []
-                                                "AMBULANCE_AC" -> []
-                                                "AMBULANCE_AC_OXY" -> []
-                                                "AMBULANCE_VENTILATOR" -> []
-                                                "SUV_PLUS" -> ["SUV", "SEDAN", "HATCHBACK"]
-                                                _       -> []
-                                _ -> case variant of
-                                        "SUV"   -> ["SEDAN", "HATCHBACK"]
-                                        "SEDAN" -> ["HATCHBACK"]
-                                        "BIKE"  -> []
-                                        "AMBULANCE_TAXI" -> []
-                                        "AMBULANCE_TAXI_OXY" -> []
-                                        "AMBULANCE_AC" -> []
-                                        "AMBULANCE_AC_OXY" -> []
-                                        "AMBULANCE_VENTILATOR" -> []
-                                        "SUV_PLUS" -> ["SUV", "SEDAN", "HATCHBACK"]
-                                        _       -> []
+getUIDowngradeOptions variant = 
+  case variant of
+    "TAXI"  -> []
+    "BIKE"  -> []
+    "SUV"   -> ["SEDAN", "HATCHBACK"]
+    "SEDAN" -> ["TAXI"] 
+    "AMBULANCE_TAXI" -> []
+    "AMBULANCE_TAXI_OXY" -> []
+    "AMBULANCE_AC" -> []
+    "AMBULANCE_AC_OXY" -> []
+    "AMBULANCE_VENTILATOR" -> []
+    "SUV_PLUS" -> ["SUV", "SEDAN", "HATCHBACK"]
+    "HERITAGE_CAB" -> ["HATCHBACK"]
+    _       -> []
   
 getVehicleType :: String -> String
 getVehicleType vehicleType =
@@ -384,6 +365,7 @@ getVehicleType vehicleType =
     "BUS_NON_AC" -> "Non AC Bus"
     "BUS_AC" -> "AC Bus"
     "EV_AUTO_RICKSHAW" -> "EV Auto Rickshaw"
+    "HERITAGE_CAB" -> "Heritage Cab"
     _ -> ""
 
 getRideLabelData :: Maybe String -> LabelConfig
@@ -569,21 +551,23 @@ getRideTypeColor variant = case getCategorizedVariant variant of
 
 getCategorizedVariant :: Maybe String -> String
 getCategorizedVariant variant = case variant of
-  Just var -> case var of
-                "SEDAN"  -> "Sedan"
-                "HATCHBACK"  -> "Hatchback"
-                "TAXI_PLUS"  -> "AC Taxi"
-                "SUV" -> "Suv"
-                "AUTO_RICKSHAW" -> "Auto Rickshaw"
-                "BIKE" -> "Bike Taxi"
-                "AMBULANCE_TAXI" -> "Ambulance_Taxi"
-                "AMBULANCE_TAXI_OXY" -> "Ambulance_Taxi_Oxy"
-                "AMBULANCE_AC" -> "Ambulance_AC" 
-                "AMBULANCE_AC_OXY" -> "Ambulance_AC_Oxy"
-                "AMBULANCE_VENTILATOR" -> "Ambulance_Ventilator"
-                "SUV_PLUS" -> "XL Plus"
-                "EV_AUTO_RICKSHAW" -> "EV Auto Rickshaw"
-                _ -> var
+  Just var -> 
+    case var of
+      "SEDAN"  -> "Sedan"
+      "HATCHBACK"  -> "Hatchback"
+      "TAXI_PLUS"  -> "AC Taxi"
+      "SUV" -> "Suv"
+      "AUTO_RICKSHAW" -> "Auto Rickshaw"
+      "BIKE" -> "Bike Taxi"
+      "AMBULANCE_TAXI" -> "Ambulance_Taxi"
+      "AMBULANCE_TAXI_OXY" -> "Ambulance_Taxi_Oxy"
+      "AMBULANCE_AC" -> "Ambulance_AC" 
+      "AMBULANCE_AC_OXY" -> "Ambulance_AC_Oxy"
+      "AMBULANCE_VENTILATOR" -> "Ambulance_Ventilator"
+      "SUV_PLUS" -> "XL Plus"
+      "EV_AUTO_RICKSHAW" -> "EV Auto Rickshaw"
+      "HERITAGE_CAB" -> "Heritage Cab"
+      _ -> var
   Nothing -> ""
 
 
@@ -629,6 +613,7 @@ getVehicleVariantImage variant =
       "TAXI"      -> "ic_taxi," <> commonUrl <> "ic_taxi.png"
       "PREMIUM"   -> "ic_cab_premium" <> commonUrl <> "ic_cab_premium.png"
       "TAXI_PLUS" -> "ny_ic_sedan_ac," <> commonUrl <> "ny_ic_sedan_ac.png"
+      "LOCAL"     -> "ny_ic_local_asset,https://assets.moving.tech/beckn/common/driver/images/ny_ic_local_asset.png"  
       "ECO"       -> "ic_hatchback_ac," <> commonUrl <> "ic_hatchback_ac.png"
       "COMFY"     -> "ny_ic_sedan_ac," <> commonUrl <> "ny_ic_sedan_ac.png"
       _ | DA.elem variant ["AUTO_RICKSHAW", "EV_AUTO_RICKSHAW"] -> 
@@ -647,6 +632,8 @@ getVehicleVariantImage variant =
       "SUV_PLUS"  -> "ny_ic_suv_plus_side," <> commonUrl <> "ny_ic_suv_plus_side.png"
       "SUV_PLUS_TIER" -> "ny_ic_suv_plus_side," <> commonUrl <> "ny_ic_suv_plus_side.png"
       "DELIVERY_BIKE" -> "ny_ic_parcel_box," <> commonUrl <> "ny_ic_parcel_box.png"
+      "HERITAGE_CAB" -> fetchImage FF_COMMON_ASSET "ny_ic_heritage_cab_side"
+      "HERITAGE_CAB_TIER" -> fetchImage FF_COMMON_ASSET "ny_ic_heritage_cab_side"
       _ -> fetchImage FF_ASSET "ic_vehicle_front"
 
 isKeralaCity :: String -> Boolean 
@@ -994,6 +981,7 @@ getVehicleMapping serviceTierType = case serviceTierType of
   SA.TAXI_PLUS -> "TAXI_PLUS"
   SA.RENTALS -> "RENTALS"
   SA.INTERCITY -> "INTERCITY"
+  SA.LOCAL -> "LOCAL"
   SA.BIKE_TIER -> "BIKE"
   SA.AMBULANCE_TAXI_TIER -> "AMBULANCE_TAXI"
   SA.AMBULANCE_TAXI_OXY_TIER -> "AMBULANCE_TAXI_OXY"
@@ -1003,6 +991,7 @@ getVehicleMapping serviceTierType = case serviceTierType of
   SA.SUV_PLUS_TIER -> "SUV_PLUS"
   SA.DELIVERY_BIKE -> "DELIVERY_BIKE"
   SA.EV_AUTO_RICKSHAW -> "EV_AUTO_RICKSHAW"
+  SA.HERITAGE_CAB_TIER -> "HERITAGE_CAB"
 
 getVehicleServiceTierImage :: SA.ServiceTierType -> String
 getVehicleServiceTierImage vehicleServiceTier = case vehicleServiceTier of
@@ -1102,6 +1091,7 @@ driverVehicleToVechicleServiceTier vehicle =
         "AUTO_RICKSHAW"  ->  SA.AUTO_RICKSHAW
         "XL Cab" -> SA.SUV_TIER
         "XL Plus" -> SA.SUV_PLUS_TIER
+        "Heritage Cab" -> SA.HERITAGE_CAB_TIER
         _ ->SA.AUTO_RICKSHAW
 
 checkNotificationType :: String -> ST.NotificationType -> Boolean
@@ -1120,7 +1110,8 @@ dummyLocationInfo = SA.LocationInfo {
       areaCode : Nothing,
       lon : 0.0,
       extras : Nothing,
-      instructions : Nothing
+      instructions : Nothing,
+      id : Nothing
   }
 
 getVehicleVariantName :: VehicleCategory -> String
@@ -1253,8 +1244,20 @@ isTokenWithExpValid token = do
       isTokenValid = (runFn2 JB.differenceBetweenTwoUTC (fromMaybe "" (tokenWithExp DA.!! 1)) (ReExport.getCurrentUTC "")) > 0
   isTokenValid && not (DS.null cachedToken)
   
+checkIfStopsLeft :: Array SA.Stop -> Boolean
+checkIfStopsLeft stops = 
+  DA.any (\(SA.Stop item) -> maybe true (\(SA.StopInformation stopInfo) -> isNothing stopInfo.stopEndLatLng) item.stopInfo) stops
+
+getStopToDepart :: Array SA.Stop -> Maybe SA.Stop
+getStopToDepart stops = 
+  DA.find (\(SA.Stop item) -> maybe false (\(SA.StopInformation stopInfo) -> isNothing stopInfo.stopEndLatLng) item.stopInfo) stops
+
+getUpcomingStop :: Array SA.Stop -> Maybe SA.Stop
+getUpcomingStop stops = DA.find (\(SA.Stop item) ->isNothing item.stopInfo) stops
+
 getSrcDestConfig :: HomeScreenState -> UpdateRouteSrcDestConfig
-getSrcDestConfig state = 
+getSrcDestConfig state = do
+  let hasStops = not $ DA.null state.data.activeRide.stops
   if state.props.currentStage == ST.RideAccepted then
     {
       srcLat : state.data.currentDriverLat,
@@ -1274,12 +1277,19 @@ getSrcDestConfig state =
       destination : fromMaybe "" state.data.activeRide.nextStopAddress
     }
   else {
-      srcLat : state.data.activeRide.src_lat,
-      srcLon : state.data.activeRide.src_lon,
+      srcLat : if hasStops then state.data.currentDriverLat else state.data.activeRide.src_lat,
+      srcLon : if hasStops then state.data.currentDriverLon else state.data.activeRide.src_lon,
       destLat : state.data.activeRide.dest_lat,
       destLon : state.data.activeRide.dest_lon,
       source : state.data.activeRide.source,
       destination : fromMaybe "" state.data.activeRide.destination
   }
-isAmbulance :: String -> Boolean
-isAmbulance vehicleVariant = DA.any (_ == vehicleVariant) ["AMBULANCE_TAXI", "AMBULANCE_TAXI_OXY", "AMBULANCE_AC", "AMBULANCE_AC_OXY", "AMBULANCE_VENTILATOR"]
+
+getStopName :: SA.Stop -> DT.Tuple String String
+getStopName (SA.Stop stopData) = do
+  let source = decodeAddress stopData.location true
+      (SA.LocationInfo location) = stopData.location
+      sourcePrefix = fromMaybe "" ((DS.split (DS.Pattern ",") source) DA.!! 0)
+      sourceArea = maybe sourcePrefix identity location.area
+      description = maybe source (\item -> item <> ", " <> source) location.extras
+  DT.Tuple sourceArea description

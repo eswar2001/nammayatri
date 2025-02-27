@@ -449,6 +449,7 @@ endRideHandler handle@ServiceHandle {..} rideId req = do
                tripEndPos = Just tripEndPoint,
                rideEndedBy = Just rideEndedBy',
                fareParametersId = Just newFareParams.id,
+               tollCharges = mbUpdatedFareParams >>= (.tollCharges),
                distanceCalculationFailed = distanceCalculationFailed,
                pickupDropOutsideOfThreshold = pickupDropOutsideOfThreshold,
                endOdometerReading = mbOdometer
@@ -725,5 +726,10 @@ shouldUpwardRecompute thresholdConfig estimatedDistance distanceDiff = do
 isUnloadingTimeRequired :: DVST.ServiceTierType -> Bool
 isUnloadingTimeRequired str =
   str
-    `elem` [ DVST.DELIVERY_LIGHT_GOODS_VEHICLE
+    `elem` [ DVST.DELIVERY_LIGHT_GOODS_VEHICLE,
+             DVST.DELIVERY_TRUCK_MINI,
+             DVST.DELIVERY_TRUCK_SMALL,
+             DVST.DELIVERY_TRUCK_MEDIUM,
+             DVST.DELIVERY_TRUCK_LARGE,
+             DVST.DELIVERY_TRUCK_ULTRA_LARGE
            ]

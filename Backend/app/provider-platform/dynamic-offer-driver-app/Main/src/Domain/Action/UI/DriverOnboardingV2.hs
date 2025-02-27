@@ -294,9 +294,10 @@ getDriverVehicleServiceTiers (mbPersonId, _, merchantOpCityId) = do
   let tierOptions =
         driverVehicleServiceTierTypes <&> \(VehicleServiceTier {..}, usageRestricted) -> do
           let isNonACDefault = isACCheckEnabledForCity && not isACWorking && isNothing airConditionedThreshold
+              isNonOxygenDefault = oxygen /= Just 1
           API.Types.UI.DriverOnboardingV2.DriverVehicleServiceTier
-            { isSelected = (serviceTierType `elem` vehicle.selectedServiceTiers) || isNonACDefault,
-              isDefault = (vehicle.variant `elem` defaultForVehicleVariant) || isNonACDefault,
+            { isSelected = (serviceTierType `elem` vehicle.selectedServiceTiers) || (isNonACDefault && isNonOxygenDefault),
+              isDefault = (vehicleCategory /= Just DVC.AMBULANCE) && ((vehicle.variant `elem` defaultForVehicleVariant) || isNonACDefault), -- No default in Ambulance
               isUsageRestricted = Just usageRestricted,
               priority = Just priority,
               airConditioned = airConditionedThreshold,
@@ -341,13 +342,14 @@ getDriverVehicleServiceTiers (mbPersonId, _, merchantOpCityId) = do
           )
           False
           driverVehicleServiceTierTypes
+      canSwitchToIntraCity' = (any (\(st, _) -> st.vehicleCategory == Just DVC.CAR) driverVehicleServiceTierTypes) && (canSwitchToInterCity' || canSwitchToRental')
 
   return $
     API.Types.UI.DriverOnboardingV2.DriverVehicleServiceTiers
       { tiers = tierOptions,
         canSwitchToRental = if canSwitchToRental' then Just driverInfo.canSwitchToRental else Nothing,
         canSwitchToInterCity = if canSwitchToInterCity' then Just driverInfo.canSwitchToInterCity else Nothing,
-        canSwitchToIntraCity = if canSwitchToInterCity' || canSwitchToRental' then Just driverInfo.canSwitchToIntraCity else Nothing,
+        canSwitchToIntraCity = if canSwitchToIntraCity' then Just driverInfo.canSwitchToIntraCity else Nothing,
         airConditioned = mbAirConditioned
       }
 
@@ -377,7 +379,7 @@ postDriverUpdateServiceTiers (mbPersonId, _, merchantOperatingCityId) API.Types.
           mbServiceTierDriverRequest = find (\tier -> tier.serviceTierType == driverServiceTier.serviceTierType) tiers
           isSelected = maybe isAlreadySelected (.isSelected) mbServiceTierDriverRequest
 
-      if isSelected || isDefault
+      if isSelected || (isDefault && (vehicle.category /= Just DVC.AMBULANCE)) -- Suppressing isDefault check for Ambulance
         then return $ Just driverServiceTier
         else return Nothing
   let selectedServiceTierTypes = map (.serviceTierType) $ catMaybes mbSelectedServiceTiers
@@ -403,7 +405,12 @@ postDriverUpdateServiceTiers (mbPersonId, _, merchantOperatingCityId) API.Types.
           False
           driverVehicleServiceTierTypes
 
-  QDI.updateRentalInterCityAndIntraCitySwitch canSwitchToRental' canSwitchToInterCity' (fromMaybe driverInfo.canSwitchToIntraCity canSwitchToIntraCity) personId
+      canSwitchToIntraCity' =
+        if (any (\(st, _) -> st.vehicleCategory == Just DVC.CAR) driverVehicleServiceTierTypes) && (canSwitchToInterCity' || canSwitchToRental')
+          then fromMaybe driverInfo.canSwitchToIntraCity canSwitchToIntraCity
+          else True
+
+  QDI.updateRentalInterCityAndIntraCitySwitch canSwitchToRental' canSwitchToInterCity' canSwitchToIntraCity' personId
 
   return Success
 

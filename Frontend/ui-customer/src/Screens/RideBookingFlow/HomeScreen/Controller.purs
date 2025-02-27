@@ -15,7 +15,7 @@
 
 module Screens.HomeScreen.Controller where
 
-import Common.Types.App (EventPayload(..), GlobalPayload(..), LazyCheck(..), OptionButtonList, Payload(..), RateCardType(..), FeedbackAnswer(..), ProviderType(..),TicketType(..))
+import Common.Types.App (EventPayload(..), GlobalPayload(..), LazyCheck(..), OptionButtonList, Payload(..), RateCardType(..), FeedbackAnswer(..), ProviderType(..),TicketType(..), City(..))
 import Accessor (_estimatedFare, _estimateId, _vehicleVariant, _status, _estimateFareBreakup, _title, _totalFareRange, _maxFare, _minFare, _nightShiftRate, _nightShiftEnd, _nightShiftMultiplier, _nightShiftStart, _selectedQuotes, _specialLocationTag, _contents, _toLocation, _lat, _lon, _otpCode, _list, _fareProductType, _stopLocation, _toLocation, _end, _start)
 import Components.Banner as Banner
 import Components.MessagingView as MessagingView
@@ -76,7 +76,7 @@ import Data.Boolean(otherwise)
 import Effect (Effect)
 import Effect.Aff (launchAff)
 import Effect.Unsafe (unsafePerformEffect)
-import Effect.Uncurried (runEffectFn1, runEffectFn9, runEffectFn2)
+import Effect.Uncurried (runEffectFn1, runEffectFn9, runEffectFn2, runEffectFn6)
 import Engineering.Helpers.Commons
 import Engineering.Helpers.Events as Events
 import Engineering.Helpers.LogEvent (logEvent, logEventWithTwoParams, logEventWithMultipleParams)
@@ -102,7 +102,7 @@ import Screens.HomeScreen.ScreenData as HomeScreenData
 import Screens.HomeScreen.Transformer (dummyRideAPIEntity, getDriverInfo, getEstimateList, getQuoteList, getQuotesTransformer, transformContactList, getNearByDrivers, dummyEstimateEntity, filterSpecialZoneAndInterCityQuotes, getFareProductType, extractFareProductType, getEstimateIdFromSelectedServices, getSpecialZoneQuotes)
 import Screens.RideBookingFlow.HomeScreen.Config
 import Screens.SuccessScreen.Handler as UI
-import Screens.Types (CallType(..), CardType(..), CurrentLocationDetails, CurrentLocationDetailsWithDistance(..), HomeScreenState, LocationItemType(..), LocationListItemState, PopupType(..), RatingCard, SearchLocationModelType(..), SearchResultType(..), SheetState(..), SpecialTags, Stage(..), TipViewStage(..), ZoneType(..), Trip, BottomNavBarIcon(..), City(..), ReferralStatus(..), NewContacts(..), City(..), CancelSearchType(..),TripTypeData)
+import Screens.Types (CallType(..), CardType(..), CurrentLocationDetails, CurrentLocationDetailsWithDistance(..), HomeScreenState, LocationItemType(..), LocationListItemState, PopupType(..), RatingCard, SearchLocationModelType(..), SearchResultType(..), SheetState(..), SpecialTags, Stage(..), TipViewStage(..), ZoneType(..), Trip, BottomNavBarIcon(..), ReferralStatus(..), NewContacts(..), CancelSearchType(..),TripTypeData)
 import Services.API (BookingLocationAPIEntity(..), EstimateAPIEntity(..), FareRange, GetDriverLocationResp, GetQuotesRes(..), GetRouteResp, LatLong(..), OfferRes, PlaceName(..), QuoteAPIEntity(..), RideBookingRes(..),RideBookingStatusRes(..), SelectListRes(..), GetEditLocResultResp(..), BookingUpdateRequestDetails(..),  SelectedQuotes(..), RideBookingAPIDetails(..), GetPlaceNameResp(..), RideBookingListRes(..), FollowRideRes(..), Followers(..), Route(..), RideAPIEntity(..), RideBookingDetails(..))
 import Services.Backend as Remote
 import Services.Config (getDriverNumber, getSupportNumber)
@@ -135,6 +135,7 @@ import PrestoDOM.List
 import PrestoDOM.Core
 import Locale.Utils (getLanguageLocale)
 import RemoteConfig as RC
+import RemoteConfig.Utils (getCustomerVoipConfig)
 import Screens.RideBookingFlow.HomeScreen.BannerConfig
 import Components.PopupWithCheckbox.Controller as PopupWithCheckboxController
 import LocalStorage.Cache (getValueFromCache, setValueToCache, getFromCache, setInCache, removeValueFromCache)
@@ -610,7 +611,7 @@ eval (UpdateMessages message sender timeStamp size) state = do
 eval LoadMessages state = do
   let allMessages = getChatMessages FunctionCall
       toChatComponentConfig { message, sentBy, timeStamp, type: type_, delay } =
-        { message, messageTitle: Nothing, messageAction: Nothing, sentBy, timeStamp, type: type_, delay}
+        { message, messageTitle: Nothing, messageAction: Nothing, messageLabel: Nothing, sentBy, timeStamp, type: type_, delay}
       transformedMessages = map toChatComponentConfig allMessages
   case last allMessages of
       Just value -> if value.message == "" then continue state {data { messagesSize = show (fromMaybe 0 (fromString state.data.messagesSize) + 1)}, props {canSendSuggestion = true, isChatNotificationDismissed = false}}
@@ -728,7 +729,7 @@ eval (DriverInfoCardActionController (DriverInfoCardController.MessageDriver)) s
       _ <- pure $ setValueToLocalNativeStore READ_MESSAGES (show (length state.data.messages))
       let allMessages = getChatMessages FunctionCall
           toChatComponentConfig { message, sentBy, timeStamp, type: type_, delay } =
-            { message, messageTitle: Nothing, messageAction: Nothing, sentBy, timeStamp, type: type_, delay}
+            { message, messageTitle: Nothing, messageAction: Nothing, messageLabel: Nothing, sentBy, timeStamp, type: type_, delay}
           transformedMessages = map toChatComponentConfig allMessages
       continueWithCmd state {data{messages = transformedMessages}, props {currentStage = ChatWithDriver, stageBeforeChatScreen = if state.props.currentStage /= ChatWithDriver then state.props.currentStage else state.props.stageBeforeChatScreen, sendMessageActive = false, unReadMessages = false, showChatNotification = false, isChatNotificationDismissed = false,sheetState = Just COLLAPSED}}  [ do pure $ UpdateSheetState COLLAPSED]
   else continueWithCmd state[ do
@@ -1535,6 +1536,25 @@ eval (DriverReachedDestinationAction driverReachedDestinationTime) state =
         continue state { data { driverInfoCardState { destinationReached = true } } }
     else continue state
 
+eval (VOIPCallBack callId status rideId errorCode driverFlag networkType networkStrength merchantId) state = do
+  let req = {
+      callId : callId,
+      callStatus : status,
+      rideId : rideId,
+      errorCode : if (errorCode < 0 ) then Nothing else Just errorCode,
+      userType : if (driverFlag == 1) then "DRIVER" else "RIDER",
+      networkType : networkType,
+      networkQuality : networkStrength,
+      merchantId : merchantId,
+      merchantOperatingCity : getValueToLocalStore CUSTOMER_LOCATION
+    }
+  continueWithCmd state [ do
+    void $ launchAff $ EHC.flowRunner defaultGlobalState $ do
+      resp :: (Either ErrorResponse API.APISuccessResp) <-  HelpersAPI.callApi $ API.VoipCallReq req
+      pure unit
+    pure NoAction
+  ]
+
 eval (WaitingTimeAction timerID timeInMinutes seconds) state = do
   _ <- pure $ if getValueToLocalStore DRIVER_ARRIVAL_ACTION == "TRIGGER_WAITING_ACTION"
                 then setValueToLocalStore DRIVER_ARRIVAL_ACTION "WAITING_ACTION_TRIGGERED"
@@ -2093,7 +2113,25 @@ eval CloseShowCallDialer state = continue state { props { showCallPopUp = false 
 
 eval (ShowCallDialer item) state = do
   case item of
-    ANONYMOUS_CALLER -> callDriver state "ANONYMOUS"
+    ANONYMOUS_CALLER -> do
+        let driverCuid = 
+              if not (STR.null state.data.driverInfoCardState.bppRideId)
+              then state.data.driverInfoCardState.bppRideId 
+              else ""
+        let phoneNum = 
+              if STR.null state.data.driverInfoCardState.merchantExoPhone
+              then fromMaybe "" state.data.driverInfoCardState.driverNumber
+              else if STR.take 1 state.data.driverInfoCardState.merchantExoPhone == "0" 
+                   then state.data.driverInfoCardState.merchantExoPhone 
+                   else "0" <> state.data.driverInfoCardState.merchantExoPhone
+        let voipConfig = getCustomerVoipConfig $ DS.toLower $ getValueToLocalStore CUSTOMER_LOCATION
+        if (not (STR.null driverCuid) && voipConfig.customer.enableVoipCalling)
+          then continueWithCmd state [ do
+            push <- getPushFn Nothing "HomeScreen"
+            void $ runEffectFn6 JB.voipDialer driverCuid false phoneNum false push VOIPCallBack
+            pure CloseShowCallDialer
+          ]
+        else callDriver state "ANONYMOUS"
     DIRECT_CALLER -> callDriver state "DIRECT"
 
 eval (DriverInfoCardActionController (DriverInfoCardController.StartLocationTracking item)) state = continueWithCmd state [do pure $ StartLocationTracking item]

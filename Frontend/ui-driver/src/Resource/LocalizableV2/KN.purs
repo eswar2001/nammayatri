@@ -1234,7 +1234,7 @@ getKn =
     , enter_referral_code: "ರೆಫರಲ್ ಕೋಡ್ ನಮೂದಿಸಿ"
     , have_a_referral_code: "ರೆಫರಲ್ ಕೋಡ್ ಹೊಂದಿರುವಿರಾ?"
     , complete_steps_to_apply_referral: "ರೆಫರಲ್ ಕೋಡ್ ಅನ್ನು ಅನ್ವಯಿಸಲು ಮೇಲಿನ ಹಂತಗಳನ್ನು ಪೂರ್ಣಗೊಳಿಸಿ"
-    , download_namma_yatri: (\_ -> "ನಮ್ಮ ಯಾತ್ರಿ ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ")
+    , download_namma_yatri: (\appName -> appName <> " ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ")
     , enter_code: "ಕೋಡ್ ನಮೂದಿಸಿ"
     , complete_registration: "ಸಂಪೂರ್ಣ ನೋಂದಣಿ"
     , cant_find_option: "ಆಯ್ಕೆಯನ್ನು ಹುಡುಕಲಾಗಲಿಲ್ಲ"
@@ -1711,6 +1711,7 @@ getKn =
     , your_ride_starts_in: "ನಿಮ್ಮ ಪ್ರಯಾಣ ಆರಂಭವಾಗುತ್ತದೆ"
     , away: " ದೂರ"
     , intercity: "ನಗರಾಂತರ"
+    , local: "ಸ್ಥಳೀಯ"
     , intercity_return: "ನಗರಾಂತರ ಮರಳಿ"
     , rental: "ಬಾಡಿಗೆ"
     , regular: "ನಿಯಮಿತ"
@@ -1788,4 +1789,7 @@ getKn =
     , drivers_are_permitted_to_cancel_ambulance_bookings : "ಡ್ರೈವರರು ತಮ್ಮ ವೈದ್ಯಕೀಯ ಕಾರಣಗಳು ಅಥವಾ ವಾಹನದ ಬೃಹತ್‌ ಕಡಿವಾಣಗಳಿಂದ ಮಾತ್ರ ರದ್ದು ಮಾಡುವುದು ಅನುಮತಿಸಲಾಗಿದೆ"
     , payment_under_maintenance : "ಪಾವತಿ ನಿರ್ವಹಣೆಯಲ್ಲಿದೆ"
     , payments_temporarily_unavailable : "ಪಾವತಿಗಳು ತಾತ್ಕಾಲಿಕವಾಗಿ ಲಭ್ಯವಿಲ್ಲ ಮತ್ತು ಶೀಘ್ರದಲ್ಲೇ ಮರಳಲಿವೆ. ದಯವಿಟ್ಟು ನಂತರ ಪ್ರಯತ್ನಿಸಿ."
+    , resume_ride : "ಪ್ರಯಾಣವನ್ನು ಪುನರಾರಂಭಿಸಿ"
+    , end_ride_with_stops : "ನಿಮ್ಮ ಪ್ರಯಾಣದಲ್ಲಿ ಇನ್ನೂ ಹೆಚ್ಚು ನಿಲ್ದಾಣಗಳಿವೆ. ಆದರೂ ಪ್ರಯಾಣವನ್ನು ಮುಗಿಸಬೇಕೇ?"  
+    , stop: (\n -> "ನಿಲ್ದಾಣ " <> n)
     }

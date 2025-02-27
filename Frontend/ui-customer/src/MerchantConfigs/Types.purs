@@ -86,6 +86,7 @@ type AppConfigCustomer a =
   , enableDeliveryService :: Boolean
   , ambulanceConfig :: GeoCodeConfig
   , showRecommendedText :: Boolean
+  , showFasterText :: Boolean
   | a
   }
 
@@ -408,7 +409,8 @@ type VariantConfig = {
   ambulanceTaxiOxy :: VariantInfo,
   ambulanceAc :: VariantInfo,
   ambulanceAcOxy :: VariantInfo,
-  ambulanceVentilator :: VariantInfo
+  ambulanceVentilator :: VariantInfo,
+  heritageCab :: VariantInfo
 }
 
 type VariantInfo = {

@@ -32,6 +32,7 @@ imports:
   JourneyLegStatus: Lib.JourneyLeg.Types
   StationType: Domain.Types.StationType
   MultiModalJourneyRouteDetails: Lib.JourneyLeg.Types
+  IntegratedBPPConfig: Domain.Types.IntegratedBPPConfig
 
 FRFSSearch:
   tableName: frfs_search
@@ -119,8 +120,9 @@ JourneyRouteDetails:
     subLegOrder: Maybe Int
     frequency: Maybe Seconds
     routeLongName: Maybe Text
-    fromStationId : Maybe (Id Station)
-    toStationId : Maybe (Id Station)
+    fromStationId: Maybe (Id Station)
+    toStationId: Maybe (Id Station)
+    routeId: Maybe (Id Route)
 
   queries:
     findAllBySearchId:
@@ -146,6 +148,7 @@ Station:
     timeBounds: TimeBound
     possibleTypes: Maybe [StationType]
     merchantOperatingCityId: Id MerchantOperatingCity
+    integratedBppConfigId: Id IntegratedBPPConfig
 
   default:
     timeBounds: "'Unbounded'"
@@ -164,23 +167,21 @@ Station:
     timeBounds: Kernel.Prelude.Just|I
 
   queries:
-    findByMerchantOperatingCityIdAndVehicleType:
+    findAllByVehicleType:
       kvFunction: findAllWithOptionsKV
       where:
-        and: [merchantOperatingCityId, vehicleType]
+        and: [vehicleType, integratedBppConfigId]
     findById:
       kvFunction: findOneWithKV
       where: id
     findByStationCode:
       kvFunction: findOneWithKV
-      where: code
+      where:
+        and: [code, integratedBppConfigId]
     deleteByStationCode:
       kvFunction: deleteWithKV
-      where: code
-    findByStationCodeAndMerchantOperatingCityId:
-      kvFunction: findOneWithKV
       where:
-        and: [code, merchantOperatingCityId]
+        and: [code, integratedBppConfigId]
 
   extraOperations:
     - EXTRA_QUERY_FILE
@@ -300,14 +301,14 @@ FRFSTicketBooking:
     payerVpa: Maybe Text
     cashbackStatus: Maybe CashbackStatus
     cashbackPayoutOrderId: Maybe Text
-    bppDelayedInterest : Maybe Int
-    googleWalletJWTUrl : Maybe Text
-    journeyLegOrder : Maybe Int
+    bppDelayedInterest: Maybe Int
+    googleWalletJWTUrl: Maybe Text
+    journeyLegOrder: Maybe Int
     journeyId: Maybe (Id Journey)
     journeyOnInitDone: Maybe Bool
     startTime: Maybe UTCTime
     journeyLegStatus: Maybe JourneyLegStatus
-    isDeleted : Maybe Bool
+    isDeleted: Maybe Bool
     isFareChanged: Maybe Bool
     isSkipped: Maybe Bool
     journeyRouteDetails: "[MultiModalJourneyRouteDetails]"
@@ -422,6 +423,9 @@ FRFSTicketBooking:
       where: id
     findAllByJourneyId:
       kvFunction: findAllWithKV
+      where: journeyId
+    findAByJourneyIdCond:
+      kvFunction: findAllWithKVAndConditionalDB
       where: journeyId
     updateOnInitDone:
       kvFunction: updateOneWithKV
@@ -612,7 +616,7 @@ FRFSRecon:
 
 FRFSConfig:
   tableName: frfs_config
-  derives: "Generic,Show,FromJSON,ToJSON"
+  derives: "Generic,Show,FromJSON,ToJSON,Eq"
   fields:
     merchantOperatingCityId: Id MerchantOperatingCity
     merchantId: Id Merchant
@@ -691,6 +695,7 @@ Route:
     timeBounds: TimeBound
     merchantId: Id Merchant
     merchantOperatingCityId: Id MerchantOperatingCity
+    integratedBppConfigId: Id IntegratedBPPConfig
   default:
     timeBounds: "'Unbounded'"
   sqlType:
@@ -719,28 +724,30 @@ Route:
   queries:
     findByRouteCode:
       kvFunction: findOneWithKV
-      where: code
+      where:
+        and: [code, integratedBppConfigId]
     findByRouteId:
       kvFunction: findOneWithKV
       where: id
-    findAllByMerchantOperatingCityAndVehicleType:
+    findAllByVehicleType:
       kvFunction: findAllWithOptionsKV
       where:
-        and: [merchantOperatingCityId, vehicleType]
+        and: [vehicleType, integratedBppConfigId]
     findByRouteCodes:
       kvFunction: findAllWithKV
       where:
         and:
-          - in: [code]
+          - in: [code, integratedBppConfigId]
     deleteByRouteCode:
       kvFunction: deleteWithKV
-      where: code
+      where:
+        and: [code, integratedBppConfigId]
   extraOperations:
     - EXTRA_QUERY_FILE
 
 RouteStopMapping:
   tableName: route_stop_mapping
-  derives: "Generic,Show,Eq,FromJSON,ToJSON,ToSchema"
+  derives: "Generic,Show,Eq,FromJSON,ToJSON,ToSchema,Ord"
   fields:
     routeCode: Text
     stopCode: Text
@@ -753,6 +760,7 @@ RouteStopMapping:
     timeBounds: TimeBound
     merchantId: Id Merchant
     merchantOperatingCityId: Id MerchantOperatingCity
+    integratedBppConfigId: Id IntegratedBPPConfig
   beamFields:
     stopPoint:
       stopLat: Double
@@ -770,19 +778,21 @@ RouteStopMapping:
   queries:
     findByRouteCode:
       kvFunction: findAllWithKV
-      where: routeCode
+      where:
+        and: [routeCode, integratedBppConfigId]
     findByRouteCodeAndStopCode:
       kvFunction: findOneWithKV
       where:
-        and: [routeCode, stopCode]
+        and: [routeCode, stopCode, integratedBppConfigId]
     findByStopCode:
       kvFunction: findAllWithKV
-      where: stopCode
+      where:
+        and: [stopCode, integratedBppConfigId]
     findByRouteCodes:
       kvFunction: findAllWithKV
       where:
         and:
-          - in: [routeCode]
+          - in: [routeCode, integratedBppConfigId]
 
 FRFSRouteFareProduct:
   tableName: frfs_route_fare_product
@@ -795,13 +805,14 @@ FRFSRouteFareProduct:
     merchantId: Id Merchant
     merchantOperatingCityId: Id MerchantOperatingCity
     timeBounds: TimeBound
+    integratedBppConfigId: Id IntegratedBPPConfig
   default:
     timeBounds: "'Unbounded'"
   queries:
     findByRouteCode:
       kvFunction: findAllWithKV
       where:
-        and: [routeCode, merchantId, merchantOperatingCityId]
+        and: [routeCode, integratedBppConfigId]
 
 FRFSFarePolicy:
   tableName: frfs_fare_policy
@@ -955,9 +966,11 @@ RouteTripMapping:
     merchantOperatingCityId: Id MerchantOperatingCity
     createdAt: UTCTime
     updatedAt: UTCTime
+    integratedBppConfigId: Id IntegratedBPPConfig
   constraints:
     tripCode: PrimaryKey
   queries:
     findAllTripIdByRouteCode:
       kvFunction: findAllWithKV
-      where: routeCode
+      where:
+        and: [routeCode, integratedBppConfigId]
