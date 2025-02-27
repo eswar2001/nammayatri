@@ -16,16 +16,21 @@ import Storage.Queries.OrphanInstances.VoipCallStatus
 -- Upsert function for VoipCallStatus
 upsert :: (MonadFlow m, CacheFlow m r, EsqDBFlow m r) => VoipCallStatus -> m ()
 upsert voipCallStatus = do
-  existingRecord <- findOneWithKV [Se.Is BeamVCS.callId $ Se.Eq (voipCallStatus.callId)]
-
-  if isJust existingRecord
-    then
-      updateOneWithKV
-        [ Se.Set BeamVCS.callStatus (voipCallStatus.callStatus),
-          Se.Set BeamVCS.errorCode (voipCallStatus.errorCode),
-          Se.Set BeamVCS.networkType (voipCallStatus.networkType),
-          Se.Set BeamVCS.networkQuality (voipCallStatus.networkQuality),
-          Se.Set BeamVCS.updatedAt (voipCallStatus.updatedAt)
-        ]
-        [Se.Is BeamVCS.callId (Se.Eq $ voipCallStatus.callId)]
-    else createWithKV voipCallStatus
+  let callId = voipCallStatus.callId
+  if callId /= Just ""
+    then do
+      existingRecord <- findOneWithKV [Se.Is BeamVCS.callId $ Se.Eq callId]
+      if isJust existingRecord
+        then do
+          updateOneWithKV
+            [ Se.Set BeamVCS.callStatus (voipCallStatus.callStatus),
+              Se.Set BeamVCS.errorCode (voipCallStatus.errorCode),
+              Se.Set BeamVCS.networkType (voipCallStatus.networkType),
+              Se.Set BeamVCS.networkQuality (voipCallStatus.networkQuality),
+              Se.Set BeamVCS.updatedAt (voipCallStatus.updatedAt)
+            ]
+            [Se.Is BeamVCS.callId (Se.Eq callId)]
+        else do
+          createWithKV voipCallStatus
+    else do
+      createWithKV voipCallStatus

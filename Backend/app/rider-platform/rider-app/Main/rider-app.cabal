@@ -575,7 +575,6 @@ library
       API.Types.UI.TicketService
       API.Types.UI.TrackRoute
       API.Types.UI.TriggerFCM
-      API.Types.UI.Voip
       Domain.Types.AadhaarOtpReq
       Domain.Types.AadhaarOtpVerify
       Domain.Types.AadhaarVerification

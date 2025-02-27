@@ -22,12 +22,12 @@ instance FromTType' Beam.VoipCallStatus Domain.Types.VoipCallStatus.VoipCallStat
             createdAt = createdAt,
             errorCode = errorCode,
             id = Kernel.Types.Id.Id id,
+            merchantCity = merchantCity,
             merchantId = Kernel.Types.Id.Id merchantId,
             networkQuality = networkQuality,
             networkType = networkType,
             rideId = Kernel.Types.Id.Id rideId,
-            updatedAt = updatedAt,
-            merchantOperatingCityId = Kernel.Types.Id.Id <$> merchantOperatingCityId
+            updatedAt = updatedAt
           }
 
 instance ToTType' Beam.VoipCallStatus Domain.Types.VoipCallStatus.VoipCallStatus where
@@ -38,10 +38,10 @@ instance ToTType' Beam.VoipCallStatus Domain.Types.VoipCallStatus.VoipCallStatus
         Beam.createdAt = createdAt,
         Beam.errorCode = errorCode,
         Beam.id = Kernel.Types.Id.getId id,
+        Beam.merchantCity = merchantCity,
         Beam.merchantId = Kernel.Types.Id.getId merchantId,
         Beam.networkQuality = networkQuality,
         Beam.networkType = networkType,
         Beam.rideId = Kernel.Types.Id.getId rideId,
-        Beam.updatedAt = updatedAt,
-        Beam.merchantOperatingCityId = Kernel.Types.Id.getId <$> merchantOperatingCityId
+        Beam.updatedAt = updatedAt
       }

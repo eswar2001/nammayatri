@@ -15,6 +15,7 @@ import Kernel.Utils.Common (CacheFlow, EsqDBFlow, MonadFlow, fromMaybeM, getCurr
 import qualified Sequelize as Se
 import qualified Storage.Beam.VoipCallStatus as Beam
 import Storage.Queries.VoipCallStatusExtra as ReExport
+import qualified Utils.Common.Voip.Types.VoipStorageType
 
 create :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Domain.Types.VoipCallStatus.VoipCallStatus -> m ())
 create = createWithKV
@@ -24,7 +25,7 @@ createMany = traverse_ create
 
 updateByCallId ::
   (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
-  (Domain.Types.VoipCallStatus.VoipStatus -> Kernel.Prelude.Maybe Kernel.Prelude.Int -> Kernel.Prelude.Text -> Kernel.Prelude.Text -> Kernel.Prelude.Text -> m ())
+  (Utils.Common.Voip.Types.VoipStorageType.VoipStatus -> Kernel.Prelude.Maybe Kernel.Prelude.Int -> Kernel.Prelude.Text -> Kernel.Prelude.Text -> Kernel.Prelude.Maybe Kernel.Prelude.Text -> m ())
 updateByCallId callStatus errorCode networkType networkQuality callId = do
   _now <- getCurrentTime
   updateOneWithKV
@@ -47,11 +48,11 @@ updateByPrimaryKey (Domain.Types.VoipCallStatus.VoipCallStatus {..}) = do
       Se.Set Beam.callStatus callStatus,
       Se.Set Beam.createdAt createdAt,
       Se.Set Beam.errorCode errorCode,
+      Se.Set Beam.merchantCity merchantCity,
       Se.Set Beam.merchantId (Kernel.Types.Id.getId merchantId),
       Se.Set Beam.networkQuality networkQuality,
       Se.Set Beam.networkType networkType,
       Se.Set Beam.rideId (Kernel.Types.Id.getId rideId),
-      Se.Set Beam.updatedAt _now,
-      Se.Set Beam.merchantOperatingCityId (Kernel.Types.Id.getId <$> merchantOperatingCityId)
+      Se.Set Beam.updatedAt _now
     ]
     [Se.And [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId id)]]

@@ -1,37 +1,21 @@
+{-# LANGUAGE DerivingVia #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 
-module API.Types.UI.Voip where
+module Utils.Common.Voip.Types.VoipStorageType where
 
+import Data.Aeson
 import Data.OpenApi (ToSchema)
 import qualified Data.Text
-import qualified Domain.Types.Merchant
-import qualified Domain.Types.MerchantOperatingCity
-import qualified Domain.Types.Ride
+import Database.Beam.Backend
 import EulerHS.Prelude hiding (id)
 import qualified Kernel.Prelude
 import qualified Kernel.Types.Id
 import Servant
-import Tools.Auth
+import qualified Tools.Beam.UtilsTH
 
-data UserType
-  = DRIVER
-  | RIDER
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, ToSchema)
+data Ride
 
-data VoipReq = VoipReq
-  { callId :: Data.Text.Text,
-    callStatus :: VoipStatus,
-    rideId :: Kernel.Types.Id.Id Domain.Types.Ride.Ride,
-    errorCode :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
-    userType :: UserType,
-    networkType :: Data.Text.Text,
-    networkQuality :: Data.Text.Text,
-    merchantId :: Kernel.Types.Id.Id Domain.Types.Merchant.Merchant,
-    merchantCityId :: Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity
-  }
-  deriving stock (Generic)
-  deriving anyclass (ToJSON, FromJSON, ToSchema)
+data Merchant
 
 data VoipStatus
   = CALL_IS_PLACED
@@ -59,5 +43,6 @@ data VoipStatus
   | NO_INTERNET
   | SDK_NOT_INIT
   | UNKNOWN_ERROR
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, ToSchema)
+  deriving (Eq, Ord, Show, Read, Generic, ToJSON, FromJSON, ToSchema)
+
+$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList (''VoipStatus))

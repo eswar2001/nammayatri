@@ -724,7 +724,6 @@ library
       API.Types.UI.SpecialLocationWarrior
       API.Types.UI.Tokenization
       API.Types.UI.VehicleDetails
-      API.Types.UI.Voip
       API.Types.UI.WMB
       Domain.Types.AadhaarCard
       Domain.Types.AadhaarOtpReq

@@ -5,24 +5,24 @@ module Storage.Beam.VoipCallStatus where
 
 import qualified Database.Beam as B
 import Domain.Types.Common ()
-import qualified Domain.Types.VoipCallStatus
 import Kernel.External.Encryption
 import Kernel.Prelude
 import qualified Kernel.Prelude
 import Tools.Beam.UtilsTH
+import qualified Utils.Common.Voip.Types.VoipStorageType
 
 data VoipCallStatusT f = VoipCallStatusT
-  { callId :: (B.C f Kernel.Prelude.Text),
-    callStatus :: (B.C f Domain.Types.VoipCallStatus.VoipStatus),
-    createdAt :: (B.C f Kernel.Prelude.UTCTime),
-    errorCode :: (B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int)),
-    id :: (B.C f Kernel.Prelude.Text),
-    merchantId :: (B.C f Kernel.Prelude.Text),
-    networkQuality :: (B.C f Kernel.Prelude.Text),
-    networkType :: (B.C f Kernel.Prelude.Text),
-    rideId :: (B.C f Kernel.Prelude.Text),
-    updatedAt :: (B.C f Kernel.Prelude.UTCTime),
-    merchantOperatingCityId :: (B.C f (Kernel.Prelude.Maybe (Kernel.Prelude.Text)))
+  { callId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
+    callStatus :: B.C f Utils.Common.Voip.Types.VoipStorageType.VoipStatus,
+    createdAt :: B.C f Kernel.Prelude.UTCTime,
+    errorCode :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
+    id :: B.C f Kernel.Prelude.Text,
+    merchantCity :: B.C f Kernel.Prelude.Text,
+    merchantId :: B.C f Kernel.Prelude.Text,
+    networkQuality :: B.C f Kernel.Prelude.Text,
+    networkType :: B.C f Kernel.Prelude.Text,
+    rideId :: B.C f Kernel.Prelude.Text,
+    updatedAt :: B.C f Kernel.Prelude.UTCTime
   }
   deriving (Generic, B.Beamable)
 
@@ -32,6 +32,6 @@ instance B.Table VoipCallStatusT where
 
 type VoipCallStatus = VoipCallStatusT Identity
 
-$(enableKVPG (''VoipCallStatusT) [('id)] [[('rideId)]])
+$(enableKVPG ''VoipCallStatusT ['id] [['rideId]])
 
-$(mkTableInstances (''VoipCallStatusT) "voip_call_status")
+$(mkTableInstances ''VoipCallStatusT "voip_call_status")

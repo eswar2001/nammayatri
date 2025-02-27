@@ -7,7 +7,6 @@ module API.Action.UI.Voip
   )
 where
 
-import qualified API.Types.UI.Voip
 import qualified Control.Lens
 import qualified Domain.Action.UI.Voip as Domain.Action.UI.Voip
 import qualified Domain.Types.Merchant
@@ -22,8 +21,9 @@ import Kernel.Utils.Common
 import Servant
 import Storage.Beam.SystemConfigs ()
 import Tools.Auth
+import qualified Utils.Common.Voip.Types.VoipApiType
 
-type API = (TokenAuth :> "call" :> "voip" :> ReqBody ('[JSON]) API.Types.UI.Voip.VoipReq :> Post ('[JSON]) Kernel.Types.APISuccess.APISuccess)
+type API = (TokenAuth :> "call" :> "voip" :> ReqBody '[JSON] Utils.Common.Voip.Types.VoipApiType.VoipReq :> Post '[JSON] Kernel.Types.APISuccess.APISuccess)
 
 handler :: Environment.FlowServer API
 handler = postCallVoip
@@ -33,7 +33,7 @@ postCallVoip ::
       Kernel.Types.Id.Id Domain.Types.Merchant.Merchant,
       Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity
     ) ->
-    API.Types.UI.Voip.VoipReq ->
+    Utils.Common.Voip.Types.VoipApiType.VoipReq ->
     Environment.FlowHandler Kernel.Types.APISuccess.APISuccess
   )
 postCallVoip a2 a1 = withFlowHandlerAPI $ Domain.Action.UI.Voip.postCallVoip (Control.Lens.over Control.Lens._1 Kernel.Prelude.Just a2) a1
