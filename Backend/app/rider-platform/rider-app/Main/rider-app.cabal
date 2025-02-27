@@ -467,8 +467,8 @@ library
       Storage.Queries.Transformers.SpecialZoneQuote
       Storage.Queries.Transformers.TripTerms
       Storage.Queries.Transformers.WhiteListOrg
-      Storage.Queries.VoipCallStatusExtra
       Storage.Queries.UiRiderConfigExtra
+      Storage.Queries.VoipCallStatusExtra
       Storage.Queries.WalkLegMultimodalExtra
       Storage.Queries.WhiteListOrgExtra
       Tools.AadhaarVerification
@@ -921,8 +921,8 @@ library
       Storage.Queries.OrphanInstances.TicketBookingService
       Storage.Queries.OrphanInstances.TicketBookingServiceCategory
       Storage.Queries.OrphanInstances.TicketService
-      Storage.Queries.OrphanInstances.VoipCallStatus
       Storage.Queries.OrphanInstances.UiRiderConfig
+      Storage.Queries.OrphanInstances.VoipCallStatus
       Storage.Queries.OrphanInstances.WalkLegMultimodal
       Storage.Queries.OrphanInstances.WhiteListOrg
       Storage.Queries.ParcelDetails
