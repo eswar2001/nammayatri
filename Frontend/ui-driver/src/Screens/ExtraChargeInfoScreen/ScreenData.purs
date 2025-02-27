@@ -4,11 +4,13 @@ import Prelude
 
 
 type ExtraChargeInfoScreenState = {
-    dummy :: String
+    optionOpened :: Array Boolean,
+    sheetPositionRef :: Number
 }
 
 
 initData :: ExtraChargeInfoScreenState
 initData = {
-    dummy : ""
+    optionOpened: [true, false],
+    sheetPositionRef : 1.0
 }

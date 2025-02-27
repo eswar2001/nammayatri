@@ -66,6 +66,7 @@ import Data.Array as DA
 import Types.App
 import Engineering.Helpers.Commons as EHC
 import Mobility.Prelude(boolToInt)
+import Components.ExtraChargeCard as ExtraChargeCard
 
 instance showAction :: Show Action where
   show _ = ""
@@ -270,7 +271,7 @@ data Action = BackPressed
             | ShowDrvierBlockedPopup
             | DriverBLockedPopupAction PopUpModal.Action
             | ProfileDataAPIResponseAction DriverProfileDataRes
-            | LearnMoreExtraChargeBtnAC PrimaryButtonController.Action
+            | ExtraChargeCardAC ExtraChargeCard.Action
 
 eval :: Action -> DriverProfileScreenState -> Eval Action ScreenOutput DriverProfileScreenState
 
@@ -618,7 +619,7 @@ eval (DirectActivateRc rcType) state = continueWithCmd state{data{rcNumber = sta
     pure $ DeactivateRc rcType ""
   ]
 
-eval (LearnMoreExtraChargeBtnAC (PrimaryButton.OnClick)) state = exit GoToExtraChargeInfoScreen
+eval (ExtraChargeCardAC (ExtraChargeCard.LearnMoreExtraChargeBtnAC (PrimaryButton.OnClick))) state = exit GoToExtraChargeInfoScreen
 
 eval _ state = update state
 

@@ -48,6 +48,7 @@ import Effect (Effect)
 import Helpers.Utils (getPeriod, fetchImage, FetchImageFrom(..))
 import Font.Style (Style(..))
 import ConfigProvider
+import Components.ExtraChargeCard as ExtraChargeCard
 
 logoutPopUp :: ST.DriverProfileScreenState -> PopUpModal.Config
 logoutPopUp  state = let
@@ -178,15 +179,23 @@ primaryButtonConfig state = let
       }
   in primaryButtonConfig'
 
-learnMoreExtraChargeBtnConfig :: ST.DriverProfileScreenState -> PrimaryButton.Config
-learnMoreExtraChargeBtnConfig state = PrimaryButton.config {
-  textConfig {
-    text = "Learn More"
-  , color = Color.blue800
-  }
-  , background = "#E2EFFF"
-  , margin = Margin 16 16 16 16
+-- learnMoreExtraChargeBtnConfig :: ST.DriverProfileScreenState -> PrimaryButton.Config
+-- learnMoreExtraChargeBtnConfig state = PrimaryButton.config {
+--   textConfig {
+--     text = "Learn More"
+--   , color = Color.blue800
+--   }
+--   , background = "#E2EFFF"
+--   , margin = Margin 16 16 16 16
+-- }
+
+extraChargesConfig :: ExtraChargeCard.ExtraChargeCardType
+extraChargesConfig = {
+  showGotItBtnView : VISIBLE,
+  badge: ExtraChargeCard.getBadgeConfig ""
 }
+
+
 
 updateButtonConfig :: ST.DriverProfileScreenState -> PrimaryButton.Config
 updateButtonConfig state = let

@@ -87,6 +87,7 @@ import Data.Array (filter)
 import Engineering.Helpers.BackTrack (getState, liftFlowBT)
 import Types.App (GlobalState(..), FlowBT)
 import Services.API (DriverProfileDataRes(..))
+import Components.ExtraChargeCard as ExtraChargeCard
 
 screen :: ST.DriverProfileScreenState -> Screen Action ST.DriverProfileScreenState ScreenOutput
 screen initialState =
@@ -888,101 +889,7 @@ driverDetailsView push state =
       ]
 
 extraChargePenaltyView :: forall w. (Action -> Effect Unit) -> ST.DriverProfileScreenState -> PrestoDOM (Effect Unit) w
-extraChargePenaltyView push state =
-  linearLayout[
-    width MATCH_PARENT,
-    height WRAP_CONTENT,
-    orientation VERTICAL
-  ][
-    textView $ [
-      text "Extra-Charge Penalty",
-      width MATCH_PARENT,
-      height WRAP_CONTENT,
-      color Color.black
-    , margin $ MarginBottom 12
-    ] <> (FontStyle.subHeading2 TypoGraphy),
-     linearLayout[
-      width MATCH_PARENT
-    , height WRAP_CONTENT
-    , background Color.aliceBlueLight
-    , orientation VERTICAL
-    , cornerRadius 16.0
-    ][
-      linearLayout[
-        width MATCH_PARENT
-      , height WRAP_CONTENT
-      , margin $ MarginTop 16
-      ][
-        linearLayout[
-          width MATCH_PARENT
-        , height WRAP_CONTENT
-        ][
-          linearLayout[
-            width $ V $ ((screenWidth unit) - 64 ) / 2
-          , height WRAP_CONTENT
-          , orientation VERTICAL
-          , gravity CENTER
-          ][
-            pillView
-          , noOfRides
-          , pillDesc
-          ]
-        , linearLayout[
-            width $ V $ ((screenWidth unit) - 64) / 2
-          , cornerRadius 16.0
-          , background "#F5EDEA"
-          , gravity CENTER
-          , padding $ Padding 16 4 16 4
-          ][
-            imageView[
-              height $ V 90
-            , imageWithFallback $ fetchImage FF_COMMON_ASSET "ny_ic_extra_charge_gauge"
-            ]
-          ]
-        ]
-      ]
-  , learnMoreBtn
-    ]
-  ]
-
-  where
-    pillView =
-      linearLayout[
-        width WRAP_CONTENT
-      , height WRAP_CONTENT
-      , padding $ Padding 16 4 16 4
-      , background Color.orange900
-      , cornerRadius 20.0
-      , gravity CENTER
-      , margin $ MarginBottom 8
-      ][
-        textView $ [
-          text "High"
-        , color Color.white900
-        , padding $ PaddingBottom 4
-        ] <> (FontStyle.body30 TypoGraphy)
-      ]
-
-    noOfRides =
-      textView $ [
-        text "6 out of 20 rides"
-      , height WRAP_CONTENT
-      , width WRAP_CONTENT
-      , color Color.black800
-      , gravity CENTER
-      , margin $ MarginBottom 4
-      ] <> (FontStyle.body4 TypoGraphy)
-
-    pillDesc =
-      textView $ [
-        text "Extra-charged"
-      , color Color.black800
-      , gravity CENTER
-      ] <> (FontStyle.body3 TypoGraphy)
-
-
-    learnMoreBtn  = PrimaryButton.view (push <<< LearnMoreExtraChargeBtnAC) (learnMoreExtraChargeBtnConfig state)
-
+extraChargePenaltyView push state = ExtraChargeCard.view (push <<< ExtraChargeCardAC) extraChargesConfig
 ------------------------------------------- MISSED OPPORTUNITY VIEW -----------------------------------------
 missedOpportunityView :: forall w. ST.DriverProfileScreenState -> (Action -> Effect Unit) -> PrestoDOM (Effect Unit) w
 missedOpportunityView state push =
