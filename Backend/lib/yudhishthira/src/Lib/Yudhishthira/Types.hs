@@ -220,6 +220,9 @@ instance Enumerable LogicDomain where
       ++ map DRIVER_CONFIG [minBound .. maxBound]
       ++ map RIDER_CONFIG_OVERRIDES [minBound .. maxBound]
 
+instance Enumerable ConfigType where
+  allValues = [minBound .. maxBound]
+
 generateLogicDomainShowInstances :: [String]
 generateLogicDomainShowInstances =
   [show POOLING]
@@ -367,7 +370,8 @@ data ConfigDetailsResp = ConfigDetailsResp
   { modifiedBy :: Maybe (Id Person),
     percentageRollout :: Int,
     version :: Int,
-    configPatch :: [Value]
+    configPatch :: [Value],
+    isBasePatch :: Bool
   }
   deriving (Show, Read, Generic, ToSchema, ToJSON, FromJSON)
 
@@ -472,8 +476,7 @@ data LogicRolloutObject = LogicRolloutObject
   { domain :: LogicDomain,
     timeBounds :: Text,
     rollout :: [RolloutVersion],
-    modifiedBy :: Maybe (Id Person),
-    experimentStatus :: Maybe ExperimentStatus
+    modifiedBy :: Maybe (Id Person)
   }
   deriving (Show, Read, Generic, ToJSON, FromJSON, ToSchema)
 

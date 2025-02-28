@@ -446,7 +446,7 @@ getLogicRollout merchantOpCityId _ domain = do
     combineRollout logicRollouts =
       let rollout = DLNE.map (\r -> Lib.Yudhishthira.Types.RolloutVersion r.version r.percentageRollout r.versionDescription) logicRollouts
           firstElement = DLNE.head logicRollouts
-       in Just $ Lib.Yudhishthira.Types.LogicRolloutObject firstElement.domain firstElement.timeBounds (DLNE.toList rollout) (firstElement.modifiedBy) firstElement.experimentStatus
+       in Just $ Lib.Yudhishthira.Types.LogicRolloutObject firstElement.domain firstElement.timeBounds (DLNE.toList rollout) (firstElement.modifiedBy)
 
 getFrontendLogicUrlAndToken :: BeamFlow m r => m (BaseUrl, Text)
 getFrontendLogicUrlAndToken = do
@@ -574,7 +574,7 @@ upsertLogicRollout mbMerchantId merchantOpCityId rolloutReq = do
       unless (isDriverOrRiderConfig domain) $ do
         let rolloutSum = sum $ map (.rolloutPercentage) rollout
         when (rolloutSum /= 100) $ throwError $ InvalidRequest "Sum of rollout percentage should be 100"
-      mapM (mkAppDynamicLogicRollout merchantOperatingCityId now domain timeBounds experimentStatus modifiedBy) rollout
+      mapM (mkAppDynamicLogicRollout merchantOperatingCityId now domain timeBounds (if isDriverOrRiderConfig domain then Just Lib.Yudhishthira.Types.RUNNING else Nothing) modifiedBy) rollout
 
     mkAppDynamicLogicRollout ::
       BeamFlow m r =>
@@ -626,7 +626,7 @@ upsertLogicRollout mbMerchantId merchantOpCityId rolloutReq = do
           percentageRollout = rolloutPerc,
           timeBounds = "Unbounded",
           version = newVersion,
-          versionDescription = Nothing,
+          versionDescription = Just "System generated base rollout",
           createdAt = now,
           updatedAt = now,
           ..
@@ -659,22 +659,21 @@ sameTimeBounds r1 r2 = Lib.Yudhishthira.Types.AppDynamicLogicRollout.timeBounds 
 
 getNammaTagConfigPilotAllConfigsProvider :: BeamFlow m r => Id Lib.Yudhishthira.Types.MerchantOperatingCity -> Maybe Bool -> m [Lib.Yudhishthira.Types.ConfigType]
 getNammaTagConfigPilotAllConfigsProvider merchantOpCityId mbUnderExp = do
-  allRollouts <- CADLR.fetchAllConfigsByMerchantOpCityId merchantOpCityId
-  let driverConfigRollouts =
-        filter
-          ( \rollout -> case rollout.domain of
-              Lib.Yudhishthira.Types.DRIVER_CONFIG _ -> True
-              _ -> False
-          )
-          allRollouts
   case mbUnderExp of
     Just True -> do
-      let configsInExperiment :: [Lib.Yudhishthira.Types.LogicDomain] = nub $ map (.domain) $ filter (\rollout -> rollout.percentageRollout /= 100 && rollout.isBaseVersion == Just True) allRollouts
+      allRollouts <- CADLR.fetchAllConfigsByMerchantOpCityId merchantOpCityId
+      let driverConfigRollouts =
+            filter
+              ( \rollout -> case rollout.domain of
+                  Lib.Yudhishthira.Types.DRIVER_CONFIG _ -> True
+                  _ -> False
+              )
+              allRollouts
+      let configsInExperiment :: [Lib.Yudhishthira.Types.LogicDomain] = nub $ map (.domain) $ filter (\rollout -> rollout.percentageRollout /= 100 && rollout.isBaseVersion == Just True) driverConfigRollouts
           configTypes = map extractDriverConfig configsInExperiment
       return $ catMaybes configTypes
     _ -> do
-      let allConfigDomains = nub $ map domain driverConfigRollouts
-          configTypes = mapMaybe extractDriverConfig allConfigDomains
+      let configTypes = Lib.Yudhishthira.Types.allValues
       return configTypes
   where
     extractDriverConfig :: Lib.Yudhishthira.Types.LogicDomain -> Maybe Lib.Yudhishthira.Types.ConfigType
@@ -708,7 +707,8 @@ getNammaTagConfigPilotAllConfigsRider merchantOpCityId mbUnderExp = do
 getNammaTagConfigPilotConfigDetailsProvider :: BeamFlow m r => Id Lib.Yudhishthira.Types.MerchantOperatingCity -> Lib.Yudhishthira.Types.ConfigType -> m [Lib.Yudhishthira.Types.ConfigDetailsResp]
 getNammaTagConfigPilotConfigDetailsProvider merchantOpCityId cfg = do
   allConfigRollouts <- CADLR.findByMerchantOpCityAndDomain merchantOpCityId (Lib.Yudhishthira.Types.DRIVER_CONFIG cfg)
-  mapM makeConfigDetailResp allConfigRollouts
+  let runningConfigRollouts = filter (\rollout -> rollout.isBaseVersion == Just True || rollout.percentageRollout /= 0) allConfigRollouts
+  mapM makeConfigDetailResp runningConfigRollouts
   where
     makeConfigDetailResp :: BeamFlow m r => AppDynamicLogicRollout -> m Lib.Yudhishthira.Types.ConfigDetailsResp
     makeConfigDetailResp (AppDynamicLogicRollout {..}) = do
@@ -719,13 +719,15 @@ getNammaTagConfigPilotConfigDetailsProvider merchantOpCityId cfg = do
           { modifiedBy = modifiedBy,
             percentageRollout = percentageRollout,
             version = version,
-            configPatch = logics
+            configPatch = logics,
+            isBasePatch = isBaseVersion == Just True
           }
 
 getNammaTagConfigPilotConfigDetailsRider :: BeamFlow m r => Id Lib.Yudhishthira.Types.MerchantOperatingCity -> Lib.Yudhishthira.Types.ConfigType -> m [Lib.Yudhishthira.Types.ConfigDetailsResp]
 getNammaTagConfigPilotConfigDetailsRider merchantOpCityId cfg = do
   allConfigRollouts <- CADLR.findByMerchantOpCityAndDomain merchantOpCityId (Lib.Yudhishthira.Types.RIDER_CONFIG cfg)
-  mapM makeConfigDetailResp allConfigRollouts
+  let runningConfigRollouts = filter (\rollout -> rollout.isBaseVersion == Just True || rollout.percentageRollout /= 0) allConfigRollouts
+  mapM makeConfigDetailResp runningConfigRollouts
   where
     makeConfigDetailResp :: BeamFlow m r => AppDynamicLogicRollout -> m Lib.Yudhishthira.Types.ConfigDetailsResp
     makeConfigDetailResp (AppDynamicLogicRollout {..}) = do
@@ -736,7 +738,8 @@ getNammaTagConfigPilotConfigDetailsRider merchantOpCityId cfg = do
           { modifiedBy = modifiedBy,
             percentageRollout = percentageRollout,
             version = version,
-            configPatch = logics
+            configPatch = logics,
+            isBasePatch = isBaseVersion == Just True
           }
 
 postNammaTagConfigPilotActionChange :: BeamFlow m r => Maybe (Id Lib.Yudhishthira.Types.Merchant) -> Id Lib.Yudhishthira.Types.MerchantOperatingCity -> Lib.Yudhishthira.Types.ActionChangeRequest -> Maybe Int -> m Kernel.Types.APISuccess.APISuccess
@@ -770,6 +773,7 @@ postNammaTagConfigPilotActionChange mbMerchantId merchantOpCityId req originalBa
                 experimentStatus = Just Lib.Yudhishthira.Types.DISCARDED
               }
       when (abortReq.version == baseRollout.version) $ throwError $ InvalidRequest "Cannot abort the base rollout"
+      when (expRollout.experimentStatus /= Just Lib.Yudhishthira.Types.RUNNING) $ throwError $ InvalidRequest "The experiment should be in running state for getting aborted"
       LYSQADLR.updateByPrimaryKey abortedRollout
       LYSQADLR.updateByPrimaryKey updatedBaseRollout
       CADLR.clearDomainCache (cast merchantOpCityId) abortReq.domain
@@ -814,7 +818,7 @@ postNammaTagConfigPilotActionChange mbMerchantId merchantOpCityId req originalBa
         mkBaseAppDynamicLogicRollout newVersion originalBaseRollout now =
           AppDynamicLogicRollout
             { domain = revertReq.domain,
-              experimentStatus = Just Lib.Yudhishthira.Types.RUNNING,
+              experimentStatus = Just Lib.Yudhishthira.Types.CONCLUDED,
               isBaseVersion = Just True,
               merchantId = mbMerchantId,
               merchantOperatingCityId = merchantOpCityId,
@@ -822,7 +826,7 @@ postNammaTagConfigPilotActionChange mbMerchantId merchantOpCityId req originalBa
               percentageRollout = originalBaseRollout.percentageRollout,
               timeBounds = "Unbounded",
               version = newVersion,
-              versionDescription = Nothing,
+              versionDescription = Just "System generated base rollout",
               createdAt = now,
               updatedAt = now,
               ..
