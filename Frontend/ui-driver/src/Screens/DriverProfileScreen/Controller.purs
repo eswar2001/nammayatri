@@ -209,7 +209,7 @@ data ScreenOutput = GoToDriverDetailsScreen DriverProfileScreenState
                     | GoToPendingVehicle DriverProfileScreenState String ST.VehicleCategory
                     | GoToCompletingProfile DriverProfileScreenState
                     | GoToCancellationRateScreen DriverProfileScreenState
-                    | GoToExtraChargeInfoScreen
+                    | GoToExtraChargeInfoScreen DriverProfileScreenState
 
 data Action = BackPressed
             | NoAction
@@ -272,6 +272,7 @@ data Action = BackPressed
             | DriverBLockedPopupAction PopUpModal.Action
             | ProfileDataAPIResponseAction DriverProfileDataRes
             | ExtraChargeCardAC ExtraChargeCard.Action
+            | UpdateGlobalEvent
 
 eval :: Action -> DriverProfileScreenState -> Eval Action ScreenOutput DriverProfileScreenState
 
@@ -619,7 +620,9 @@ eval (DirectActivateRc rcType) state = continueWithCmd state{data{rcNumber = sta
     pure $ DeactivateRc rcType ""
   ]
 
-eval (ExtraChargeCardAC (ExtraChargeCard.LearnMoreExtraChargeBtnAC (PrimaryButton.OnClick))) state = exit GoToExtraChargeInfoScreen
+eval (ExtraChargeCardAC (ExtraChargeCard.LearnMoreExtraChargeBtnAC (PrimaryButton.OnClick))) state = exit $ GoToExtraChargeInfoScreen state {props {skipGlobalEvents = true}}
+
+eval (UpdateGlobalEvent) state = update state {props {skipGlobalEvents = false}}
 
 eval _ state = update state
 

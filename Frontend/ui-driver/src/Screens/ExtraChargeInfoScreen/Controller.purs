@@ -19,6 +19,9 @@ import Engineering.Helpers.Commons
 import PrestoDOM.Core
 import Debug
 import Data.Number
+import ConfigProvider
+import Storage
+import Helpers.Utils
 
 instance showAction :: Show Action where
   show _ = ""
@@ -48,7 +51,11 @@ eval action state =
         PrimaryButton.OnClick -> exit $ CloseModal
         PrimaryButton.NoAction -> update state
 
-    OnCallSupportAC -> update state
+    OnCallSupportAC -> do
+      let cityConfig = getCityConfig (getAppConfig appConfig).cityConfig $ getValueToLocalStore DRIVER_LOCATION
+      void $ pure $ showDialer cityConfig.supportNumber false
+      continue state
+
     OnQuestionClick index -> continue state {optionOpened = fromMaybe state.optionOpened $ DA.modifyAt index (\elem -> not $ elem) state.optionOpened}
     YoutubeVideoStatus status -> update state
     NoAction -> update state

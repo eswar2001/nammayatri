@@ -96,7 +96,7 @@ screen initialState =
   , name: "DriverProfileScreen"
   , globalEvents:
       [ ( \push -> do
-            if initialState.props.openSettings then
+            if initialState.props.skipGlobalEvents then
               pure unit
             else do
               void $ launchAff $ EHC.flowRunner defaultGlobalState $ runExceptT $ runBackT

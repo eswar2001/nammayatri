@@ -55,6 +55,7 @@ view push state =
       , background "#502C2F3A"
       , orientation VERTICAL
       , gravity BOTTOM
+      , onClick push $ const OnBackPressed
       , onBackPressed push $ const OnBackPressed
     ][
       coordinatorLayout[
@@ -188,9 +189,9 @@ answer1View push state =
                 id = (getNewIDWithTag "extraChargeVideoView")
                 url = "https://youtu.be/2MLe3lLmjyg?si=PaLEg6_wQ6TmEej8"
               void $ pure $ runFn5 setYoutubePlayer (getYoutubeData{videoType = "VIDEO",videoId = getVideoID url}) id (show CTA.PLAY) push YoutubeVideoStatus
-              push $ PauseVideo
+              void $ pure $ pauseYoutubeVideo unit
           )
-          (const PauseVideo)
+          (const NoAction)
       ][]
   ]
 

@@ -120,5 +120,6 @@ driverProfileScreen = do
                                                    , cancellationWindow = state.data.cancellationWindow
                                                    , missedEarnings = state.data.analyticsData.missedEarnings}}
       App.BackT $ App.BackPoint <$> pure (CANCELLATION_RATE_SCREEN cancellationScreenState)
-    GoToExtraChargeInfoScreen -> do
+    GoToExtraChargeInfoScreen state -> do
+      modifyScreenState $ DriverProfileScreenStateType (\_ -> state)
       App.BackT $ App.BackPoint <$> pure GO_TO_EXTRA_CHARGE_INFO_SCREEN

@@ -25,6 +25,7 @@ type BadgeConfig = {
 , title :: String
 , subTitle :: Maybe String
 , description :: Maybe String
+, image :: String
 
 , pillBackground :: String
 , imageBackground :: String
@@ -39,6 +40,7 @@ getBadgeConfig stage = case stage of
     title : "Nyayamana Rate'u Karan",
     subTitle : Nothing,
     description : Nothing,
+    image : fetchImage FF_COMMON_ASSET "ny_ic_nyamana_rateu_karan",
 
     pillBackground : Colors.green900,
     imageBackground : "#53BB6F14",
@@ -50,6 +52,7 @@ getBadgeConfig stage = case stage of
     title : "6 out of 20 rides",
     subTitle : Just "Extra-charged",
     description : Nothing,
+    image : fetchImage FF_COMMON_ASSET "ny_ic_extra_charge_gauge",
 
     pillBackground : Colors.yellow900,
     imageBackground : "#53BB6F14",
@@ -61,6 +64,7 @@ getBadgeConfig stage = case stage of
     title :  "6 out of 20 rides",
     subTitle : Just "Extra-charged",
     description : Nothing,
+    image : fetchImage FF_COMMON_ASSET "ny_ic_extra_charge_gauge",
 
     pillBackground : Colors.orange900,
     imageBackground : "#53BB6F14",
@@ -72,6 +76,7 @@ getBadgeConfig stage = case stage of
     title :  "6 out of 20 rides",
     subTitle : Just "Extra-charged",
     description : Nothing,
+    image : fetchImage FF_COMMON_ASSET "ny_ic_extra_charge_gauge",
 
     pillBackground : Colors.red900,
     imageBackground : "#53BB6F14",
@@ -83,6 +88,7 @@ getBadgeConfig stage = case stage of
     title :  "6 out of 20 rides",
     subTitle : Just "Extra-charged",
     description : Nothing,
+    image : fetchImage FF_COMMON_ASSET "ny_ic_blocked",
 
     pillBackground : Colors.red900,
     imageBackground : "#53BB6F14",
