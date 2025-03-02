@@ -40,6 +40,7 @@ import Kernel.Types.Id
 import Kernel.Utils.Common hiding (mkPrice)
 import SharedLogic.FareCalculator as Fare
 import Tools.Error
+import qualified Data.Text as T
 
 -- TODO::Beckn, `Payment.ON_ORDER` Not present in spec.
 mkRideCompletedPaymentType :: Maybe DMPM.PaymentMethodInfo -> Text
@@ -314,9 +315,10 @@ mkNewMessageTags message =
             tagValue = Just message
           }
 
-mkSafetyAlertTags :: Text -> Maybe [Spec.TagGroup]
-mkSafetyAlertTags reason =
-  Just
+mkSafetyAlertTags :: (MonadFlow m) => Maybe Enums.SafetyReasonCode -> m (Maybe [Spec.TagGroup])    -- Enums.SafteyReasonCode -> Maybe [Spec.TagGroup]
+mkSafetyAlertTags reason = do 
+  logDebug $ "Safety Alert Reason: " <> show reason
+  pure $ Just
     [ Spec.TagGroup
         { tagGroupDescriptor =
             Just $
@@ -338,12 +340,12 @@ mkSafetyAlertTags reason =
           { tagDescriptor =
               Just $
                 Spec.Descriptor
-                  { descriptorCode = Just $ show Tags.DEVIATION,
+                  { descriptorCode = Just $ show Tags.SAFETY_REASON_CODE,
                     descriptorName = Just "Safety Alert Trigger",
                     descriptorShortDesc = Nothing
                   },
             tagDisplay = Just False,
-            tagValue = Just reason
+            tagValue = Just (T.pack $ maybe "" show reason) -- enums -> RIDE_STOPPAGE | DEVIATION
           }
 
 mkUpdatedDistanceTags :: Maybe HighPrecMeters -> Maybe [Spec.TagGroup]

@@ -411,8 +411,8 @@ data BecknTag
     CUSTOMER_TIP
   | -- Auto assign enabled tags
     IS_AUTO_ASSIGN_ENABLED
-  | -- Safety alert tags
-    DEVIATION
+   -- Safety alert tags
+  | SAFETY_REASON_CODE
   | -- Ride odometer details tags
     START_ODOMETER_READING
   | -- Driver new message tags

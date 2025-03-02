@@ -40,6 +40,7 @@ import SharedLogic.Beckn.Common
 import qualified SharedLogic.FarePolicy as SFP
 import qualified Storage.CachedQueries.BecknConfig as QBC
 import qualified Storage.Queries.FareParameters as QFP
+import qualified Data.Text as T
 
 buildOnUpdateReqV2 ::
   (MonadFlow m, EncFlow m r, CacheFlow m r, EsqDBFlow m r) =>
@@ -144,7 +145,7 @@ buildOnUpdateReqOrderV2 req' mbFarePolicy becknConfig = case req' of
         }
   OU.SafetyAlertBuildReq OU.DSafetyAlertReq {..} -> do
     let BookingDetails {..} = bookingDetails
-    let safetyAlertTags = UtilsOU.mkSafetyAlertTags reason
+    safetyAlertTags <- UtilsOU.mkSafetyAlertTags (readMaybe (T.unpack reason))
     fulfillment <- Utils.mkFulfillmentV2 Nothing Nothing ride booking Nothing Nothing safetyAlertTags Nothing False False Nothing (Just $ show Event.SAFETY_ALERT) isValueAddNP Nothing False 0 -- TODO::Beckn, decide on fulfillment.state.descriptor.code mapping according to spec-v2
     pure $
       Spec.Order

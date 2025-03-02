@@ -27,43 +27,52 @@ let kafka_cfg =
 
 let LogLevel = < TRACE | DEBUG | INFO | WARN | ERROR | OFF >
 
-let logger_cfg = { level = LogLevel.INFO, log_to_file = False }
+let logger_cfg = {
+    level = LogLevel.INFO,
+    log_to_file = False
+}
 
-in  { logger_cfg
-    , redis_cfg
-    , replica_redis_cfg = Some replica_redis_cfg
-    , workers = 1
-    , drainer_size = 10
-    , drainer_delay = 2
-    , new_ride_drainer_delay = 2
-    , kafka_cfg
-    , port = 8081
-    , auth_url = "http://127.0.0.1:8016/internal/auth"
-    , auth_api_key = "ae288466-2add-11ee-be56-0242ac120002"
-    , bulk_location_callback_url =
-        "http://127.0.0.1:8016/internal/bulkLocUpdate"
-    , auth_token_expiry = 86400
-    , min_location_accuracy = 50.0
-    , driver_location_accuracy_buffer = 25.0
-    , redis_expiry = 86400
-    , last_location_timstamp_expiry = 86400
-    , location_update_limit = 6000000000
-    , location_update_interval = 60
-    , driver_location_update_topic = "location-updates"
-    , batch_size = 1
-    , bucket_size = 30
-    , nearby_bucket_threshold = 4
-    , blacklist_merchants = [ "favorit0-0000-0000-0000-00000favorit" ]
-    , request_timeout = 9000
-    , log_unprocessible_req_body =
-      [ "UNPROCESSIBLE_REQUEST"
-      , "REQUEST_TIMEOUT"
-      , "LARGE_PAYLOAD_SIZE"
-      , "HITS_LIMIT_EXCEEDED"
-      ]
-    , max_allowed_req_size = 512000
-    , driver_location_delay_in_sec = 60
-    , trigger_fcm_callback_url =
-        "http://127.0.0.1:8016/internal/driverInactiveFCM"
-    , apns_url = "https://api.sandbox.push.apple.com:443"
-    }
+let stop_detection_config = {
+    stop_detection_update_callback_url = "http://127.0.0.1:8016/internal/stopDetection",
+    max_eligible_stop_speed_threshold = 2,
+    radius_threshold_meters = 25,
+    min_points_within_radius_threshold = 5,
+}
+
+-- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
+in {
+    logger_cfg = logger_cfg,
+    redis_cfg = redis_cfg,
+    replica_redis_cfg = Some replica_redis_cfg,
+    workers = 1,
+    drainer_size = 10,
+    drainer_delay = 2,
+    new_ride_drainer_delay = 2,
+    kafka_cfg = kafka_cfg,
+    port = 8081,
+    auth_url = "http://127.0.0.1:8016/internal/auth",
+    auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",
+    bulk_location_callback_url = "http://127.0.0.1:8016/internal/bulkLocUpdate",
+    stop_detection = stop_detection_config,
+    auth_token_expiry = 86400,
+    min_location_accuracy = 50.0,
+    driver_location_accuracy_buffer = 25.0,
+    driver_reached_destination_buffer = 25.0,
+    driver_reached_destination_callback_url = "http://127.0.0.1:8016/internal/destinationReached",
+    redis_expiry = 86400,
+    last_location_timstamp_expiry = 86400,
+    location_update_limit = 6000000000,
+    location_update_interval = 60,
+    driver_location_update_topic = "location-updates",
+    batch_size = 1,
+    bucket_size = 30,
+    nearby_bucket_threshold = 4,
+    blacklist_merchants = ["favorit0-0000-0000-0000-00000favorit"],
+    request_timeout = 9000,
+    log_unprocessible_req_body = ["UNPROCESSIBLE_REQUEST", "REQUEST_TIMEOUT", "LARGE_PAYLOAD_SIZE", "HITS_LIMIT_EXCEEDED"],
+    max_allowed_req_size = 512000, -- 500 KB
+    driver_location_delay_in_sec = 60,
+    driver_location_delay_for_new_ride_sec = 60,
+    trigger_fcm_callback_url = "http://127.0.0.1:8016/internal/driverInactiveFCM",
+    apns_url = "https://api.sandbox.push.apple.com:443",
+}

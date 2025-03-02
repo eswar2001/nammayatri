@@ -51,6 +51,7 @@ import qualified Storage.Queries.Vehicle as QVeh
 import Tools.Error
 import qualified Tools.Maps as TMaps
 import qualified Tools.Notifications as TN
+import qualified BecknV2.OnDemand.Enums as Enums
 
 getDeviationForPoint :: LatLong -> [LatLong] -> Meters
 getDeviationForPoint pt estimatedRoute =
@@ -306,4 +307,4 @@ performSafetyCheck ride booking = do
     when riderDetails.nightSafetyChecks $ do
       driver <- QPerson.findById ride.driverId >>= fromMaybeM (PersonNotFound ride.driverId.getId)
       vehicle <- QVeh.findById ride.driverId >>= fromMaybeM (DriverWithoutVehicle ride.driverId.getId)
-      BP.sendSafetyAlertToBAP booking ride "Route Deviation Detected" driver vehicle
+      BP.sendSafetyAlertToBAP booking ride Enums.DEVIATION driver vehicle
