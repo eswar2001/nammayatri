@@ -319,7 +319,7 @@ public class LocationUpdateService extends Service {
     }
 
     private int getLocationPriority() {
-        int priority = Priority.PRIORITY_HIGH_ACCURACY;
+        int priority = Utils.getPriority(remoteConfigs.getString("driver_location_default_priority"));
         if( !driverRideStatus.equals("ON_PICKUP")) {
             String configPriority = remoteConfigs.getString("driver_location_priority");
             priority = Utils.getPriority(configPriority);
