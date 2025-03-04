@@ -193,3 +193,16 @@ getVehicleCategoryFromVehicleVariantDefault :: Maybe VehicleVariant -> DVC.Vehic
 getVehicleCategoryFromVehicleVariantDefault = maybe defaultCategory castVehicleVariantToVehicleCategory
   where
     defaultCategory = DVC.AUTO_CATEGORY
+
+getTruckVehicleVariant :: Maybe Float -> Maybe Float -> VehicleVariant -> VehicleVariant
+getTruckVehicleVariant mbGrossVehicleWeight mbUnladdenWeight currentVariant = flip (maybe currentVariant) ((,) <$> mbGrossVehicleWeight <*> mbUnladdenWeight) $
+  \(grossVehicleWeight, unladdenWeight) -> getVariantBasedOnWeight (grossVehicleWeight - unladdenWeight)
+  where
+    getVariantBasedOnWeight weight
+      | weight < 350 = DELIVERY_LIGHT_GOODS_VEHICLE
+      | weight >= 350 && weight < 500 = DELIVERY_TRUCK_MINI
+      | weight >= 500 && weight < 1000 = DELIVERY_TRUCK_SMALL
+      | weight >= 1000 && weight < 1500 = DELIVERY_TRUCK_MEDIUM
+      | weight >= 1500 && weight < 2500 = DELIVERY_TRUCK_LARGE
+      | weight >= 2500 && weight < 4000 = DELIVERY_TRUCK_ULTRA_LARGE
+      | otherwise = DELIVERY_LIGHT_GOODS_VEHICLE
