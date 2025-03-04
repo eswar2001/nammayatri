@@ -141,6 +141,7 @@ import Components.DropDownCard.Controller as DropDownCard
 import Components.SwitchButtonView as SwitchButtonView
 import Mobility.Prelude (boolToInt)
 import Constants.Configs (getPolylineAnimationConfig)
+import Components.TripStageTopBar.Controller as TripStageTopBar
 
 instance showAction :: Show Action where
   show _ = ""
@@ -330,7 +331,7 @@ data ScreenOutput =   Refresh ST.HomeScreenState
                     | NotifyDriverReachedDestination ST.HomeScreenState
                     | UpdateToggleMetroWarriors ST.HomeScreenState
                     | GoToMetroWarriors ST.HomeScreenState
-                    | MeterFareScreen ST.HomeScreenState
+                    | MeterRideScreen ST.HomeScreenState
 
 data Action = NoAction
             | BackPressed
@@ -461,7 +462,7 @@ data Action = NoAction
             | TollChargesPopUpAC PopUpModal.Action
             | TollChargesAmbigousPopUpAC PopUpModal.Action
             | RideRequestsList
-            | SwitchBookingStage BookingTypes
+            | TripStageTopBarAC TripStageTopBar.Action
             | AccessibilityHeaderAction
             | PopUpModalInterOperableAction PopUpModal.Action
             | UpdateSpecialZoneList
@@ -497,7 +498,7 @@ data Action = NoAction
             | UpdateState ST.HomeScreenState
             | HideBusOnline
             | BusNumber String
-            | ShowMeterFare
+            | GotoMeterRideScreen
 
 uploadFileConfig :: Common.UploadFileConfig
 uploadFileConfig = Common.UploadFileConfig {
@@ -518,7 +519,7 @@ eval (CompleteProfileAction PopUpModal.DismissPopup) state = do
   void $ pure $ setValueToLocalStore LAST_EXECUTED_TIME currentTime
   continue state
 
-eval ShowMeterFare state = exit $ MeterFareScreen state
+eval GotoMeterRideScreen state = exit $ MeterRideScreen state
 
 eval (FavPopUpAction PopUpModal.OnButton2Click) state = continueWithCmd state[pure $ FavPopUpAction PopUpModal.DismissPopup]
 
@@ -1730,7 +1731,7 @@ eval (TollChargesPopUpAC PopUpModal.OnButton2Click) state = continue state {data
 
 eval (TollChargesAmbigousPopUpAC PopUpModal.OnButton2Click) state = continue state {data {toll {showTollChargeAmbigousPopup = false}}}
 
-eval (SwitchBookingStage stage) state = do
+eval (TripStageTopBarAC (TripStageTopBar.SwitchBookingStage stage)) state = do
   if state.props.bookingStage == stage then continue state
   else do
     let currentRideData = if stage == CURRENT then fromMaybe state.data.activeRide state.data.currentRideData else state.data.activeRide
@@ -1741,6 +1742,8 @@ eval (SwitchBookingStage stage) state = do
       data {activeRide = activeRideData, currentRideData = Just currentRideData},
       props {bookingStage = stage, currentStage = fetchStageFromRideStatus activeRideData}
     }
+
+eval (TripStageTopBarAC (TripStageTopBar.HelpAndSupportScreen)) state = exit $ GoToHelpAndSupportScreen state
 
 eval (PlanListResponse (API.UiPlansResp plansListResp)) state = do
   let isTamilSelected = (getLanguageLocale languageKey) == "TA_IN"
