@@ -7,6 +7,7 @@ import qualified Data.Aeson
 import qualified Database.Beam as B
 import Domain.Types.Common ()
 import qualified Domain.Types.Common
+import qualified Domain.Types.DriverFlowStatus
 import qualified Domain.Types.DriverInformation
 import qualified Domain.Types.Extra.Plan
 import qualified Domain.Types.ServiceTierType
@@ -46,6 +47,7 @@ data DriverInformationT f = DriverInformationT
     dlNumberEncrypted :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     dlNumberHash :: B.C f (Kernel.Prelude.Maybe Kernel.External.Encryption.DbHash),
     driverDob :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
+    driverFlowStatus :: B.C f (Kernel.Prelude.Maybe Domain.Types.DriverFlowStatus.DriverFlowStatus),
     driverId :: B.C f Kernel.Prelude.Text,
     driverTripEndLocationLat :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Double),
     driverTripEndLocationLon :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Double),
@@ -59,18 +61,22 @@ data DriverInformationT f = DriverInformationT
     isBlockedForReferralPayout :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     isInteroperable :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     isPetModeEnabled :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
+    isSilentModeEnabled :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     isSpecialLocWarrior :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
+    isTTSEnabled :: (B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool)),
     issueBreachCooldownTimes :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
     lastACStatusCheckedAt :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     lastEnabledOn :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     latestScheduledBooking :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     latestScheduledPickupLat :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Double),
     latestScheduledPickupLon :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Double),
+    maxPickupRadius :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Meters),
     mode :: B.C f (Kernel.Prelude.Maybe Domain.Types.Common.DriverMode),
     numOfLocks :: B.C f Kernel.Prelude.Int,
     onRide :: B.C f Kernel.Prelude.Bool,
     onRideTripCategory :: B.C f (Kernel.Prelude.Maybe Domain.Types.Common.TripCategory),
     onboardingVehicleCategory :: B.C f (Kernel.Prelude.Maybe Domain.Types.VehicleCategory.VehicleCategory),
+    onlineDurationRefreshedAt :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     panNumberEncrypted :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     panNumberHash :: B.C f (Kernel.Prelude.Maybe Kernel.External.Encryption.DbHash),
     payerVpa :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
@@ -80,12 +86,15 @@ data DriverInformationT f = DriverInformationT
     payoutVpa :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     payoutVpaBankAccount :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     payoutVpaStatus :: B.C f (Kernel.Prelude.Maybe Domain.Types.DriverInformation.PayoutVpaStatus),
+    planExpiryDate :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     preferredPrimarySpecialLocId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     preferredSecondarySpecialLocIds :: B.C f (Kernel.Prelude.Maybe [Kernel.Prelude.Text]),
+    prepaidSubscriptionBalance :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney),
     referralCode :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     referredByDriverId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     referredByFleetOwnerId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     referredByOperatorId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
+    rideRequestVolume :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     servicesEnabledForSubscription :: B.C f (Kernel.Prelude.Maybe [Domain.Types.Extra.Plan.ServiceNames]),
     softBlockExpiryTime :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     softBlockReasonFlag :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
@@ -94,7 +103,10 @@ data DriverInformationT f = DriverInformationT
     subscribed :: B.C f Kernel.Prelude.Bool,
     tollRelatedIssueCount :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     totalReferred :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
+    tripDistanceMaxThreshold :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Meters),
+    tripDistanceMinThreshold :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Meters),
     verified :: B.C f Kernel.Prelude.Bool,
+    walletBalance :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney),
     weeklyCancellationRateBlockingCooldown :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     merchantId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     merchantOperatingCityId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
@@ -109,6 +121,6 @@ instance B.Table DriverInformationT where
 
 type DriverInformation = DriverInformationT Identity
 
-$(enableKVPG ''DriverInformationT ['driverId] [])
+$(enableKVPG (''DriverInformationT) [('driverId)] [])
 
-$(mkTableInstances ''DriverInformationT "driver_information")
+$(mkTableInstances (''DriverInformationT) "driver_information")

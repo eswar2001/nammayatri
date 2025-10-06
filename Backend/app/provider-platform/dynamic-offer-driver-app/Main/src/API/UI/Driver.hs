@@ -113,6 +113,7 @@ type API =
            :> Header "x-bundle-version" Version
            :> Header "x-client-version" Version
            :> Header "x-config-version" Version
+           :> Header "x-react-bundle-version" Text
            :> Header "x-device" Text
            :> ReqBody '[JSON] DDriver.DriverRespondReq
            :> Post '[JSON] APISuccess
@@ -137,6 +138,7 @@ type API =
                     :> Header "x-bundle-version" Version
                     :> Header "x-client-version" Version
                     :> Header "x-config-version" Version
+                    :> Header "x-react-bundle-version" Text
                     :> Header "x-device" Text
                     :> ReqBody '[JSON] DDriver.UpdateDriverReq
                     :> Post '[JSON] DDriver.UpdateDriverRes
@@ -144,6 +146,10 @@ type API =
                     :> TokenAuth
                     :> MandatoryQueryParam "day" Day
                     :> Get '[JSON] DDriver.DriverStatsRes
+                  :<|> "stats"
+                    :> "alltime"
+                    :> TokenAuth
+                    :> Get '[JSON] DCommon.DriverStatsRes
                   :<|> "earnings"
                     :> TokenAuth
                     :> MandatoryQueryParam "from" Day
@@ -271,6 +277,7 @@ handler =
              :<|> getInformationV2
              :<|> updateDriver
              :<|> getStats
+             :<|> getStatsAllTime
              :<|> getEarnings
              :<|> driverProfileImagesUpload
              :<|> verifyVpaStatus
@@ -318,8 +325,8 @@ getHomeLocations = withFlowHandlerAPI . DDriver.getHomeLocations
 deleteHomeLocation :: (Id SP.Person, Id Merchant.Merchant, Id DMOC.MerchantOperatingCity) -> Id DDHL.DriverHomeLocation -> FlowHandler APISuccess
 deleteHomeLocation (personId, driverId, merchantOpCityId) = withFlowHandlerAPI . DDriver.deleteHomeLocation (personId, driverId, merchantOpCityId)
 
-updateDriver :: (Id SP.Person, Id Merchant.Merchant, Id DMOC.MerchantOperatingCity) -> Maybe Version -> Maybe Version -> Maybe Version -> Maybe Text -> DDriver.UpdateDriverReq -> FlowHandler DDriver.UpdateDriverRes
-updateDriver personId mbBundleVersion mbClientVersion mbConfigVersion mbDevice = withFlowHandlerAPI . DDriver.updateDriver personId mbBundleVersion mbClientVersion mbConfigVersion mbDevice
+updateDriver :: (Id SP.Person, Id Merchant.Merchant, Id DMOC.MerchantOperatingCity) -> Maybe Version -> Maybe Version -> Maybe Version -> Maybe Text -> Maybe Text -> DDriver.UpdateDriverReq -> FlowHandler DDriver.UpdateDriverRes
+updateDriver personId mbBundleVersion mbClientVersion mbConfigVersion mbReactBundleVersion mbDevice = withFlowHandlerAPI . DDriver.updateDriver personId mbBundleVersion mbClientVersion mbConfigVersion mbReactBundleVersion mbDevice
 
 getNearbySearchRequests ::
   (Id SP.Person, Id Merchant.Merchant, Id DMOC.MerchantOperatingCity) ->
@@ -341,12 +348,16 @@ respondQuote ::
   Maybe Version ->
   Maybe Version ->
   Maybe Text ->
+  Maybe Text ->
   DDriver.DriverRespondReq ->
   FlowHandler APISuccess
-respondQuote (personId, driverId, merchantOpCityId) clientId mbBundleVersion mbClientVersion mbConfigVersion mbDevice = withFlowHandlerAPI . DDriver.respondQuote (personId, driverId, merchantOpCityId) clientId mbBundleVersion mbClientVersion mbConfigVersion mbDevice
+respondQuote (personId, driverId, merchantOpCityId) clientId mbBundleVersion mbClientVersion mbConfigVersion mbReactBundleVersion mbDevice = withFlowHandlerAPI . DDriver.respondQuote (personId, driverId, merchantOpCityId) clientId mbBundleVersion mbClientVersion mbConfigVersion mbReactBundleVersion mbDevice
 
 getStats :: (Id SP.Person, Id Merchant.Merchant, Id DMOC.MerchantOperatingCity) -> Day -> FlowHandler DDriver.DriverStatsRes
 getStats day = withFlowHandlerAPI . DDriver.getStats day
+
+getStatsAllTime :: (Id SP.Person, Id Merchant.Merchant, Id DMOC.MerchantOperatingCity) -> FlowHandler DCommon.DriverStatsRes
+getStatsAllTime = withFlowHandlerAPI . DDriver.getStatsAllTime
 
 updateMetaData :: (Id SP.Person, Id Merchant.Merchant, Id DMOC.MerchantOperatingCity) -> DDriver.MetaDataReq -> FlowHandler APISuccess
 updateMetaData req = withFlowHandlerAPI . DDriver.updateMetaData req

@@ -479,6 +479,10 @@ newtype GetDriverInfoResp = GetDriverInfoResp
     , cancelledRidesCountInWindow :: Maybe Int
     , assignedRidesCountInWindow :: Maybe Int
     , windowSize :: Maybe Int
+    , assignedRidesCountDaily :: Maybe Int
+    , cancelledRidesCountDaily :: Maybe Int
+    , assignedRidesCountWeekly :: Maybe Int
+    , cancelledRidesCountWeekly :: Maybe Int
     , favCount :: Maybe Int
     , isSubscriptionVehicleCategoryChanged :: Maybe Boolean
     , isOnFreeTrial :: Maybe Boolean
@@ -491,12 +495,15 @@ newtype GetDriverInfoResp = GetDriverInfoResp
     , isSubscriptionEnabledAtCategoryLevel :: Maybe Boolean
     , isSpecialLocWarrior :: Maybe Boolean
     , subscriptionDown :: Maybe Boolean
+    , fleetOwnerId :: Maybe String
+    , operatorId :: Maybe String
     , safetyScore :: Maybe Int
     , ridesWithFareIssues :: Maybe Int
     , totalRidesConsideredForFareIssues :: Maybe Int
     , isPetModeEnabled :: Maybe Boolean
     , driverTags :: Maybe DriverTags
     , nyClubConsent :: Maybe Boolean
+    , cancellationRateSlabConfig :: Maybe CancellationRateSlabConfig
     }
 
 data OverchargingTag =
@@ -515,6 +522,45 @@ instance encodeOverchargingTag :: Encode OverchargingTag where encode = defaultE
 instance eqOverchargingTag :: Eq OverchargingTag where eq = genericEq
 instance standardEncodeOverchargingTag :: StandardEncode OverchargingTag where standardEncode _ = standardEncode {}
 
+-- Cancellation Rate Slab Config types
+newtype CancellationRateSlab = CancellationRateSlab {
+  cancellationPercentageThreshold :: Int,
+  suspensionTimeInHours :: Int
+}
+
+derive instance genericCancellationRateSlab :: Generic CancellationRateSlab _
+derive instance newtypeCancellationRateSlab :: Newtype CancellationRateSlab _
+instance showCancellationRateSlab :: Show CancellationRateSlab where show = genericShow
+instance decodeCancellationRateSlab :: Decode CancellationRateSlab where decode = defaultDecode
+instance encodeCancellationRateSlab :: Encode CancellationRateSlab where encode = defaultEncode
+instance eqCancellationRateSlab :: Eq CancellationRateSlab where eq = genericEq
+instance standardEncodeCancellationRateSlab :: StandardEncode CancellationRateSlab where standardEncode (CancellationRateSlab req) = standardEncode req
+
+newtype SlabType = SlabType {
+  minBookingsRange :: Array Int,
+  penalityForCancellation :: CancellationRateSlab
+}
+
+derive instance genericSlabType :: Generic SlabType _
+derive instance newtypeSlabType :: Newtype SlabType _
+instance showSlabType :: Show SlabType where show = genericShow
+instance decodeSlabType :: Decode SlabType where decode = defaultDecode
+instance encodeSlabType :: Encode SlabType where encode = defaultEncode
+instance eqSlabType :: Eq SlabType where eq = genericEq
+instance standardEncodeSlabType :: StandardEncode SlabType where standardEncode (SlabType req) = standardEncode req
+
+newtype CancellationRateSlabConfig = CancellationRateSlabConfig {
+  dailySlabs :: Array SlabType,
+  weeklySlabs :: Array SlabType
+}
+
+derive instance genericCancellationRateSlabConfig :: Generic CancellationRateSlabConfig _
+derive instance newtypeCancellationRateSlabConfig :: Newtype CancellationRateSlabConfig _
+instance standardEncodeCancellationRateSlabConfig :: StandardEncode CancellationRateSlabConfig where standardEncode (CancellationRateSlabConfig req) = standardEncode req
+instance showCancellationRateSlabConfig :: Show CancellationRateSlabConfig where show = genericShow
+instance decodeCancellationRateSlabConfig :: Decode CancellationRateSlabConfig where decode = defaultDecode
+instance encodeCancellationRateSlabConfig :: Encode CancellationRateSlabConfig where encode = defaultEncode
+
 newtype DriverGoHomeInfo = DriverGoHomeInfo {
   cnt :: Int,
   driverGoHomeRequestId :: Maybe String,
@@ -528,7 +574,8 @@ newtype DriverTags = DriverTags {
   "PetDriver" :: Maybe String,
   "NYClubTag" :: Maybe String, -- ny_member, ny_member_probation, ny_member_revoked, ny_ineligible
   "NyMemberProbationTill" :: Maybe Int,
-  "DriverChargingBehaviour" :: Maybe OverchargingTag
+  "DriverChargingBehaviour" :: Maybe OverchargingTag,
+  "DriverTier" :: Maybe String
 }
 
 newtype  OrganizationInfo = OrganizationInfo
@@ -3588,6 +3635,7 @@ data DriverCoinsFunctionType
 data MetroRideType
   = ToMetro
   | FromMetro
+  | FromOrToMetro
   | None
 
 instance makeCoinTransactionReq :: RestEndpoint CoinTransactionReq where
@@ -4513,6 +4561,7 @@ data ServiceTierType
   | AMBULANCE_AC_OXY_TIER
   | AMBULANCE_VENTILATOR_TIER
   | EV_AUTO_RICKSHAW
+  | AUTO_PLUS
   | HERITAGE_CAB_TIER
 
 data AirConditionedRestrictionType
@@ -4595,6 +4644,7 @@ instance decodeServiceTierType :: Decode ServiceTierType
                   "AMBULANCE_VENTILATOR" -> except $ Right AMBULANCE_VENTILATOR_TIER
                   "EV_AUTO_RICKSHAW" -> except $ Right EV_AUTO_RICKSHAW
                   "HERITAGE_CAB"  -> except $ Right HERITAGE_CAB_TIER
+                  "AUTO_PLUS" -> except $ Right AUTO_PLUS
                   _              -> except $ Right COMFY
 instance encodeServiceTierType :: Encode ServiceTierType where encode = defaultEnumEncode
 instance eqServiceTierType :: Eq ServiceTierType where eq = genericEq
@@ -4622,7 +4672,8 @@ instance standardEncodeServiceTierType :: StandardEncode ServiceTierType
     standardEncode AMBULANCE_VENTILATOR_TIER = standardEncode "AMBULANCE_VENTILATOR"
     standardEncode EV_AUTO_RICKSHAW = standardEncode "EV_AUTO_RICKSHAW"
     standardEncode HERITAGE_CAB_TIER = standardEncode "HERITAGE_CAB"
-
+    standardEncode AUTO_PLUS = standardEncode "AUTO_PLUS"
+    
 derive instance genericAirConditionedRestrictionType :: Generic AirConditionedRestrictionType _
 instance showAirConditionedRestrictionType :: Show AirConditionedRestrictionType where show = genericShow
 instance decodeAirConditionedRestrictionType :: Decode AirConditionedRestrictionType

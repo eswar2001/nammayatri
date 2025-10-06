@@ -13,7 +13,6 @@ import qualified Domain.Types.Person
 import qualified Domain.Types.RecentLocation
 import Kernel.Prelude
 import qualified Kernel.Types.Id
-import qualified Lib.JourneyLeg.Types
 import qualified Tools.Beam.UtilsTH
 
 data FRFSSearch = FRFSSearch
@@ -21,17 +20,17 @@ data FRFSSearch = FRFSSearch
     id :: Kernel.Types.Id.Id Domain.Types.FRFSSearch.FRFSSearch,
     integratedBppConfigId :: Kernel.Types.Id.Id Domain.Types.IntegratedBPPConfig.IntegratedBPPConfig,
     isOnSearchReceived :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
-    journeyLegInfo :: Kernel.Prelude.Maybe Lib.JourneyLeg.Types.JourneySearchData,
-    journeyLegStatus :: Kernel.Prelude.Maybe Lib.JourneyLeg.Types.JourneyLegStatus,
-    journeyRouteDetails :: [Lib.JourneyLeg.Types.MultiModalJourneyRouteDetails],
     merchantId :: Kernel.Types.Id.Id Domain.Types.Merchant.Merchant,
     merchantOperatingCityId :: Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity,
+    multimodalSearchRequestId :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
+    onSearchFailed :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     partnerOrgId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.PartnerOrganization.PartnerOrganization),
     partnerOrgTransactionId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.PartnerOrganization.PartnerOrgTransaction),
     quantity :: Kernel.Prelude.Int,
     recentLocationId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.RecentLocation.RecentLocation),
     riderId :: Kernel.Types.Id.Id Domain.Types.Person.Person,
     routeCode :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
+    searchAsParentStops :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     toStationCode :: Kernel.Prelude.Text,
     validTill :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     vehicleType :: BecknV2.FRFS.Enums.VehicleCategory,

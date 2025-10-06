@@ -29,7 +29,6 @@ import Domain.Types.MerchantOperatingCity
 import Domain.Types.RouteStopTimeTable
 import qualified EulerHS.Language as L
 import EulerHS.Types (OptionEntity)
-import Kernel.External.Types (ServiceFlow)
 import Kernel.Prelude as P
 import qualified Kernel.Storage.Hedis as Hedis
 import Kernel.Types.Id
@@ -51,7 +50,9 @@ castVehicleType vehicleType = do
 
 findByRouteCodeAndStopCode ::
   ( MonadFlow m,
-    ServiceFlow m r,
+    CacheFlow m r,
+    EncFlow m r,
+    EsqDBFlow m r,
     HasShortDurationRetryCfg r c
   ) =>
   IntegratedBPPConfig ->
@@ -59,41 +60,42 @@ findByRouteCodeAndStopCode ::
   Id MerchantOperatingCity ->
   [Text] ->
   Text ->
+  Bool ->
   m [RouteStopTimeTable]
-findByRouteCodeAndStopCode integratedBPPConfig merchantId merchantOpId routeCodes' stopCode' = do
+findByRouteCodeAndStopCode integratedBPPConfig merchantId merchantOpId routeCodes' stopCode' needOnlyOneTrip = do
   vehicleType <- castVehicleType integratedBPPConfig.vehicleCategory
   let routeCodes = P.map (modifyCodesToGTFS integratedBPPConfig) routeCodes'
       stopCode = modifyCodesToGTFS integratedBPPConfig stopCode'
+  routeStopTimeTable <- Hedis.safeGet (routeTimeTableKey stopCode routeCodes needOnlyOneTrip)
   allTrips <-
-    Hedis.safeGet (routeTimeTableKey stopCode) >>= \case
-      Just a -> do
+    case (routeStopTimeTable, vehicleType == BecknV2.FRFS.Enums.SUBWAY) of
+      (Just a, False) -> do
         logDebug $ "Fetched route stop time table cached: " <> show a <> "for routeCodes:" <> show routeCodes <> " and stopCode:" <> show stopCode
         pure a
-      Nothing -> do
+      _ -> do
         stopCodes <-
           P.map (modifyCodesToGTFS integratedBPPConfig)
             <$> case vehicleType of
-              BecknV2.FRFS.Enums.METRO -> do
+              a | a `P.elem` [BecknV2.FRFS.Enums.METRO, BecknV2.FRFS.Enums.SUBWAY] -> do
                 OTPRestCommon.getChildrenStationsCodes integratedBPPConfig stopCode'
                   >>= \case
                     [] -> pure [stopCode']
                     stopCodes@(_ : _) -> pure stopCodes
               _ -> pure [stopCode']
-        allTrips <- Queries.findByRouteCodeAndStopCode integratedBPPConfig merchantId merchantOpId routeCodes' stopCodes vehicleType
-        logDebug $ "Fetched route stop time table graphql: " <> show allTrips <> " for routeCodes:" <> show routeCodes <> " and stopCode:" <> show stopCode
-        void $ cacheRouteStopTimeInfo stopCode allTrips
+        allTrips <- Queries.findByRouteCodeAndStopCode integratedBPPConfig merchantId merchantOpId routeCodes' stopCodes vehicleType needOnlyOneTrip
+        unless (P.null allTrips) $ cacheRouteStopTimeInfo stopCode routeCodes allTrips needOnlyOneTrip
         pure allTrips
   val <- L.getOptionLocal CalledForFare
   return $ P.filter (\trip -> (trip.routeCode `P.elem` routeCodes') || (val == Just True)) allTrips
 
-cacheRouteStopTimeInfo :: (CacheFlow m r, MonadFlow m) => Text -> [RouteStopTimeTable] -> m ()
-cacheRouteStopTimeInfo stopCode routeStopInfo = do
+cacheRouteStopTimeInfo :: (CacheFlow m r, MonadFlow m) => Text -> [Text] -> [RouteStopTimeTable] -> Bool -> m ()
+cacheRouteStopTimeInfo stopCode routeCodes routeStopInfo needOnlyOneTrip = do
   let expTime = 60 * 60
-  let idKey = routeTimeTableKey stopCode
+  let idKey = routeTimeTableKey stopCode routeCodes needOnlyOneTrip
   Hedis.setExp idKey routeStopInfo expTime
 
-routeTimeTableKey :: Text -> Text
-routeTimeTableKey stopCode = "routeStop-time-table:" <> stopCode
+routeTimeTableKey :: Text -> [Text] -> Bool -> Text
+routeTimeTableKey stopCode routeCodes needOnlyOneTrip = "routeStop-time-table:" <> stopCode <> ":" <> Text.intercalate ":" routeCodes <> ":" <> show needOnlyOneTrip
 
 data CalledForFare = CalledForFare
   deriving stock (Generic, Typeable, Show, Eq)

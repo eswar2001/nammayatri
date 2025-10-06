@@ -6,6 +6,7 @@ module Domain.Action.Dashboard.RideBooking.Select
   )
 where
 
+import qualified API.UI.CancelSearch
 import qualified API.UI.Select
 import qualified "this" Domain.Action.UI.Select
 import qualified "this" Domain.Types.Estimate
@@ -14,6 +15,7 @@ import qualified "this" Domain.Types.Person
 import qualified Environment
 import qualified Kernel.Types.Beckn.Context
 import qualified Kernel.Types.Id
+import SharedLogic.Cancel
 import SharedLogic.Merchant (findMerchantByShortId)
 
 postSelectEstimate ::
@@ -52,7 +54,7 @@ postSelectCancelSearch ::
   Kernel.Types.Beckn.Context.City ->
   Kernel.Types.Id.Id Domain.Types.Person.Person ->
   Kernel.Types.Id.Id Domain.Types.Estimate.Estimate ->
-  Environment.Flow Domain.Action.UI.Select.CancelAPIResponse
+  Environment.Flow CancelAPIResponse
 postSelectCancelSearch merchantShortId _opCity personId estimateId = do
   m <- findMerchantByShortId merchantShortId
-  API.UI.Select.cancelSearch' (personId, m.id) estimateId
+  API.UI.CancelSearch.cancelSearch' (personId, m.id) estimateId

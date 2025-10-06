@@ -15,7 +15,7 @@ import Storage.Queries.Transformers.DocumentVerificationConfig
 
 instance FromTType' Beam.DocumentVerificationConfig Domain.Types.DocumentVerificationConfig.DocumentVerificationConfig where
   fromTType' (Beam.DocumentVerificationConfigT {..}) = do
-    supportedVehicleClasses' <- getConfigFromJSON documentType supportedVehicleClassesJSON
+    supportedVehicleClasses' <- (getConfigFromJSON documentType) supportedVehicleClassesJSON
     pure $
       Just
         Domain.Types.DocumentVerificationConfig.DocumentVerificationConfig
@@ -33,6 +33,7 @@ instance FromTType' Beam.DocumentVerificationConfig Domain.Types.DocumentVerific
             isHidden = isHidden,
             isImageValidationRequired = isImageValidationRequired,
             isMandatory = isMandatory,
+            isMandatoryForEnabling = isMandatoryForEnabling,
             maxRetryCount = maxRetryCount,
             merchantId = Kernel.Types.Id.Id merchantId,
             merchantOperatingCityId = Kernel.Types.Id.Id merchantOperatingCityId,
@@ -63,6 +64,7 @@ instance ToTType' Beam.DocumentVerificationConfig Domain.Types.DocumentVerificat
         Beam.isHidden = isHidden,
         Beam.isImageValidationRequired = isImageValidationRequired,
         Beam.isMandatory = isMandatory,
+        Beam.isMandatoryForEnabling = isMandatoryForEnabling,
         Beam.maxRetryCount = maxRetryCount,
         Beam.merchantId = Kernel.Types.Id.getId merchantId,
         Beam.merchantOperatingCityId = Kernel.Types.Id.getId merchantOperatingCityId,

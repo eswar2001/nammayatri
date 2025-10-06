@@ -18,8 +18,8 @@ imports:
   Station: Domain.Types.Station
   FRFSQuoteType: Domain.Types.FRFSQuote
   FRFSRoutes: Domain.Types.FRFSQuote
-  FRFSTicketBookingStatus: Domain.Types.FRFSTicketBooking
-  FRFSTicketStatus: Domain.Types.FRFSTicket
+  FRFSTicketBookingStatus: Domain.Types.FRFSTicketBookingStatus
+  FRFSTicketStatus: Domain.Types.FRFSTicketStatus
   PaymentOrder: Lib.Payment.Domain.Types.PaymentOrder
   Person: Domain.Types.Person
   City: Kernel.Types.Beckn.Context
@@ -27,17 +27,18 @@ imports:
   PartnerOrgTransaction: Domain.Types.PartnerOrganization
   TimeBound: Kernel.Types.TimeBound
   LatLong: Kernel.External.Maps.Types
-  JourneySearchData: Lib.JourneyLeg.Types
   Journey: Domain.Types.Journey
+  JourneyLeg: Domain.Types.JourneyLeg
   JourneyLegStatus: Lib.JourneyLeg.Types
   StationType: Domain.Types.StationType
   SuggestedStations: Domain.Types.StationType
-  MultiModalJourneyRouteDetails: Lib.JourneyLeg.Types
   IntegratedBPPConfig: Domain.Types.IntegratedBPPConfig
   RecentLocation: Domain.Types.RecentLocation
   DayOfWeek: Data.Time
   CrisSearchData: Lib.JourneyLeg.Types
   RouteStopTimeTable: Domain.Types.RouteStopTimeTable
+  FRFSCategoryTag: Domain.Types.FRFSQuoteCategorySpec
+  OfferedValue: Domain.Types.FRFSQuoteCategorySpec
 
 FRFSSearch:
   tableName: frfs_search
@@ -54,13 +55,13 @@ FRFSSearch:
     merchantOperatingCityId: Id MerchantOperatingCity
     partnerOrgTransactionId: Maybe (Id PartnerOrgTransaction)
     partnerOrgId: Maybe (Id PartnerOrganization)
-    journeyLegInfo: Maybe JourneySearchData
-    journeyLegStatus: Maybe JourneyLegStatus
+    onSearchFailed: Maybe Bool
     isOnSearchReceived: Maybe Bool
-    journeyRouteDetails: "[MultiModalJourneyRouteDetails]"
     integratedBppConfigId: Id IntegratedBPPConfig
     recentLocationId: Maybe (Id RecentLocation)
     validTill: Maybe UTCTime
+    multimodalSearchRequestId: Maybe Text
+    searchAsParentStops: Maybe Bool
 
   beamFields:
     fromStationCode:
@@ -69,34 +70,6 @@ FRFSSearch:
       toStationId: Text
     routeCode:
       routeId: Maybe Text
-    journeyLegInfo:
-      journeyLegOrder: Maybe Int
-      journeyId: Maybe Text
-      agency: Maybe Text
-      skipBooking: Maybe Bool
-      convenienceCost: Maybe Int
-      pricingId: Maybe Text
-      isDeleted: Maybe Bool
-      onSearchFailed: Maybe Bool
-    journeyRouteDetails: {}
-
-  toTType:
-    journeyLegOrder: Kernel.Prelude.fmap (.journeyLegOrder)|I
-    journeyId: Kernel.Prelude.fmap (.journeyId)|I
-    agency: (journeyLegInfo >>= (.agency))|E
-    skipBooking: Kernel.Prelude.fmap (.skipBooking)|I
-    convenienceCost: Kernel.Prelude.fmap (.convenienceCost)|I
-    pricingId: (journeyLegInfo >>= (.pricingId))|E
-    isDeleted: (journeyLegInfo >>= (.isDeleted))|E
-    onSearchFailed: (journeyLegInfo >>= (.onSearchFailed))|E
-
-  intermediateTransformers:
-    fromTType:
-      - journeyRouteDetailsList: Storage.Queries.JourneyRouteDetails.findAllBySearchId (Kernel.Types.Id.Id id)|EM
-
-  fromTType:
-    journeyLegInfo: mkJourneyLegInfo
-    journeyRouteDetails: Storage.Queries.Transformers.RouteDetails.getTransformedJourneyRouteDetailsT journeyRouteDetailsList|E
 
   excludedDefaultQueries:
     - create
@@ -111,10 +84,6 @@ FRFSSearch:
     findById:
       kvFunction: findOneWithKV
       where: id
-    updateJourneyLegStatus:
-      kvFunction: updateOneWithKV
-      params: [journeyLegStatus]
-      where: id
     updateIsOnSearchReceivedById:
       kvFunction: updateWithKV
       params: [isOnSearchReceived]
@@ -125,51 +94,6 @@ FRFSSearch:
       where: id
   extraOperations:
     - EXTRA_QUERY_FILE
-
-JourneyRouteDetails:
-  fields:
-    id: Id JourneyRouteDetails
-    searchId: Id FRFSSearch
-    lineColor: Maybe Text
-    lineColorCode: Maybe Text
-    platformNumber: Maybe Text
-    subLegOrder: Maybe Int
-    frequency: Maybe Seconds
-    routeLongName: Maybe Text
-    alternateShortNames: Maybe [Text]
-    fromStationCode: Maybe Text
-    toStationCode: Maybe Text
-    routeCode: Maybe Text
-    journeyStatus: Maybe JourneyLegStatus
-
-  beamFields:
-    fromStationCode:
-      fromStationId: Maybe Text
-    toStationCode:
-      toStationId: Maybe Text
-    routeCode:
-      routeId: Maybe Text
-
-  queries:
-    findAllBySearchId:
-      kvFunction: findAllWithKV
-      where: searchId
-    updateJourneyStatus:
-      kvFunction: updateOneWithKV
-      params: [journeyStatus]
-      where:
-        and: [searchId, subLegOrder]
-    updateAlternateShortNames:
-      kvFunction: updateWithKV
-      params: [alternateShortNames]
-      where: searchId
-
-  sqlType:
-    alternateShortNames: "text[]"
-
-  constraints:
-    id: PrimaryKey
-    searchId: "!SecondaryKey"
 
 FRFSQuote:
   tableName: frfs_quote
@@ -207,6 +131,7 @@ FRFSQuote:
     bppDelayedInterest: Maybe Int
     oldCacheDump: Maybe Text
     childTicketQuantity: Maybe Int
+    multimodalSearchRequestId: Maybe Text
   beamFields:
     fromStationCode:
       fromStationId: Text
@@ -225,7 +150,6 @@ FRFSQuote:
       via: Maybe Text
       ticketTypeCode: Maybe Text
       trainTypeCode: Maybe Text
-      sdkToken: Maybe Text
       appSession: Maybe Int
 
   beamType:
@@ -240,7 +164,6 @@ FRFSQuote:
       via: Text
       ticketTypeCode: Text
       trainTypeCode: Text
-      sdkToken: Text
       appSession: Int
 
   fromTType:
@@ -248,7 +171,7 @@ FRFSQuote:
     childPrice: Kernel.Types.Common.mkPrice currency <$> childPrice|E
     estimatedPrice: Kernel.Types.Common.mkPrice currency <$> estimatedPrice|E
     applicableDiscountIds: (Kernel.Types.Id.Id <$> ) <$>|I
-    fareDetails: Domain.Types.FRFSQuote.FRFSFareDetails <$> appSession <*> distance <*> providerRouteId <*> sdkToken <*> ticketTypeCode <*> trainTypeCode <*> via|E
+    fareDetails: Domain.Types.FRFSQuote.FRFSFareDetails <$> appSession <*> distance <*> providerRouteId <*> ticketTypeCode <*> trainTypeCode <*> via|E
 
   toTType:
     price: (.amount)|I
@@ -261,7 +184,6 @@ FRFSQuote:
     via: (fareDetails <&> (.via))|E
     ticketTypeCode: (fareDetails <&> (.ticketTypeCode))|E
     trainTypeCode: (fareDetails <&> (.trainTypeCode))|E
-    sdkToken: (fareDetails <&> (.sdkToken))|E
     appSession: (fareDetails <&> (.appSession))|E
 
   sqlType:
@@ -282,6 +204,92 @@ FRFSQuote:
   extraOperations:
     - EXTRA_QUERY_FILE
 
+# Default FRFSQuoteCategory is for ADULT category
+FRFSQuoteCategory:
+  tableName: frfs_quote_category
+  fields:
+    id: Id FRFSQuoteCategory
+    quoteId: Id FRFSQuote
+    bppItemId: Text
+    ticketCategoryMetadataConfig: FRFSTicketCategoryMetadataConfig
+    price: Price
+    offeredPrice: Price
+    selectedQuantity: Maybe Int
+    maxTicketAllowed: Maybe Int
+    merchantId: Id Merchant
+    merchantOperatingCityId: Id MerchantOperatingCity
+  constraints:
+    id: PrimaryKey
+    quoteId: SecondaryKey
+  beamFields:
+    ticketCategoryMetadataConfig:
+      ticketCategoryMetadataConfigId: Text
+    price:
+      currency: Maybe Currency
+      price: HighPrecMoney
+    offeredPrice:
+      offeredPrice: HighPrecMoney
+
+  fromTType:
+    ticketCategoryMetadataConfig: 'Storage.Queries.FRFSTicketCategoryMetadataConfig.findById (Kernel.Types.Id.Id ticketCategoryMetadataConfigId) >>= fromMaybeM (Kernel.Types.Error.InternalError ("Ticket category metadata config not found for quote category: " <> show id)) |EM'
+    price: Kernel.Types.Common.mkPrice currency price|E
+    offeredPrice: Kernel.Types.Common.mkPrice currency offeredPrice|E
+
+  toTType:
+    ticketCategoryMetadataConfigId: (Kernel.Types.Id.getId $ (.id) ticketCategoryMetadataConfig)|E
+    price: (.amount)|I
+    currency: (Kernel.Prelude.Just . (.currency))|I
+    offeredPrice: (.amount)|I
+
+  queries:
+    findById:
+      kvFunction: findOneWithKV
+      where: id
+    findAllByQuoteId:
+      kvFunction: findAllWithKV
+      where: quoteId
+    updateQuantityByQuoteCategoryId:
+      kvFunction: updateWithKV
+      params: [selectedQuantity, updatedAt]
+      where: id
+
+FRFSQuoteBreakup:
+  tableName: frfs_quote_breakup
+  fields:
+    id: Id FRFSQuoteBreakup
+    quoteId: Id FRFSQuote
+    quoteCategoryId: Id FRFSQuoteCategory
+    tag: FRFSCategoryTag
+    value: Text
+    merchantId: Id Merchant
+    merchantOperatingCityId: Id MerchantOperatingCity
+  constraints:
+    id: PrimaryKey
+    quoteId: "!SecondaryKey"
+    quoteCategoryId: "!SecondaryKey"
+
+
+
+FRFSTicketBookingBreakup:
+  tableName: frfs_ticket_booking_breakup
+  fields:
+    id: Id FRFSTicketBookingBreakup
+    ticketBookingId: Id FRFSTicketBooking
+    quoteCategoryId: Id FRFSQuoteCategory
+    tag: FRFSCategoryTag
+    value: Text
+    merchantId: Id Merchant
+    merchantOperatingCityId: Id MerchantOperatingCity
+  constraints:
+    id: PrimaryKey
+    quoteId: SecondaryKey
+    quoteCategoryId: SecondaryKey
+  queries:
+    findByTicketBookingIdAndQuoteCategoryId:
+      kvFunction: findOneWithKV
+      where:
+        and: [ticketBookingId, quoteCategoryId]
+
 FRFSTicketBooking:
   tableName: frfs_ticket_booking
   derives: "Generic, Show"
@@ -290,7 +298,7 @@ FRFSTicketBooking:
     searchId: Id FRFSSearch
     bppOrderId: Maybe Text
     quoteId: Id FRFSQuote
-    status: FRFSTicketBookingStatus
+    status: FRFSTicketBookingStatus|NoRelation
     riderId: Id Person
     stationsJson: Text
     routeStationsJson: Maybe Text
@@ -329,20 +337,17 @@ FRFSTicketBooking:
     cashbackPayoutOrderId: Maybe Text
     bppDelayedInterest: Maybe Int
     googleWalletJWTUrl: Maybe Text
-    journeyLegOrder: Maybe Int
-    journeyId: Maybe (Id Journey)
     journeyOnInitDone: Maybe Bool
     startTime: Maybe UTCTime
-    journeyLegStatus: Maybe JourneyLegStatus
-    isDeleted: Maybe Bool
     isFareChanged: Maybe Bool
-    isSkipped: Maybe Bool
-    journeyRouteDetails: "[MultiModalJourneyRouteDetails]"
     integratedBppConfigId: Id IntegratedBPPConfig
     recentLocationId: Maybe (Id RecentLocation)
     bookingAuthCode: Maybe Text
     osType: Maybe Text
     osBuildVersion: Maybe Text
+    multimodalSearchRequestId: Maybe Text
+    failureReason: Maybe Text
+    isSingleMode: Maybe Bool
 
   default:
     customerCancelled: "false"
@@ -359,23 +364,15 @@ FRFSTicketBooking:
       estimatedPrice: HighPrecMoney
     finalPrice:
       finalPrice: Maybe HighPrecMoney
-    journeyRouteDetails: {}
 
   types:
-    FRFSTicketBookingStatus:
-      enum: "NEW, APPROVED, PAYMENT_PENDING, CONFIRMING, FAILED, CONFIRMED, CANCELLED, COUNTER_CANCELLED, CANCEL_INITIATED, TECHNICAL_CANCEL_REJECTED, REFUND_INITIATED"
     CashbackStatus:
       enum: "PENDING, PROCESSING, SUCCESSFUL, CASHBACK_FAILED, MANUAL_VERIFICATION"
-
-  intermediateTransformers:
-    fromTType:
-      - journeyRouteDetailsList: Storage.Queries.JourneyRouteDetails.findAllBySearchId (Kernel.Types.Id.Id searchId)|EM
 
   fromTType:
     price: Kernel.Types.Common.mkPrice currency price|E
     estimatedPrice: Kernel.Types.Common.mkPrice currency estimatedPrice|E
     finalPrice: Kernel.Prelude.fmap (Kernel.Types.Common.mkPrice currency) finalPrice|E
-    journeyRouteDetails: Storage.Queries.Transformers.RouteDetails.getTransformedJourneyRouteDetails journeyRouteDetailsList|E
 
   toTType:
     price: (.amount)|I
@@ -389,7 +386,6 @@ FRFSTicketBooking:
     bppOrderId: SecondaryKey
     riderId: "!SecondaryKey"
     quoteId: SecondaryKey
-    journeyId: "!SecondaryKey"
 
   queries:
     findById:
@@ -431,9 +427,9 @@ FRFSTicketBooking:
       kvFunction: updateWithKV
       params: [finalPrice, updatedAt]
       where: id
-    updatePriceById:
+    updatePriceAndQuantityById:
       kvFunction: updateWithKV
-      params: [price, updatedAt]
+      params: [price, quantity, childTicketQuantity, updatedAt]
       where: id
     updateBppBankDetailsById:
       kvFunction: updateWithKV
@@ -460,31 +456,33 @@ FRFSTicketBooking:
       kvFunction: updateOneWithKV
       params: [cashbackPayoutOrderId]
       where: id
-    findAllByJourneyId:
-      kvFunction: findAllWithKV
-      where: journeyId
-    findAllByJourneyIdCond:
-      kvFunction: findAllWithKVAndConditionalDB
-      where: journeyId
     updateOnInitDone:
       kvFunction: updateOneWithKV
       params: [journeyOnInitDone]
       where: id
+    updateOnInitDoneBySearchId:
+      kvFunction: updateOneWithKV
+      params: [journeyOnInitDone]
+      where: searchId
     updateInterestDelayedByQuoteId:
       kvFunction: updateOneWithKV
       params: [bppDelayedInterest]
       where: quoteId
-    updateJourneyLegStatus:
-      kvFunction: updateOneWithKV
-      params: [journeyLegStatus]
-      where: id
     updateGoogleWalletLinkById:
       kvFunction: updateOneWithKV
       params: [googleWalletJWTUrl]
       where: id
+    updateQuoteAndBppItemIdAndRouteStationsJson:
+      kvFunction: updateOneWithKV
+      params: [quoteId, bppItemId, routeStationsJson]
+      where: id
     updateQuantity:
       kvFunction: updateWithKV
       params: [quantity, updatedAt]
+      where: id
+    updateFailureReasonById:
+      kvFunction: updateOneWithKV
+      params: [failureReason]
       where: id
 
   extraOperations:
@@ -501,7 +499,7 @@ FRFSTicket:
     description: Maybe Text
     frfsTicketBookingId: Id FRFSTicketBooking
     riderId: Id Person
-    status: FRFSTicketStatus
+    status: FRFSTicketStatus|NoRelation
     qrData: Text
     validTill: UTCTime
     ticketNumber: Text
@@ -512,10 +510,7 @@ FRFSTicket:
     partnerOrgTransactionId: Maybe (Id PartnerOrgTransaction)
     partnerOrgId: Maybe (Id PartnerOrganization)
     isTicketFree: Maybe Bool
-
-  types:
-    FRFSTicketStatus:
-      enum: "ACTIVE, EXPIRED, USED, CANCELLED, COUNTER_CANCELLED, CANCEL_INITIATED, TECHNICAL_CANCEL_REJECTED, REFUND_INITIATED"
+    commencingHours: Maybe Int
 
   constraints:
     id: PrimaryKey
@@ -548,6 +543,11 @@ FRFSTicket:
       params: [status, updatedAt]
       where:
         and: [frfsTicketBookingId]
+    udpateQrDataAndValidTill:
+      kvFunction: updateWithKV
+      params: [qrData, validTill]
+      where:
+        and: [frfsTicketBookingId, ticketNumber]
     updateRefreshTicketQRByTBookingIdAndTicketNumber:
       kvFunction: updateWithKV
       params: [qrData, qrRefreshAt]
@@ -565,7 +565,7 @@ FRFSTicketBookingPayment:
 
   types:
     FRFSTicketBookingPaymentStatus:
-      enum: "PENDING, SUCCESS, FAILED, REFUND_PENDING, REFUNDED"
+      enum: "PENDING, SUCCESS, FAILED, REATTEMPTED, REFUND_PENDING, REFUNDED, REFUND_FAILED, REFUND_INITIATED"
 
   constraints:
     id: PrimaryKey
@@ -576,11 +576,8 @@ FRFSTicketBookingPayment:
     findById:
       kvFunction: findOneWithKV
       where: id
-    findAllTicketBookingId:
+    findAllByOrderId:
       kvFunction: findAllWithKV
-      where: frfsTicketBookingId
-    findByPaymentOrderId:
-      kvFunction: findOneWithKV
       where: paymentOrderId
     findAllByStatus:
       kvFunction: findAllWithKV
@@ -589,6 +586,13 @@ FRFSTicketBookingPayment:
       kvFunction: updateWithKV
       params: [status, updatedAt]
       where: frfsTicketBookingId
+    updateStatusById:
+      kvFunction: updateWithKV
+      params: [status, updatedAt]
+      where: id
+
+  extraOperations:
+    - EXTRA_QUERY_FILE
 
 FRFSRecon:
   tableName: frfs_recon
@@ -688,6 +692,7 @@ FRFSConfig:
     providerName: Maybe Text
     validTillSeconds: Seconds
     isFRFSTestingEnabled: Bool
+    canUpdateExistingPaymentOrder: Bool
 
   beamType:
     isCancellationAllowed: Maybe Bool
@@ -696,6 +701,7 @@ FRFSConfig:
     radius: Maybe Meters
     validTillSeconds: Maybe Seconds
     isFRFSTestingEnabled: Maybe Bool
+    canUpdateExistingPaymentOrder: Maybe Bool
 
   queries:
     findByMerchantOperatingCityId:
@@ -715,6 +721,7 @@ FRFSConfig:
     radius: "3000"
     validTillSeconds: "300"
     isFRFSTestingEnabled : "false"
+    canUpdateExistingPaymentOrder: "false"
 
   fromTType:
     isCancellationAllowed: Kernel.Prelude.fromMaybe True|I
@@ -723,6 +730,7 @@ FRFSConfig:
     radius: Kernel.Prelude.fromMaybe (Kernel.Types.Distance.Meters 3000)|I
     validTillSeconds: Kernel.Prelude.fromMaybe (Kernel.Types.Time.Seconds 300)|I
     isFRFSTestingEnabled: Kernel.Prelude.fromMaybe False|I
+    canUpdateExistingPaymentOrder: Kernel.Prelude.fromMaybe False|I
 
   toTType:
     isCancellationAllowed: Kernel.Prelude.Just|I
@@ -731,6 +739,7 @@ FRFSConfig:
     radius: Kernel.Prelude.Just|I
     validTillSeconds: Kernel.Prelude.Just|I
     isFRFSTestingEnabled: Kernel.Prelude.Just|I
+    canUpdateExistingPaymentOrder: Kernel.Prelude.Just|I
 
 FRFSRouteFareProduct:
   tableName: frfs_route_fare_product
@@ -751,6 +760,10 @@ FRFSRouteFareProduct:
       kvFunction: findAllWithKV
       where:
         and: [routeCode, integratedBppConfigId]
+    findByRouteCodeAndVehicleServiceTierId:
+      kvFunction: findOneWithKV
+      where:
+        and: [routeCode, vehicleServiceTierId]
     findAllByIntegratedBPPConfigId:
       kvFunction: findAllWithKV
       where:
@@ -764,7 +777,7 @@ FRFSFarePolicy:
   tableName: frfs_fare_policy
   fields:
     id: Id FRFSFarePolicy
-    applicableDiscountIds: "[Id FRFSTicketDiscount]"
+    applicableDiscountIds: "[Id FRFSTicketCategoryMetadataConfig]"
     _type: FRFSFarePolicyType
     description: Text
     cessCharge: Maybe HighPrecMoney
@@ -861,7 +874,7 @@ FRFSGtfsStageFare:
     merchantId: Id Merchant
     merchantOperatingCityId: Id MerchantOperatingCity
     cessCharge: Maybe HighPrecMoney
-    discountIds: "[Id FRFSTicketDiscount]"
+    discountIds: "[Id FRFSTicketCategoryMetadataConfig]"
   constraints:
     id: PrimaryKey
   default:
@@ -870,6 +883,10 @@ FRFSGtfsStageFare:
     findAllByVehicleServiceTierId:
       kvFunction: findAllWithKV
       where: vehicleServiceTierId
+    findOneByVehicleTypeAndStageAndMerchantOperatingCityIdAndVehicleServiceTierId:
+      kvFunction: findOneWithKV
+      where:
+        and: [vehicleType, stage, merchantOperatingCityId, vehicleServiceTierId]
     findAllByVehicleTypeAndStageAndMerchantOperatingCityId:
       kvFunction: findAllWithKV
       where:
@@ -894,34 +911,34 @@ FRFSRouteStopStageFare:
       where:
         and: [farePolicyId, routeCode, stopCode]
 
-FRFSTicketDiscount:
-  tableName: frfs_ticket_discount
-  derives: "Generic,Show,Eq,FromJSON,ToJSON,ToSchema"
+FRFSTicketCategoryMetadataConfig:
+  tableName: frfs_ticket_category_metadata_config
   fields:
-    id: Id FRFSTicketDiscount
+    id: Id FRFSTicketCategoryMetadataConfig
     code: Text
     title: Text
     description: Text
     tnc: Text
-    value: DiscountValue
-    currency: Currency
-    vehicleType: VehicleCategory
+    category: FRFSQuoteCategoryType
     merchantId: Id Merchant
+    domainCategoryValue: OfferedValue
     merchantOperatingCityId: Id MerchantOperatingCity
-  types:
-    DiscountValue:
-      enum: "FixedAmount HighPrecMoney, Percentage Double"
+    vehicleCategory: VehicleCategory
   constraints:
     id: PrimaryKey
+
+  types:
+    FRFSQuoteCategoryType:
+      enum: "ADULT, CHILD, SENIOR_CITIZEN, STUDENT, FEMALE, MALE"
+
   queries:
-    findByCodeAndVehicleAndCity:
+    findById:
+      kvFunction: findOneWithKV
+      where: id
+    findByCategoryVehicleAndCity:
       kvFunction: findOneWithKV
       where:
-        and: [code, vehicleType, merchantId, merchantOperatingCityId]
-    findByIdAndVehicleAndCity:
-      kvFunction: findOneWithKV
-      where:
-        and: [id, vehicleType, merchantId, merchantOperatingCityId]
+        and: [category, vehicleCategory ,merchantOperatingCityId]
 
 FRFSVehicleServiceTier:
   tableName: frfs_vehicle_service_tier
@@ -932,10 +949,24 @@ FRFSVehicleServiceTier:
     shortName: Text
     longName: Text
     description: Text
+    isAirConditioned: Bool
     merchantId: Id Merchant
+    integratedBppConfigId: Id IntegratedBPPConfig
     merchantOperatingCityId: Id MerchantOperatingCity
   constraints:
     id: PrimaryKey
+  cachedQueries:
+    findByServiceTierAndMerchantOperatingCityIdAndIntegratedBPPConfigId:
+      keyParams:
+        - _type
+        - merchantOperatingCityId
+        - integratedBppConfigId
+      returnType: One
+      dbQuery: findByServiceTierAndMerchantOperatingCityIdAndIntegratedBPPConfigId
+      dbQueryParams:
+        - _type
+        - merchantOperatingCityId
+        - integratedBppConfigId
   queries:
     findById:
       kvFunction: findOneWithKV
@@ -944,10 +975,10 @@ FRFSVehicleServiceTier:
       kvFunction: findAllWithKV
       where:
         and: [providerCode, merchantOperatingCityId]
-    findByServiceTierAndMerchantOperatingCityId:
+    findByServiceTierAndMerchantOperatingCityIdAndIntegratedBPPConfigId:
       kvFunction: findOneWithKV
       where:
-        and: [_type,merchantOperatingCityId]
+        and: [_type, merchantOperatingCityId, integratedBppConfigId]
 
 RouteTripMapping:
   tableName: route_trip_mapping
@@ -998,9 +1029,11 @@ FRFSTicketBookingFeedback:
     updatedAt: UTCTime
     merchantId: Id Merchant
     merchantOperatingCityId: Id MerchantOperatingCity
-    isFareAccepted: Bool
+    isFareAccepted: Maybe Bool
+    feedbackDetails: Maybe Text
   constraints:
     id: PrimaryKey
+    bookingId: SecondaryKey
   queries:
     findByBookingId:
       kvFunction: findOneWithKV
@@ -1012,6 +1045,6 @@ FRFSTicketBookingFeedback:
         and: [merchantId, merchantOperatingCityId]
     updateByBookingId:
       kvFunction: updateOneWithKV
-      params: [isFareAccepted, updatedAt]
+      params: [isFareAccepted, feedbackDetails, updatedAt]
       where:
         and: [bookingId]

@@ -7,12 +7,15 @@ module Domain.Action.Dashboard.Fleet.RegistrationV2
     createFleetOwnerDetails,
     createFleetOwnerInfo,
     fleetOwnerLogin,
+    enableFleetIfPossible,
+    castRoleToFleetType,
   )
 where
 
 import qualified API.Types.ProviderPlatform.Fleet.RegistrationV2 as Common
 import Domain.Action.Dashboard.Fleet.Referral
 import qualified Domain.Action.Dashboard.Fleet.Registration as DRegistration
+import qualified Domain.Action.Internal.DriverMode as DriverMode
 import qualified Domain.Action.UI.DriverOnboarding.Image as Image
 import qualified Domain.Action.UI.DriverOnboarding.Referral as DOR
 import qualified Domain.Action.UI.DriverReferral as DR
@@ -40,6 +43,7 @@ import qualified SharedLogic.DriverFleetOperatorAssociation as SA
 import qualified SharedLogic.DriverOnboarding as DomainRC
 import qualified SharedLogic.MessageBuilder as MessageBuilder
 import qualified Storage.Cac.TransporterConfig as SCTC
+import qualified Storage.CachedQueries.FleetOwnerDocumentVerificationConfig as FODVC
 import Storage.CachedQueries.Merchant as QMerchant
 import qualified Storage.CachedQueries.Merchant.MerchantOperatingCity as CQMOC
 import qualified Storage.Queries.AadhaarCard as QAadhaarCard
@@ -142,6 +146,8 @@ fleetOwnerRegister _merchantShortId _opCity mbRequestorId req = do
     when (null fleetAssocs) $ do
       fleetOperatorAssocData <- SA.makeFleetOperatorAssociation person.merchantId person.merchantOperatingCityId fleetOwnerId.getId referredOperatorId (DomainRC.convertTextToUTC (Just "2099-12-12"))
       QFOA.create fleetOperatorAssocData
+      when (transporterConfig.allowCacheDriverFlowStatus == Just True) $ do
+        DriverMode.incrementOperatorStatusKeyForFleetOwner referredOperatorId fleetOwnerId.getId
       DOR.incrementOnboardedCount DOR.FleetReferral (Id referredOperatorId) transporterConfig
   when (transporterConfig.generateReferralCodeForFleet == Just True) $ do
     fleetReferral <- QDR.findById person.id
@@ -152,41 +158,72 @@ fleetOwnerRegister _merchantShortId _opCity mbRequestorId req = do
       image <- Image.validateImage True (fleetOwnerId, person.merchantId, person.merchantOperatingCityId) req'
       businessLicenseNumber <- forM req.businessLicenseNumber encrypt
       QFOI.updateBusinessLicenseImageAndNumber (Just image.imageId.getId) businessLicenseNumber fleetOwnerId
-  enabled <- enableFleetIfPossible fleetOwnerId
+  enabled <- enableFleetIfPossible fleetOwnerId req.adminApprovalRequired (castFleetType <$> req.fleetType) person.merchantOperatingCityId
   return $ Common.FleetOwnerRegisterResV2 enabled
-  where
-    enableFleetIfPossible :: Id DP.Person -> Flow Bool
-    enableFleetIfPossible fleetOwnerId = do
-      if (req.adminApprovalRequired /= Just True)
-        then do
-          aadhaarCard <- QAadhaarCard.findByPrimaryKey fleetOwnerId -- TODO: Take from DVC
-          panCard <- QPanCard.findByDriverId fleetOwnerId
-          gstIn <- QGST.findByDriverId fleetOwnerId
-          case castFleetType <$> req.fleetType of
-            Just FOI.NORMAL_FLEET ->
-              case (panCard, aadhaarCard) of
-                (Just pan, Just aadhaar) | pan.verificationStatus == Documents.VALID
-                                             && aadhaar.verificationStatus == Documents.VALID -> do
-                  void $ QFOI.updateFleetOwnerEnabledStatus True fleetOwnerId
-                  pure True
-                _ -> pure False
-            Just FOI.BUSINESS_FLEET ->
-              case (aadhaarCard, panCard, gstIn) of
-                (Just aadhaar, Just pan, Just gst)
-                  | pan.verificationStatus == Documents.VALID
-                      && gst.verificationStatus == Documents.VALID
-                      && aadhaar.verificationStatus == Documents.VALID -> do
-                    void $ QFOI.updateFleetOwnerEnabledStatus True fleetOwnerId
-                    pure True
-                _ -> pure False
-            _ -> pure False
-        else pure False
+
+enableFleetIfPossible :: Id DP.Person -> Maybe Bool -> Maybe FOI.FleetType -> Id DMOC.MerchantOperatingCity -> Flow Bool
+enableFleetIfPossible fleetOwnerId adminApprovalRequired mbfleetType merchantOperatingCityId = do
+  if adminApprovalRequired /= Just True
+    then do
+      let role = case mbfleetType of
+            Just FOI.NORMAL_FLEET -> DP.FLEET_OWNER
+            Just FOI.BUSINESS_FLEET -> DP.FLEET_BUSINESS
+            _ -> DP.FLEET_OWNER
+
+      mandatoryConfigs <- FODVC.findAllMandatoryByMerchantOpCityIdAndRole merchantOperatingCityId role (Just [])
+
+      let isAadhaarMandatory = any (\cfg -> cfg.documentType == DVC.AadhaarCard) mandatoryConfigs
+      let isPanMandatory = any (\cfg -> cfg.documentType == DVC.PanCard) mandatoryConfigs
+      let isGstMandatory = any (\cfg -> cfg.documentType == DVC.GSTCertificate) mandatoryConfigs
+
+      aadhaarCard <-
+        if isAadhaarMandatory
+          then QAadhaarCard.findByPrimaryKey fleetOwnerId
+          else pure Nothing
+
+      panCard <-
+        if isPanMandatory
+          then QPanCard.findByDriverId fleetOwnerId
+          else pure Nothing
+
+      gstIn <-
+        if isGstMandatory
+          then QGST.findByDriverId fleetOwnerId
+          else pure Nothing
+
+      let isValid mDoc isMandatory = case mDoc of
+            Just doc -> doc.verificationStatus == Documents.VALID
+            Nothing -> not isMandatory
+
+          panValid = isValid panCard isPanMandatory
+          aadhaarValid = isValid aadhaarCard isAadhaarMandatory
+          gstValid = isValid gstIn isGstMandatory
+
+      case mbfleetType of
+        Just FOI.NORMAL_FLEET
+          | panValid && aadhaarValid -> do
+            void $ QFOI.updateFleetOwnerEnabledStatus True fleetOwnerId
+            pure True
+          | otherwise -> pure False
+        Just FOI.BUSINESS_FLEET
+          | panValid && aadhaarValid && gstValid -> do
+            void $ QFOI.updateFleetOwnerEnabledStatus True fleetOwnerId
+            pure True
+          | otherwise -> pure False
+        _ -> pure False
+    else pure False
 
 castFleetType :: Common.FleetType -> FOI.FleetType
 castFleetType = \case
   Common.RENTAL_FLEET -> FOI.RENTAL_FLEET
   Common.NORMAL_FLEET -> FOI.NORMAL_FLEET
   Common.BUSINESS_FLEET -> FOI.BUSINESS_FLEET
+
+castRoleToFleetType :: DP.Role -> Maybe FOI.FleetType
+castRoleToFleetType = \case
+  DP.FLEET_OWNER -> Just FOI.NORMAL_FLEET
+  DP.FLEET_BUSINESS -> Just FOI.BUSINESS_FLEET
+  _ -> Nothing
 
 castFleetTypeToDomain :: FOI.FleetType -> Common.FleetType
 castFleetTypeToDomain = \case
@@ -205,7 +242,7 @@ getOperatorIdFromReferralCode (Just refCode) = do
 createFleetOwnerDetails :: Registration.AuthReq -> Id DMerchant.Merchant -> Id DMOC.MerchantOperatingCity -> Bool -> Text -> Maybe Bool -> Flow DP.Person
 createFleetOwnerDetails authReq merchantId merchantOpCityId isDashboard deploymentVersion enabled = do
   transporterConfig <- SCTC.findByMerchantOpCityId merchantOpCityId Nothing >>= fromMaybeM (TransporterConfigNotFound merchantOpCityId.getId)
-  person <- Registration.makePerson authReq transporterConfig Nothing Nothing Nothing Nothing (Just deploymentVersion) merchantId merchantOpCityId isDashboard (Just DP.FLEET_OWNER)
+  person <- Registration.makePerson authReq transporterConfig Nothing Nothing Nothing Nothing Nothing (Just deploymentVersion) merchantId merchantOpCityId isDashboard (Just DP.FLEET_OWNER)
   void $ QP.create person
   merchantOperatingCity <- CQMOC.findById merchantOpCityId >>= fromMaybeM (MerchantOperatingCityDoesNotExist merchantOpCityId.getId)
   QDriverStats.createInitialDriverStats merchantOperatingCity.currency merchantOperatingCity.distanceUnit person.id
@@ -240,7 +277,8 @@ createFleetOwnerInfo personId merchantId enabled = do
             createdAt = now,
             updatedAt = now,
             registeredAt = Nothing,
-            isEligibleForSubscription = True
+            isEligibleForSubscription = True,
+            ticketPlaceId = Nothing
           }
   QFOI.create fleetOwnerInfo
 

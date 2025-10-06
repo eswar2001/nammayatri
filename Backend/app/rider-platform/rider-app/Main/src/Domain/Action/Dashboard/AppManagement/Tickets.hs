@@ -2,6 +2,7 @@ module Domain.Action.Dashboard.AppManagement.Tickets
   ( postTicketsVerify,
     postTicketsServices,
     getTicketsPlaces,
+    getTicketFleetVehicles,
     postTicketsUpdate,
     postTicketsBookingsCancel,
     postTicketsServiceCancel,
@@ -16,6 +17,17 @@ module Domain.Action.Dashboard.AppManagement.Tickets
     getTicketsTicketdashboardTicketplaceInfo,
     postTicketsTicketdashboardTicketplaceUpdate,
     getTicketsTicketdashboardTicketplaces,
+    getTicketsTicketdashboardTicketplaceSubPlaces,
+    postTicketsTicketdashboardTicketplaceUpdateSubPlaces,
+    postTicketBookingsVerifyV2,
+    postTicketPlacesBook,
+    getTicketPlaces,
+    getTicketPlaceServices,
+    getTicketBookingDetails,
+    getAllTicketBookings,
+    postTicketBookingCashCollect,
+    postTicketPlacesDirectBook,
+    getTicketsDashboardBookingStatus,
   )
 where
 
@@ -31,8 +43,10 @@ import qualified "this" Domain.Types.TicketBookingService
 import qualified "this" Domain.Types.TicketDashboard
 import qualified "this" Domain.Types.TicketPlace
 import qualified "this" Domain.Types.TicketService
+import qualified "this" Domain.Types.TicketSubPlace
 import qualified Environment
 import EulerHS.Prelude hiding (id)
+import qualified Kernel.External.Payment.Interface.Types
 import qualified Kernel.Prelude
 import qualified Kernel.Types.APISuccess
 import qualified Kernel.Types.Beckn.Context
@@ -47,20 +61,25 @@ postTicketsVerify ::
   Kernel.Types.Beckn.Context.City ->
   Kernel.Types.Id.Id Domain.Types.TicketService.TicketService ->
   Kernel.Types.Id.ShortId Domain.Types.TicketBookingService.TicketBookingService ->
+  Maybe Text ->
+  Maybe Text ->
   Environment.Flow API.Types.UI.TicketService.TicketServiceVerificationResp
-postTicketsVerify merchantShortId _opCity personServiceId ticketBookingServiceShortId = do
+postTicketsVerify merchantShortId _opCity personServiceId ticketBookingServiceShortId mbFleetOwnerId mbVehicleId = do
   m <- findMerchantByShortId merchantShortId
-  Domain.Action.UI.TicketService.postTicketBookingsVerify (Nothing, m.id) personServiceId ticketBookingServiceShortId
+  Domain.Action.UI.TicketService.postTicketBookingsVerify (Nothing, m.id) personServiceId ticketBookingServiceShortId mbFleetOwnerId mbVehicleId
 
 postTicketsServices ::
   Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
   Kernel.Types.Beckn.Context.City ->
   Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace ->
   Kernel.Prelude.Maybe Data.Time.Calendar.Day ->
-  Environment.Flow [API.Types.UI.TicketService.TicketServiceResp]
-postTicketsServices merchantShortId _opCity ticketPlaceId date = do
+  Kernel.Prelude.Maybe
+    (Kernel.Types.Id.Id Domain.Types.TicketSubPlace.TicketSubPlace) ->
+  Environment.Flow
+    [API.Types.UI.TicketService.TicketServiceResp]
+postTicketsServices merchantShortId _opCity ticketPlaceId date ticketSubPlaceId = do
   m <- findMerchantByShortId merchantShortId
-  Domain.Action.UI.TicketService.getTicketPlacesServices (Nothing, m.id) ticketPlaceId date
+  Domain.Action.UI.TicketService.getTicketPlacesServices (Nothing, m.id) ticketPlaceId date ticketSubPlaceId
 
 getTicketsPlaces ::
   Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
@@ -69,6 +88,18 @@ getTicketsPlaces ::
 getTicketsPlaces merchantShortId _opCity = do
   m <- findMerchantByShortId merchantShortId
   Domain.Action.UI.TicketService.getTicketPlaces (Nothing, m.id)
+
+getTicketFleetVehicles ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace ->
+  Maybe Int ->
+  Maybe Int ->
+  Maybe Text ->
+  Environment.Flow [API.Types.UI.TicketService.TicketFleetVehicleResp]
+getTicketFleetVehicles merchantShortId _opCity placeId mbLimit mbOffset mbSearchString = do
+  m <- findMerchantByShortId merchantShortId
+  Domain.Action.UI.TicketService.getTicketFleetVehicles (Nothing, m.id) placeId mbLimit mbOffset mbSearchString
 
 postTicketsUpdate ::
   Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
@@ -204,7 +235,114 @@ getTicketsTicketdashboardTicketplaces ::
   Kernel.Prelude.Maybe Domain.Types.MerchantOnboarding.RequestorRole ->
   Environment.Flow [Domain.Types.TicketPlace.TicketPlace]
 getTicketsTicketdashboardTicketplaces _merchantShortId _opCity _status _requestorId _requestorRole = do
-  requestorId <- _requestorId & fromMaybeM (InvalidRequest "RequestorId is required")
-  requestorRole <- _requestorRole & fromMaybeM (InvalidRequest "RequestorRole is required")
   status <- _status & fromMaybeM (InvalidRequest "Status query param is required")
-  Domain.Action.UI.TicketDashboard.getTicketPlaceDashboardList status requestorId requestorRole
+  Domain.Action.UI.TicketDashboard.getTicketPlaceDashboardList status _requestorId _requestorRole
+
+getTicketsTicketdashboardTicketplaceSubPlaces ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace ->
+  Environment.Flow [Domain.Types.TicketSubPlace.TicketSubPlace]
+getTicketsTicketdashboardTicketplaceSubPlaces _merchantShortId _opCity ticketPlaceId = do
+  Domain.Action.UI.TicketDashboard.getTicketPlaceDashboardSubPlaces ticketPlaceId
+
+postTicketsTicketdashboardTicketplaceUpdateSubPlaces ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace ->
+  [Domain.Types.TicketSubPlace.TicketSubPlace] ->
+  Environment.Flow Kernel.Types.APISuccess.APISuccess
+postTicketsTicketdashboardTicketplaceUpdateSubPlaces _merchantShortId _opCity ticketPlaceId req = do
+  Domain.Action.UI.TicketDashboard.postUpsertTicketPlaceDashboardSubPlaces ticketPlaceId req
+
+postTicketBookingsVerifyV2 ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Types.Id.Id Domain.Types.TicketService.TicketService ->
+  Kernel.Types.Id.ShortId Domain.Types.TicketBookingService.TicketBookingService ->
+  API.Types.UI.TicketService.TicketServiceVerificationReq ->
+  Environment.Flow API.Types.UI.TicketService.TicketServiceVerificationResp
+postTicketBookingsVerifyV2 merchantShortId _opCity personServiceId ticketBookingServiceShortId req = do
+  m <- findMerchantByShortId merchantShortId
+  Domain.Action.UI.TicketService.postTicketBookingsVerifyV2 (Nothing, m.id) personServiceId ticketBookingServiceShortId req
+
+-- New dashboard handlers for ticket booking flow
+
+postTicketPlacesBook ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace ->
+  API.Types.UI.TicketService.TicketBookingReq ->
+  Environment.Flow Kernel.External.Payment.Interface.Types.CreateOrderResp
+postTicketPlacesBook merchantShortId _opCity placeId req = do
+  m <- findMerchantByShortId merchantShortId
+  Domain.Action.UI.TicketService.postTicketPlacesBook (Nothing, m.id) placeId req
+
+getTicketPlaces ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Environment.Flow [Domain.Types.TicketPlace.TicketPlace]
+getTicketPlaces merchantShortId _opCity = do
+  m <- findMerchantByShortId merchantShortId
+  Domain.Action.UI.TicketService.getTicketPlaces (Nothing, m.id)
+
+getTicketPlaceServices ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace ->
+  Kernel.Prelude.Maybe Data.Time.Calendar.Day ->
+  Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.TicketSubPlace.TicketSubPlace) ->
+  Environment.Flow [API.Types.UI.TicketService.TicketServiceResp]
+getTicketPlaceServices merchantShortId _opCity placeId date subPlaceId = do
+  m <- findMerchantByShortId merchantShortId
+  Domain.Action.UI.TicketService.getTicketPlacesServices (Nothing, m.id) placeId date subPlaceId
+
+getTicketBookingDetails ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Types.Id.ShortId Domain.Types.TicketBooking.TicketBooking ->
+  Environment.Flow API.Types.UI.TicketService.TicketBookingDetails
+getTicketBookingDetails merchantShortId _opCity bookingShortId = do
+  m <- findMerchantByShortId merchantShortId
+  Domain.Action.UI.TicketService.getTicketBookingsDetails (Nothing, m.id) bookingShortId
+
+getTicketsDashboardBookingStatus ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Prelude.Text ->
+  Kernel.Types.Id.ShortId Domain.Types.TicketBooking.TicketBooking ->
+  Environment.Flow Domain.Types.TicketBooking.BookingStatus
+getTicketsDashboardBookingStatus merchantShortId _opCity userPhoneNumber bookingShortId = do
+  m <- findMerchantByShortId merchantShortId
+  Domain.Action.UI.TicketService.getTicketsDashboardBookingStatus (Nothing, m.id) userPhoneNumber bookingShortId
+
+getAllTicketBookings ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Prelude.Maybe Kernel.Prelude.Int ->
+  Kernel.Prelude.Maybe Kernel.Prelude.Int ->
+  Kernel.Prelude.Maybe Domain.Types.TicketBooking.BookingStatus ->
+  Environment.Flow [API.Types.UI.TicketService.TicketBookingAPIEntityV2]
+getAllTicketBookings merchantShortId _opCity mbLimit mbOffset mbStatus = do
+  m <- findMerchantByShortId merchantShortId
+  Domain.Action.UI.TicketService.getTicketBookingsV2 (Nothing, m.id) mbLimit mbOffset mbStatus
+
+postTicketBookingCashCollect ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Types.Id.ShortId Domain.Types.TicketBooking.TicketBooking ->
+  Environment.Flow Kernel.Types.APISuccess.APISuccess
+postTicketBookingCashCollect merchantShortId _opCity bookingShortId = do
+  m <- findMerchantByShortId merchantShortId
+  Domain.Action.UI.TicketService.postTicketBookingsCashCollect (Nothing, m.id) bookingShortId
+
+postTicketPlacesDirectBook ::
+  Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant ->
+  Kernel.Types.Beckn.Context.City ->
+  Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace ->
+  Maybe Text ->
+  API.Types.UI.TicketService.DirectTicketBookingReq ->
+  Environment.Flow API.Types.UI.TicketService.DirectTicketBookingResp
+postTicketPlacesDirectBook merchantShortId _opCity placeId requestorId req = do
+  m <- findMerchantByShortId merchantShortId
+  Domain.Action.UI.TicketService.postTicketPlacesDirectBook (Nothing, m.id) requestorId placeId req

@@ -18,43 +18,37 @@ module API.UI.Select
     DSelect.DSelectResultRes (..),
     DSelect.SelectListRes (..),
     DSelect.QuotesResultResponse (..),
-    DSelect.CancelAPIResponse (..),
     DSelect.MultimodalSelectRes (..),
     API,
     select2',
     selectList',
     selectResult',
-    cancelSearch',
     handler,
   )
 where
 
-import qualified Beckn.ACL.Cancel as CACL
 import qualified Beckn.ACL.Select as ACL
-import qualified Domain.Action.UI.Cancel as DCancel
+import qualified Domain.Action.UI.Search as DSearch
 import qualified Domain.Action.UI.Select as DSelect
-import Domain.Types.Booking
 import qualified Domain.Types.Estimate as DEstimate
 import qualified Domain.Types.Merchant as Merchant
 import qualified Domain.Types.Person as DPerson
 import Environment
-import qualified Kernel.Beam.Functions as B
+import Kernel.External.Slack.Types (SlackConfig)
 import Kernel.Prelude
 import qualified Kernel.Storage.Hedis as Redis
 import Kernel.Types.Id
+import Kernel.Types.SlidingWindowLimiter (APIRateLimitOptions)
 import Kernel.Utils.Common
-import qualified Lib.Yudhishthira.Tools.Utils as Yudhishthira
 import Servant hiding (throwError)
 import qualified SharedLogic.CallBPP as CallBPP
+import SharedLogic.Cancel
 import Storage.Beam.SystemConfigs ()
 import Storage.Beam.Yudhishthira ()
 import qualified Storage.CachedQueries.BecknConfig as QBC
-import qualified Storage.Queries.Booking as QRB
 import qualified Storage.Queries.Estimate as QEstimate
-import qualified Storage.Queries.Person as QP
 import qualified Storage.Queries.SearchRequest as QSearchRequest
 import Tools.Auth
-import Tools.Constants
 import Tools.Error
 
 -------- Select Flow --------
@@ -78,14 +72,6 @@ type API =
              :> Capture "estimateId" (Id DEstimate.Estimate)
              :> "results"
              :> Get '[JSON] DSelect.QuotesResultResponse
-           :<|> TokenAuth
-             :> Capture "estimateId" (Id DEstimate.Estimate)
-             :> "cancel"
-             :> Post '[JSON] DSelect.CancelAPIResponse
-           :<|> TokenAuth
-             :> Capture "estimateId" (Id DEstimate.Estimate)
-             :> "rejectUpgrade"
-             :> Post '[JSON] DSelect.CancelAPIResponse
        )
 
 handler :: FlowServer API
@@ -94,8 +80,6 @@ handler =
     :<|> select2
     :<|> selectList
     :<|> selectResult
-    :<|> cancelSearch
-    :<|> rejectUpgrade
 
 select :: (Id DPerson.Person, Id Merchant.Merchant) -> Id DEstimate.Estimate -> DSelect.DSelectReq -> FlowHandler DSelect.DSelectResultRes
 select (personId, merchantId) estimateId req = withFlowHandlerAPI . withPersonIdLogTag personId $ do
@@ -123,8 +107,10 @@ select (personId, merchantId) estimateId req = withFlowHandlerAPI . withPersonId
 select2 :: (Id DPerson.Person, Id Merchant.Merchant) -> Id DEstimate.Estimate -> DSelect.DSelectReq -> FlowHandler DSelect.MultimodalSelectRes
 select2 (personId, merchantId) estimateId = withFlowHandlerAPI . select2' (personId, merchantId) estimateId
 
-select2' :: DSelect.SelectFlow m r c => (Id DPerson.Person, Id Merchant.Merchant) -> Id DEstimate.Estimate -> DSelect.DSelectReq -> m DSelect.MultimodalSelectRes
+select2' :: (DSelect.SelectFlow m r c, DSearch.SearchRequestFlow m r, HasFlowEnv m r '["slackCfg" ::: SlackConfig], HasFlowEnv m r '["searchRateLimitOptions" ::: APIRateLimitOptions], HasFlowEnv m r '["searchLimitExceedNotificationTemplate" ::: Text]) => (Id DPerson.Person, Id Merchant.Merchant) -> Id DEstimate.Estimate -> DSelect.DSelectReq -> m DSelect.MultimodalSelectRes
 select2' (personId, merchantId) estimateId req = withPersonIdLogTag personId $ do
+  -- Note: This `cancelSearch` only handles cancelling the currently selected estimate's previous searches. If any another estimate was selected previously that UI has to ensure to call cancelSearch for that and then call select upon it's success.
+  void $ cancelSearchUtil (personId, merchantId) estimateId
   journeyID <- Redis.whenWithLockRedisAndReturnValue (selectEstimateLockKey personId) 60 $ do
     dSelectReq <- DSelect.select2 personId estimateId req
     becknReq <- ACL.buildSelectReqV2 dSelectReq
@@ -146,43 +132,6 @@ selectResult (personId, merchantId) = withFlowHandlerAPI . selectResult' (person
 
 selectResult' :: (Id DPerson.Person, Id Merchant.Merchant) -> Id DEstimate.Estimate -> Flow DSelect.QuotesResultResponse
 selectResult' (personId, _) = withPersonIdLogTag personId . DSelect.selectResult
-
-cancelSearch :: (Id DPerson.Person, Id Merchant.Merchant) -> Id DEstimate.Estimate -> FlowHandler DSelect.CancelAPIResponse
-cancelSearch (personId, merchantId) = withFlowHandlerAPI . cancelSearch' (personId, merchantId)
-
-cancelSearch' :: (Id DPerson.Person, Id Merchant.Merchant) -> Id DEstimate.Estimate -> Flow DSelect.CancelAPIResponse
-cancelSearch' (personId, merchantId) estimateId = withPersonIdLogTag personId $ cancelSearchUtil (personId, merchantId) estimateId
-
-rejectUpgrade :: (Id DPerson.Person, Id Merchant.Merchant) -> Id DEstimate.Estimate -> FlowHandler DSelect.CancelAPIResponse
-rejectUpgrade (personId, merchantId) estimateId = withFlowHandlerAPI . withPersonIdLogTag personId $ do
-  person <- QP.findById personId >>= fromMaybeM (PersonNotFound personId.getId)
-  let personTags = fromMaybe [] person.customerNammaTags
-  unless (rejectUpgradeTag `Yudhishthira.elemTagNameValue` personTags) $ do
-    rejectUpgradeTagWithExpiry <- Yudhishthira.fetchNammaTagExpiry rejectUpgradeTag
-    QP.updateCustomerTags (Just $ personTags <> [rejectUpgradeTagWithExpiry]) person.id
-  cancelSearchUtil (personId, merchantId) estimateId
-
-cancelSearchUtil :: (Id DPerson.Person, Id Merchant.Merchant) -> Id DEstimate.Estimate -> Flow DSelect.CancelAPIResponse
-cancelSearchUtil (personId, merchantId) estimateId = do
-  estimate <- QEstimate.findById estimateId >>= fromMaybeM (EstimateDoesNotExist estimateId.getId)
-  activeBooking <- B.runInReplica $ QRB.findByTransactionIdAndStatus estimate.requestId.getId activeBookingStatus
-  if isJust activeBooking
-    then do
-      logTagInfo "Booking already created while cancelling estimate." estimateId.getId
-      pure DSelect.BookingAlreadyCreated
-    else do
-      dCancelSearch <- DCancel.mkDomainCancelSearch personId estimateId
-      result <-
-        try @_ @SomeException $
-          when dCancelSearch.sendToBpp . void . withShortRetry $ do
-            CallBPP.cancelV2 merchantId dCancelSearch.providerUrl =<< CACL.buildCancelSearchReqV2 dCancelSearch
-      case result of
-        Left err -> do
-          logTagInfo "Failed to cancel" $ show err
-          pure DSelect.FailedToCancel
-        Right _ -> do
-          DCancel.cancelSearch personId dCancelSearch
-          pure DSelect.Success
 
 selectEstimateLockKey :: Id DPerson.Person -> Text
 selectEstimateLockKey personId = "Customer:SelectEstimate:CustomerId-" <> personId.getId

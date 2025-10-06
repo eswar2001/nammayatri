@@ -14,7 +14,7 @@ import Kernel.External.Maps.Google.MapsClient.Types
 import Kernel.Prelude
 import qualified Kernel.Types.Beckn.Context as Context
 import Kernel.Types.Id
-import Kernel.Utils.Common
+import qualified Lib.JourneyModule.Types as JL
 
 data SubwayLegRequestSearchData = SubwayLegRequestSearchData
   { quantity :: Int,
@@ -22,7 +22,9 @@ data SubwayLegRequestSearchData = SubwayLegRequestSearchData
     merchantId :: Id DMerchant.Merchant,
     city :: Context.City,
     journeyLeg :: DJourneyLeg.JourneyLeg,
-    recentLocationId :: Maybe (Id DRecentLocation.RecentLocation)
+    multimodalSearchRequestId :: Maybe Text,
+    recentLocationId :: Maybe (Id DRecentLocation.RecentLocation),
+    upsertJourneyLegAction :: forall m r c. JL.SearchRequestFlow m r c => Text -> m ()
   }
 
 data SubwayLegRequestUpdateData = SubwayLegRequestUpdateData
@@ -30,37 +32,31 @@ data SubwayLegRequestUpdateData = SubwayLegRequestUpdateData
 data SubwayLegRequestConfirmData = SubwayLegRequestConfirmData
   { quoteId :: Maybe (Id FRFSQuote),
     searchId :: Id FRFSSearch.FRFSSearch,
-    skipBooking :: Bool,
+    bookLater :: Bool,
     bookingAllowed :: Bool,
     personId :: Id DPerson.Person,
     merchantId :: Id DMerchant.Merchant,
     merchantOperatingCityId :: Id DMOC.MerchantOperatingCity,
     crisSdkResponse :: Maybe ApiTypes.CrisSdkResponse,
     quantity :: Maybe Int,
-    childTicketQuantity :: Maybe Int
+    childTicketQuantity :: Maybe Int,
+    isSingleMode :: Maybe Bool
   }
 
 data SubwayLegRequestCancelData = SubwayLegRequestCancelData
   { searchId :: Id FRFSSearch.FRFSSearch,
-    cancellationType :: Spec.CancellationType,
-    isSkipped :: Bool
+    cancellationType :: Spec.CancellationType
   }
-
-data SubwayLegRequestIsCancellableData = SubwayLegRequestIsCancellableData
 
 data SubwayLegRequestGetStateData = SubwayLegRequestGetStateData
   { searchId :: Id FRFSSearch.FRFSSearch,
     riderLastPoints :: [ApiTypes.RiderLocationReq],
-    isLastCompleted :: Bool
+    journeyLeg :: DJourneyLeg.JourneyLeg
   }
 
 data SubwayLegRequestGetInfoData = SubwayLegRequestGetInfoData
   { searchId :: Id FRFSSearch.FRFSSearch,
-    fallbackFare :: Maybe HighPrecMoney,
-    distance :: Maybe Distance,
-    duration :: Maybe Seconds,
-    journeyLeg :: DJourneyLeg.JourneyLeg,
-    ignoreOldSearchRequest :: Bool
+    journeyLeg :: DJourneyLeg.JourneyLeg
   }
 
 data SubwayLegRequest
@@ -68,7 +64,6 @@ data SubwayLegRequest
   | SubwayLegRequestConfirm SubwayLegRequestConfirmData
   | SubwayLegRequestUpdate SubwayLegRequestUpdateData
   | SubwayLegRequestCancel SubwayLegRequestCancelData
-  | SubwayLegRequestIsCancellable SubwayLegRequestIsCancellableData
   | SubwayLegRequestGetFare SubwayLegRequestGetFareData
   | SubwayLegRequestGetState SubwayLegRequestGetStateData
   | SubwayLegRequestGetInfo SubwayLegRequestGetInfoData
@@ -81,5 +76,6 @@ data SubwayLegRequestGetFareData = SubwayLegRequestGetFareData
     fromArrivalTime :: Maybe UTCTime,
     merchant :: DMerchant.Merchant,
     merchantOpCity :: DMOC.MerchantOperatingCity,
-    riderId :: Id DPerson.Person
+    riderId :: Id DPerson.Person,
+    searchReqId :: Maybe Text
   }

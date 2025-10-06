@@ -71,6 +71,7 @@ driverIssueHandle =
       getRideInfo = castRideInfo,
       createTicket = castCreateTicket,
       updateTicket = castUpdateTicket,
+      kaptureGetTicket = Nothing,
       findMerchantConfig = buildMerchantConfig,
       mbReportACIssue = Nothing,
       mbReportIssue = Nothing,
@@ -79,7 +80,9 @@ driverIssueHandle =
       mbSyncRide = Nothing,
       mbSendUnattendedTicketAlert = Nothing,
       findRideByRideShortId = castRideByRideShortId,
-      findByMobileNumberAndMerchantId = castPersonByMobileNumberAndMerchant
+      findByMobileNumberAndMerchantId = castPersonByMobileNumberAndMerchant,
+      mbFindFRFSTicketBookingById = Nothing,
+      mbFindStationByIdWithContext = Nothing
     }
 
 castPersonById :: Id Common.Person -> Flow (Maybe Common.Person)

@@ -8,6 +8,8 @@ imports:
   MultimodalTravelMode: Domain.Types.Trip
   LocationAPIEntity: Domain.Types.Location
   LegInfo: Lib.JourneyModule.Types
+  TrackingStatus: Lib.JourneyModule.State.Types
+  JourneyBookingStatus: Lib.JourneyModule.State.Types
   JourneyLeg: Domain.Types.JourneyLeg
   IntegratedBPPConfig: Domain.Types.IntegratedBPPConfig
   LatLong: Kernel.External.Maps.Types
@@ -24,7 +26,8 @@ imports:
   RouteStopMapping: Domain.Types.RouteStopMapping
   JourneyOptionsSortingType: Domain.Types.MultimodalPreferences
   FRFSQuote: Domain.Types.FRFSQuote
-  AvailableRoutesByTier: Lib.JourneyModule.Utils
+  AvailableRoutesByTier: Domain.Types.RouteDetails
+  JourneyLegOption: Lib.JourneyModule.Utils
   VehiclePosition: Lib.JourneyModule.Types
   SDKPayloadDetails: Kernel.External.Payment.Juspay.Types
   ServiceTierType: BecknV2.FRFS.Enums
@@ -36,6 +39,9 @@ imports:
   Provider: Lib.JourneyModule.Types
   Value: Data.Aeson
   Gate: Domain.Types.Station
+  FRFSTicketBookingStatus: Domain.Types.FRFSTicketBookingStatus
+  SourceType: Domain.Types.RouteStopTimeTable
+  FRFSCategorySelectionReq: API.Types.UI.FRFSTicketService
 
 module: MultimodalConfirm
 
@@ -52,19 +58,23 @@ types:
     legs: [LegInfo]
     startTime: Maybe UTCTime
     endTime: Maybe UTCTime
-    merchantOperatingCityName : Maybe Text
-    crisSdkToken : Maybe Text
+    createdAt: UTCTime
+    merchantOperatingCityName: Maybe Text
     paymentOrderShortId: Kernel.Prelude.Maybe (Kernel.Types.Id.ShortId Lib.Payment.Domain.Types.PaymentOrder.PaymentOrder)
+    result: Maybe Text # for backward compatibility hardcoding to Success in response
     derive: "Show"
 
   LegStatus:
     legOrder: Int
     subLegOrder: Int
     status: JourneyLegStatus
+    bookingStatus: JourneyBookingStatus
+    trackingStatus: TrackingStatus
+    trackingStatusLastUpdatedAt: UTCTime
     vehiclePositions: "[VehiclePosition]"
     userPosition: Maybe LatLong
     mode: MultimodalTravelMode
-
+    fleetNo: Maybe Text
 
   JourneyStatusResp:
     journeyStatus: Domain.Types.Journey.JourneyStatus
@@ -136,6 +146,7 @@ types:
     journeyId: Id Journey
     paymentOrder: Maybe PaymentOrder
     paymentFareUpdate: Maybe [PaymentFareUpdate]
+    gatewayReferenceId: Maybe Text
 
   PaymentFareUpdate:
     journeyLegOrder: Int
@@ -160,6 +171,7 @@ types:
   RateMultiModelTravelModes:
     travelMode: Maybe MultimodalTravelMode
     isExperienceGood: Maybe Bool
+    rating: Maybe Int
     legOrder: Int
 
   JourneyConfirmReq:
@@ -171,15 +183,23 @@ types:
     ticketQuantity: Maybe Int
     childTicketQuantity: Maybe Int
     crisSdkResponse: Maybe CrisSdkResponse
+    categorySelectionReq: Maybe [FRFSCategorySelectionReq]
 
   CrisSdkResponse:
     osType: Text
     osBuildVersion: Text
     bookAuthCode: Text
+    latency: Maybe Int
     derive: "Show"
 
   LegServiceTierOptionsResp:
     options: "[AvailableRoutesByTier]"
+
+  MultimodalCancelStatusResp:
+    cancellationCharges: Maybe HighPrecMoney
+    refundAmount: Maybe HighPrecMoney
+    isCancellable: Maybe Bool
+    bookingStatus: FRFSTicketBookingStatus
 
   TransportRoute:
     cd: Text
@@ -188,8 +208,11 @@ types:
     dTC: Maybe Int
     stC: Maybe Int
     vt: Text
+    st: Maybe ServiceTierType
+    stn: Maybe Text
     clr: Maybe Text
     ibc: Id IntegratedBPPConfig
+    derive': "Generic, ToSchema"
 
   TransportStation:
     cd: Text
@@ -204,18 +227,21 @@ types:
     gj: Maybe Value
     gi: Maybe [Gate]
     ibc: Id IntegratedBPPConfig
+    derive': "Generic, ToSchema"
 
   TransportRouteStopMapping:
     rc: Text
     sc: Text
     sn: Int
     ibc: Id IntegratedBPPConfig
+    derive': "Generic, ToSchema"
 
   PublicTransportData:
     rs: [TransportRoute]
     ss: [TransportStation]
     rsm: [TransportRouteStopMapping]
     ptcv: Text
+    derive': "Generic, ToSchema"
 
   UpdatePaymentOrderReq:
     quantity: Int
@@ -223,6 +249,61 @@ types:
 
   UpdatePaymentOrderResp:
     sdkPayload: Maybe SDKPayloadDetails
+
+  SwitchJourneyLegReq:
+    journeyLegId: Id JourneyLeg
+
+  SimilarJourneyLegsResp:
+    journeyLegsInfo: "[JourneyLegOption]"
+    allLegsLoaded: Bool
+
+  StationAPIEntity:
+    stopCode: Text
+
+  ChangeStopsReq:
+    journeyId: Id Journey
+    legOrder: Int
+    newSourceStation: Maybe StationAPIEntity
+    newDestinationStation: Maybe StationAPIEntity
+
+  ChangeStopsResp:
+    stationsChanged: Bool
+
+  RouteAvailabilityReq:
+    startStopCode: Text
+    endStopCode: Text
+    onlyLive: Bool
+    journeyId: Maybe (Id Journey)
+    legOrder: Maybe Int
+
+  RouteAvailabilityResp:
+    availableRoutes: "[AvailableRoute]"
+
+  AvailableRoute:
+    source: SourceType
+    quoteId: Maybe (Id FRFSQuote)
+    serviceTierName: Maybe Text
+    serviceTierType: ServiceTierType
+    routeCode: Text
+    routeShortName: Text
+    routeLongName: Text
+    routeTimings: "[Seconds]"
+
+  SwitchRouteReq:
+    journeyId: Id Journey
+    legOrder: Int
+    quoteId: Id FRFSQuote
+    routeCode: Text
+    routeShortName: Text
+    routeLongName: Text
+
+  SetRouteNameReq:
+    journeyId: Id Journey
+    legOrder: Int
+    shortName: Text
+
+  OnboardedVehicleDetailsReq:
+    vehicleNumber: Text
 
 apis:
   - POST:
@@ -254,7 +335,7 @@ apis:
       response:
         type: JourneyBookingPaymentStatus
   - POST:
-      endpoint : /multimodal/{journeyId}/payment/updateOrder
+      endpoint: /multimodal/{journeyId}/payment/updateOrder
       auth: TokenAuth
       request:
         type: UpdatePaymentOrderReq
@@ -270,7 +351,7 @@ apis:
       request:
         type: SwitchLegReq
       response:
-        type: Kernel.Types.APISuccess.APISuccess # send new leg
+        type: JourneyInfoResp # send new leg
 
   - POST:
       endpoint: multimodal/journey/{journeyId}/leg/{legOrder}/skip
@@ -349,6 +430,24 @@ apis:
       response:
         type: JourneyInfoResp
 
+  - GET:
+      endpoint: multimodal/{journeyId}/order/{legOrder}/similarJourneyLegs
+      params:
+        journeyId: Id Journey
+        legOrder: Int
+      response:
+        type: SimilarJourneyLegsResp
+
+  - POST:
+      endpoint: multimodal/{journeyId}/order/{legOrder}/switchJourneyLeg
+      params:
+        journeyId: Id Journey
+        legOrder: Int
+      request:
+        type: SwitchJourneyLegReq
+      response:
+        type: JourneyInfoResp
+
   - POST:
       endpoint: multimodal/{journeyId}/journeyFeedback
       params:
@@ -389,6 +488,17 @@ apis:
       query:
         publicTransportConfigVersion: Text
         city: City
+        vehicleNumber: Text
+        vehicleType: VehicleCategory
+        enableSwitchRoute: Bool
+      response:
+        type: PublicTransportData
+
+  - GET:
+      endpoint: /publicTransport/vehicleData/{vehicleType}/{vehicleNumber}
+      params:
+        vehicleType: VehicleCategory
+        vehicleNumber: Text
       response:
         type: PublicTransportData
 
@@ -401,12 +511,35 @@ apis:
         type: LegServiceTierOptionsResp
 
   - POST:
+      endpoint: /multimodal/{journeyId}/order/{legOrder}/subleg/{subLegOrder}/setOnboardedVehicleDetails
+      params:
+        journeyId: Id Journey
+        legOrder: Int
+        subLegOrder: Int
+      request:
+        type: OnboardedVehicleDetailsReq
+      response:
+        type: JourneyInfoResp
+
+  - POST:
       endpoint: /multimodal/{journeyId}/order/{legOrder}/subleg/{subLegOrder}/setStatus/{status}
       params:
         journeyId: Id Journey
         legOrder: Int
         subLegOrder: Int
         status: JourneyLegStatus
+      response:
+        type: JourneyStatusResp
+
+  - POST:
+      endpoint: /multimodal/{journeyId}/order/{legOrder}/subleg/{subLegOrder}/setTrackingStatus/{trackingStatus}
+      query:
+        trackingStatusLastUpdatedAt: UTCTime
+      params:
+        journeyId: Id Journey
+        legOrder: Int
+        subLegOrder: Int
+        trackingStatus: TrackingStatus
       response:
         type: JourneyStatusResp
 
@@ -426,3 +559,58 @@ apis:
         type: MultimodalTicketVerifyReq
       response:
         type: MultimodalTicketVerifyResp
+
+  - POST:
+      endpoint: /multimodal/{journeyId}/order/{legOrder}/softCancel
+      params:
+        journeyId: Id Journey
+        legOrder: Int
+      response:
+        type: Kernel.Types.APISuccess.APISuccess
+
+  - GET:
+      endpoint: /multimodal/{journeyId}/order/{legOrder}/cancel/status
+      params:
+        journeyId: Id Journey
+        legOrder: Int
+      response:
+        type: MultimodalCancelStatusResp
+
+  - POST:
+      endpoint: /multimodal/{journeyId}/order/{legOrder}/cancel
+      params:
+        journeyId: Id Journey
+        legOrder: Int
+      response:
+        type: Kernel.Types.APISuccess.APISuccess
+
+  - POST:
+      endpoint: /multimodal/{journeyId}/order/{legOrder}/changeStops
+      params:
+        journeyId: Id Journey
+        legOrder: Int
+      request:
+        type: ChangeStopsReq
+      response:
+        type: ChangeStopsResp
+
+  - POST:
+      endpoint: /multimodal/routeAvailability
+      request:
+        type: RouteAvailabilityReq
+      response:
+        type: RouteAvailabilityResp
+
+  - POST:
+      endpoint: /multimodal/switch/route
+      request:
+        type: SwitchRouteReq
+      response:
+        type: JourneyInfoResp
+
+  - POST:
+      endpoint: /multimodal/set/routeName
+      request:
+        type: SetRouteNameReq
+      response:
+        type: JourneyInfoResp

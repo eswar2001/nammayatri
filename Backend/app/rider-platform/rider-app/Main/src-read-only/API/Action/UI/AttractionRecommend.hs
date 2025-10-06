@@ -9,7 +9,7 @@ where
 
 import qualified API.Types.UI.AttractionRecommend
 import qualified Control.Lens
-import qualified Domain.Action.UI.AttractionRecommend as Domain.Action.UI.AttractionRecommend
+import qualified Domain.Action.UI.AttractionRecommend
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.Person
 import qualified Environment
@@ -22,9 +22,9 @@ import Storage.Beam.SystemConfigs ()
 import Tools.Auth
 
 type API =
-  ( TokenAuth :> "attractions" :> "recommend" :> ReqBody ('[JSON]) API.Types.UI.AttractionRecommend.AttractionRecommendReq
+  ( TokenAuth :> "attractions" :> "recommend" :> ReqBody '[JSON] API.Types.UI.AttractionRecommend.AttractionRecommendReq
       :> Post
-           ('[JSON])
+           '[JSON]
            API.Types.UI.AttractionRecommend.AttractionRecommendResp
   )
 

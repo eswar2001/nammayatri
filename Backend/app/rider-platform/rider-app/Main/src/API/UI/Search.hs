@@ -25,15 +25,17 @@ module API.UI.Search
     search',
     search,
     handler,
+    searchTrigger',
   )
 where
 
 import qualified API.Types.UI.MultimodalConfirm as ApiTypes
-import qualified API.UI.Select as Select
+import qualified API.UI.CancelSearch as CancelSearch
 import qualified Beckn.ACL.Cancel as ACL
 import qualified Beckn.ACL.Search as TaxiACL
 import qualified BecknV2.OnDemand.Enums
 import Data.Aeson
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Domain.Action.UI.Cancel as DCancel
 import qualified Domain.Action.UI.MultimodalConfirm as DMC
@@ -43,23 +45,22 @@ import qualified Domain.Types.Booking as Booking
 import qualified Domain.Types.BookingCancellationReason as SBCR
 import qualified Domain.Types.CancellationReason as SCR
 import qualified Domain.Types.Client as DC
-import qualified Domain.Types.Estimate as Estimate
+import qualified Domain.Types.EstimateStatus as Estimate
 import qualified Domain.Types.IntegratedBPPConfig as DIBC
 import qualified Domain.Types.Journey as Journey
 import qualified Domain.Types.Merchant as Merchant
 import Domain.Types.MerchantOperatingCity
 import Domain.Types.MultimodalPreferences as DMP
 import qualified Domain.Types.Person as Person
-import qualified Domain.Types.Ride as DRide
+import qualified Domain.Types.RideStatus as DRide
 import qualified Domain.Types.RiderConfig as DRC
 import qualified Domain.Types.SearchRequest as SearchRequest
-import qualified Domain.Types.StationType as Station
 import qualified Domain.Types.Trip as DTrip
 import Environment
-import ExternalBPP.ExternalAPI.CallAPI as CallAPI
-import ExternalBPP.ExternalAPI.Subway.CRIS.RouteFare as CRISRouteFare
+import ExternalBPP.ExternalAPI.Subway.CRIS.SDKData
 import Kernel.External.Encryption
 import Kernel.External.Maps.Google.MapsClient.Types
+import Kernel.External.Maps.Types
 import qualified Kernel.External.Maps.Types as MapsTypes
 import qualified Kernel.External.MultiModal.Interface as MInterface
 import qualified Kernel.External.MultiModal.Interface as MultiModal
@@ -67,17 +68,19 @@ import Kernel.External.MultiModal.Interface.Types as MultiModalTypes
 import qualified Kernel.External.Slack.Flow as SF
 import Kernel.External.Slack.Types (SlackConfig)
 import Kernel.Prelude
-import Kernel.Randomizer
 import qualified Kernel.Storage.Hedis as Redis
+import Kernel.Streaming.Kafka.Producer.Types (KafkaProducerTools)
 import Kernel.Tools.Metrics.CoreMetrics
 import Kernel.Types.Common hiding (id)
 import Kernel.Types.Error
 import Kernel.Types.Id
 import Kernel.Types.SlidingWindowLimiter
 import Kernel.Types.Version
+import Kernel.Utils.CalculateDistance (distanceBetweenInMeters)
 import Kernel.Utils.Common
 import Kernel.Utils.SlidingWindowLimiter
 import Kernel.Utils.Version
+import qualified Lib.JourneyLeg.Taxi as JLT
 import qualified Lib.JourneyModule.Base as JM
 import qualified Lib.JourneyModule.Types as JMTypes
 import qualified Lib.JourneyModule.Utils as JMU
@@ -88,6 +91,7 @@ import SharedLogic.Search as DSearch
 import Storage.Beam.SystemConfigs ()
 import qualified Storage.CachedQueries.Merchant as CQM
 import qualified Storage.CachedQueries.Merchant.RiderConfig as QRC
+import qualified Storage.CachedQueries.OTPRest.OTPRest as OTPRest
 import qualified Storage.Queries.Booking as QBooking
 import qualified Storage.Queries.Estimate as QEstimate
 import qualified Storage.Queries.Person as Person
@@ -97,6 +101,7 @@ import Tools.Auth
 import Tools.Error
 import qualified Tools.Maps as Maps
 import qualified Tools.MultiModal as TMultiModal
+import TransactionLogs.Types
 
 -------- Search Flow --------
 
@@ -150,6 +155,21 @@ type SearchAPI =
 handler :: FlowServer API
 handler = search :<|> multimodalSearchHandler
 
+allRoutesLoadedKey :: Text -> Text
+allRoutesLoadedKey searchReqId = "allRoutesLoaded:" <> searchReqId
+
+cacheAllRoutesLoadedKey :: Text -> Bool -> Flow ()
+cacheAllRoutesLoadedKey searchReqId allRoutesLoaded = do
+  let key = allRoutesLoadedKey searchReqId
+  Redis.setExp key allRoutesLoaded 600
+
+getAllRoutesLoadedKey :: Text -> Flow Bool
+getAllRoutesLoadedKey searchReqId = do
+  let key = allRoutesLoadedKey searchReqId
+  Redis.safeGet key >>= \case
+    Just allRoutesLoaded -> return allRoutesLoaded
+    Nothing -> return False
+
 search :: (Id Person.Person, Id Merchant.Merchant) -> DSearch.SearchReq -> Maybe Version -> Maybe Version -> Maybe Version -> Maybe Text -> Maybe (Id DC.Client) -> Maybe Text -> Maybe Bool -> FlowHandler DSearch.SearchResp
 search (personId, merchantId) req mbBundleVersion mbClientVersion mbClientConfigVersion mbRnVersion mbClientId mbDevice = withFlowHandlerAPI . search' (personId, merchantId) req mbBundleVersion mbClientVersion mbClientConfigVersion mbRnVersion mbClientId mbDevice
 
@@ -170,7 +190,7 @@ search' (personId, merchantId) req mbBundleVersion mbClientVersion mbClientConfi
             mbEstimate <- QEstimate.findBySRIdAndStatusesInKV sReq.id [Estimate.DRIVER_QUOTE_REQUESTED, Estimate.GOT_DRIVER_QUOTE]
             case mbEstimate of
               Just estimate -> do
-                resp <- try @_ @SomeException $ Select.cancelSearch' (personId, merchantId) estimate.id
+                resp <- try @_ @SomeException $ CancelSearch.cancelSearch' (personId, merchantId) estimate.id
                 case resp of
                   Left _ -> void $ handleBookingCancellation merchantId personId stuckRideAutoCancellationBuffer sReq.id req
                   Right _ -> pure ()
@@ -178,7 +198,7 @@ search' (personId, merchantId) req mbBundleVersion mbClientVersion mbClientConfi
           _ -> pure ()
   -- TODO : remove this code after multiple search req issue get fixed from frontend
   --END
-  dSearchRes <- DSearch.search personId req mbBundleVersion mbClientVersion mbClientConfigVersion mbRnVersion mbClientId mbDevice (fromMaybe False mbIsDashboardRequest) Nothing False
+  dSearchRes <- DSearch.search personId req mbBundleVersion mbClientVersion mbClientConfigVersion mbRnVersion mbClientId mbDevice (fromMaybe False mbIsDashboardRequest) False Nothing
   fork "search cabs" . withShortRetry $ do
     becknTaxiReqV2 <- TaxiACL.buildSearchReqV2 dSearchRes
     let generatedJson = encode becknTaxiReqV2
@@ -186,8 +206,9 @@ search' (personId, merchantId) req mbBundleVersion mbClientVersion mbClientConfi
     void $ CallBPP.searchV2 dSearchRes.gatewayUrl becknTaxiReqV2 merchantId
   fork "Multimodal Search" $ do
     riderConfig <- QRC.findByMerchantOperatingCityIdInRideFlow dSearchRes.searchRequest.merchantOperatingCityId dSearchRes.searchRequest.configInExperimentVersions >>= fromMaybeM (RiderConfigNotFound dSearchRes.searchRequest.merchantOperatingCityId.getId)
-    when riderConfig.makeMultiModalSearch $ do
-      void (multiModalSearch dSearchRes.searchRequest riderConfig riderConfig.initiateFirstMultimodalJourney True req personId)
+    if riderConfig.makeMultiModalSearch
+      then void (multiModalSearch dSearchRes.searchRequest riderConfig riderConfig.initiateFirstMultimodalJourney True req personId)
+      else QSearchRequest.updateAllJourneysLoaded (Just True) dSearchRes.searchRequest.id
   return $ DSearch.SearchResp dSearchRes.searchRequest.id dSearchRes.searchRequestExpiry dSearchRes.shortestRouteInfo
   where
     -- TODO : remove this code after multiple search req issue get fixed from frontend
@@ -243,241 +264,256 @@ multimodalSearchHandler (personId, _merchantId) req mbInitiateJourney mbBundleVe
     whenJust mbImeiNumber $ \imeiNumber -> do
       encryptedImeiNumber <- encrypt imeiNumber
       Person.updateImeiNumber (Just encryptedImeiNumber) personId
-    dSearchRes <- DSearch.search personId req mbBundleVersion mbClientVersion mbClientConfigVersion mbRnVersion mbClientId mbDevice (fromMaybe False mbIsDashboardRequest) Nothing True
+    dSearchRes <- DSearch.search personId req mbBundleVersion mbClientVersion mbClientConfigVersion mbRnVersion mbClientId mbDevice (fromMaybe False mbIsDashboardRequest) True Nothing
     riderConfig <- QRC.findByMerchantOperatingCityIdInRideFlow dSearchRes.searchRequest.merchantOperatingCityId dSearchRes.searchRequest.configInExperimentVersions >>= fromMaybeM (RiderConfigNotFound dSearchRes.searchRequest.merchantOperatingCityId.getId)
     let initiateJourney = fromMaybe False mbInitiateJourney
-    multiModalSearch dSearchRes.searchRequest riderConfig initiateJourney False req personId
+    JMU.measureLatency (multiModalSearch dSearchRes.searchRequest riderConfig initiateJourney False req personId) "multiModalSearch"
 
 multiModalSearch :: SearchRequest.SearchRequest -> DRC.RiderConfig -> Bool -> Bool -> DSearch.SearchReq -> Id Person.Person -> Flow MultimodalSearchResp
-multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJourney req' personId = do
+multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJourney req' personId = withLogTag ("multimodalSearch" <> searchRequest.id.getId) $ do
   now <- getCurrentTime
   userPreferences <- DMC.getMultimodalUserPreferences (Just searchRequest.riderId, searchRequest.merchantId)
   let req = DSearch.extractSearchDetails now req'
   let merchantOperatingCityId = searchRequest.merchantOperatingCityId
   let vehicleCategory = fromMaybe BecknV2.OnDemand.Enums.BUS searchRequest.vehicleCategory
+  let currentLocation = fmap latLongToLocationV2 req.currentLocation
   mbIntegratedBPPConfig <- SIBC.findMaybeIntegratedBPPConfig Nothing merchantOperatingCityId vehicleCategory (fromMaybe DIBC.MULTIMODAL req.platformType)
-  mbSingleModeRouteDetails <-
-    case mbIntegratedBPPConfig of
-      Just config ->
-        JMU.measureLatency (JMU.getSingleModeRouteDetails searchRequest.routeCode searchRequest.originStopCode searchRequest.destinationStopCode config searchRequest.merchantId searchRequest.merchantOperatingCityId vehicleCategory) ("getSingleModeRouteDetails" <> show vehicleCategory <> " routeCode: " <> show searchRequest.routeCode <> " originStopCode: " <> show searchRequest.originStopCode <> " destinationStopCode: " <> show searchRequest.destinationStopCode)
-      Nothing -> return Nothing
-  logDebug $ "mbSingleModeRouteDetails: " <> show mbSingleModeRouteDetails
-  (singleModeWarningType, otpResponse) <- case mbSingleModeRouteDetails of
-    Just singleModeRouteDetails -> do
-      let fromStopDetails =
-            MultiModalTypes.MultiModalStopDetails
-              { stopCode = Just singleModeRouteDetails.fromStop.stopCode,
-                platformCode = singleModeRouteDetails.fromStop.platformNumber,
-                name = Just singleModeRouteDetails.fromStop.stopName,
-                gtfsId = Just singleModeRouteDetails.fromStop.stopCode
-              }
-      let toStopDetails =
-            MultiModalTypes.MultiModalStopDetails
-              { stopCode = Just singleModeRouteDetails.toStop.stopCode,
-                platformCode = singleModeRouteDetails.toStop.platformNumber,
-                name = Just singleModeRouteDetails.toStop.stopName,
-                gtfsId = Just singleModeRouteDetails.toStop.stopCode
-              }
-      let fromStopLocation = LocationV2 {latLng = LatLngV2 {latitude = singleModeRouteDetails.fromStop.stopLat, longitude = singleModeRouteDetails.fromStop.stopLon}}
-      let toStopLocation = LocationV2 {latLng = LatLngV2 {latitude = singleModeRouteDetails.toStop.stopLat, longitude = singleModeRouteDetails.toStop.stopLon}}
-      let distance = fromMaybe (Distance 0 Meter) searchRequest.distance
-      let duration = nominalDiffTimeToSeconds $ diffUTCTime singleModeRouteDetails.toStop.stopArrivalTime singleModeRouteDetails.fromStop.stopArrivalTime
-      let currentLocation = fmap latLongToLocationV2 req.currentLocation
-      mbPreliminaryLeg <- getPreliminaryLeg now currentLocation fromStopLocation
-      let subLegOrder = if isJust mbPreliminaryLeg then 1 else 0
-      let leg =
-            MultiModalTypes.MultiModalLeg
-              { distance = distance,
-                duration = duration,
-                polyline = Polyline {encodedPolyline = fromMaybe "" singleModeRouteDetails.route.polyline},
-                mode = castVehicleCategoryToGeneralVehicleType vehicleCategory,
-                startLocation = fromStopLocation,
-                endLocation = toStopLocation,
-                fromStopDetails = Just fromStopDetails,
-                toStopDetails = Just toStopDetails,
-                routeDetails =
-                  [ MultiModalTypes.MultiModalRouteDetails
-                      { gtfsId = Just singleModeRouteDetails.route.code,
-                        longName = Just singleModeRouteDetails.route.longName,
-                        shortName = Just singleModeRouteDetails.route.shortName,
-                        alternateShortNames = singleModeRouteDetails.availableRoutes,
-                        color = singleModeRouteDetails.route.color,
-                        fromStopDetails = Just fromStopDetails,
-                        toStopDetails = Just toStopDetails,
-                        startLocation = fromStopLocation,
-                        endLocation = toStopLocation,
-                        subLegOrder,
-                        fromArrivalTime = Just singleModeRouteDetails.fromStop.stopArrivalTime,
-                        fromDepartureTime = Just singleModeRouteDetails.fromStop.stopArrivalTime,
-                        toArrivalTime = Just singleModeRouteDetails.toStop.stopArrivalTime,
-                        toDepartureTime = Just singleModeRouteDetails.toStop.stopArrivalTime
-                      }
-                  ],
-                serviceTypes = [],
-                agency = Nothing,
-                fromArrivalTime = Just singleModeRouteDetails.fromStop.stopArrivalTime,
-                fromDepartureTime = Just singleModeRouteDetails.fromStop.stopArrivalTime,
-                toArrivalTime = Just singleModeRouteDetails.toStop.stopArrivalTime,
-                toDepartureTime = Just singleModeRouteDetails.toStop.stopArrivalTime,
-                entrance = Nothing,
-                exit = Nothing
-              }
-      legs <- case mbPreliminaryLeg of
-        Just preliminaryLeg -> return [preliminaryLeg, leg]
-        Nothing -> return [leg]
-      return $
-        ( Nothing,
-          MInterface.MultiModalResponse
-            { routes =
-                [ MultiModalTypes.MultiModalRoute
-                    { distance = distance,
-                      duration = duration,
-                      startTime = Just singleModeRouteDetails.fromStop.stopArrivalTime,
-                      endTime = Just singleModeRouteDetails.toStop.stopArrivalTime,
-                      legs = legs,
-                      relevanceScore = Nothing
-                    }
-                ]
-            }
-        )
-    _ -> do
-      let permissibleModesToUse = fromMaybe [] riderConfig.permissibleModes
-      let sortingType = fromMaybe DMP.FASTEST userPreferences.journeyOptionsSortingType
-      destination <- extractDest searchRequest.toLocation
-      let transitRoutesReq =
-            GetTransitRoutesReq
-              { origin = WayPointV2 {location = LocationV2 {latLng = LatLngV2 {latitude = searchRequest.fromLocation.lat, longitude = searchRequest.fromLocation.lon}}},
-                destination = WayPointV2 {location = LocationV2 {latLng = LatLngV2 {latitude = destination.lat, longitude = destination.lon}}},
-                arrivalTime = Nothing,
-                departureTime = Nothing,
-                mode = Nothing,
-                transitPreferences = Nothing,
-                transportModes = Nothing,
-                minimumWalkDistance = riderConfig.minimumWalkDistance,
-                permissibleModes = permissibleModesToUse,
-                maxAllowedPublicTransportLegs = riderConfig.maxAllowedPublicTransportLegs,
-                sortingType = JMU.convertSortingType sortingType
-              }
-      transitServiceReq <- TMultiModal.getTransitServiceReq searchRequest.merchantId merchantOperatingCityId
-      otpResponse' <- JMU.measureLatency (MultiModal.getTransitRoutes (Just searchRequest.id.getId) transitServiceReq transitRoutesReq >>= fromMaybeM (InternalError "routes dont exist")) "getTransitRoutes"
-      let otpResponse'' = MInterface.MultiModalResponse otpResponse'.routes
-      logDebug $ "[Multimodal - OTP Response]" <> show otpResponse''
-      -- Add default auto leg if no routes are found
-      if null otpResponse''.routes
-        then do
-          case searchRequest.toLocation of
-            Just toLocation -> do
-              let toLocationV2 = LocationV2 {latLng = LatLngV2 {latitude = toLocation.lat, longitude = toLocation.lon}}
-              let distance = fromMaybe (Distance 0 Meter) searchRequest.distance
-              let duration = fromMaybe (Seconds 0) searchRequest.estimatedRideDuration
-              (autoLeg, startTime, endTime) <- mkAutoOrWalkLeg now Nothing toLocationV2 MultiModalTypes.Unspecified distance duration
-              let autoMultiModalResponse = mkMultimodalResponse autoLeg startTime endTime
-              return (Just NoPublicTransportRoutes, autoMultiModalResponse)
-            Nothing -> return (Nothing, otpResponse'')
-        else do
-          case req' of
-            DSearch.PTSearch _ -> do
-              let onlySingleModeRoutes = filter (\r -> (all (eitherWalkOrSingleMode vehicleCategory) r.legs) && (any (onlySingleMode vehicleCategory) r.legs)) otpResponse''.routes
-              let filterFirstAndLastMileWalks = map filterWalkLegs onlySingleModeRoutes
-              let warningType = if null onlySingleModeRoutes then Just NoSingleModeRoutes else Nothing
-              filteredRoutes <- JM.filterTransitRoutes riderConfig (if null onlySingleModeRoutes then otpResponse''.routes else filterFirstAndLastMileWalks)
-              return (warningType, MInterface.MultiModalResponse {routes = filteredRoutes})
-            _ -> do
-              filteredRoutes <- JM.filterTransitRoutes riderConfig otpResponse''.routes
-              return (Nothing, MInterface.MultiModalResponse {routes = filteredRoutes})
-
-  let userPreferredTransitModes = userPreferencesToGeneralVehicleTypes userPreferences.allowedTransitModes
-      hasOnlyUserPreferredTransitModes otpRoute = all (isLegModeIn userPreferredTransitModes) otpRoute.legs
-      hasOnlyWalkOrUnspecifiedTransitModes otpRoute = all (isLegModeIn [MultiModalTypes.Walk, MultiModalTypes.Unspecified]) otpRoute.legs
-      indexedRoutes = zip [0 ..] otpResponse.routes
-      removeOnlyWalkAndUnspecifiedTransitModes = filter (not . hasOnlyWalkOrUnspecifiedTransitModes . snd)
-      filteredUserPreferredIndexedRoutes = filter (hasOnlyUserPreferredTransitModes . snd) indexedRoutes
-      baseRoutes = if null filteredUserPreferredIndexedRoutes then indexedRoutes else filteredUserPreferredIndexedRoutes
-      indexedRoutesToProcess =
-        if riderConfig.filterWalkAndUnspecifiedTransitModes
-          then removeOnlyWalkAndUnspecifiedTransitModes baseRoutes
-          else baseRoutes
-      showMultimodalWarningForFirstJourney = null filteredUserPreferredIndexedRoutes
-
-  mbJourneyWithIndex <- JMU.measureLatency (go indexedRoutesToProcess userPreferences) "Multimodal Init Time" -- process until first journey is found
-  QSearchRequest.updateHasMultimodalSearch (Just True) searchRequest.id
-
-  journeys <- DQuote.getJourneys searchRequest (Just True)
-  {-
-    - Here we are calling routeFare with correct details only once
-    - This is done because user can have only one valid sdk token at a time
-    - We are calling routeFare with dummy details for rest of the legs just to get the fare details
-  -}
-  mbCrisSdkToken <- getCrisSdkToken merchantOperatingCityId journeys
-  let mbFirstJourney = listToMaybe (fromMaybe [] journeys)
-  firstJourneyInfo <-
-    if initiateJourney
+  let mode = castVehicleCategoryToGeneralVehicleType vehicleCategory
+  let isSingleMode =
+        case req' of
+          DSearch.PTSearch _ -> True
+          _ -> False
+  routeLiveInfo <-
+    case req' of
+      DSearch.PTSearch ptSearchDetails -> do
+        case (mbIntegratedBPPConfig, ptSearchDetails.vehicleNumber, ptSearchDetails.routeCode) of
+          (Just integratedBPPConfig, Just userPassedVehicleNumber, Just userPassedRouteCode) -> do
+            mbRouteLiveInfo <- JMU.getVehicleLiveRouteInfo [integratedBPPConfig] userPassedVehicleNumber
+            return $
+              maybe
+                Nothing
+                ( \routeLiveInfo@(JMU.VehicleLiveRouteInfo {..}) ->
+                    if routeCode == Just userPassedRouteCode
+                      then Just routeLiveInfo
+                      else
+                        if ptSearchDetails.routeCodeEditedManually == Just True
+                          then Just (JMU.VehicleLiveRouteInfo {routeCode = Just userPassedRouteCode, ..})
+                          else Nothing
+                )
+                (snd <$> mbRouteLiveInfo)
+          _ -> return Nothing
+      _ -> return Nothing
+  let result
+        | vehicleCategory == BecknV2.OnDemand.Enums.BUS && riderConfig.busScanRouteCalculationEnabledModes == Just True && isJust searchRequest.routeCode && isJust searchRequest.originStopCode && isJust searchRequest.destinationStopCode && isJust routeLiveInfo = do
+          JMU.measureLatency (JMU.buildOneWayBusScanRouteDetails (fromJust searchRequest.routeCode) (fromJust searchRequest.originStopCode) (fromJust searchRequest.destinationStopCode) mbIntegratedBPPConfig >>= (\x -> return (x, []))) "buildOneWayBusScanRouteDetails" -- TODO: make this syntax better in coming future if you get time and 🔥 CAUTION 🔥 never let this fromJust be there without its prechecked condition in any case.
+        | mode `elem` (fromMaybe [] riderConfig.domainRouteCalculationEnabledModes) = do
+          case vehicleCategory of
+            BecknV2.OnDemand.Enums.BUS -> JMU.measureLatency (JMU.buildSingleModeDirectRoutes (getPreliminaryLeg now currentLocation searchRequest.fromLocation.address.area) searchRequest.routeCode searchRequest.originStopCode searchRequest.destinationStopCode mbIntegratedBPPConfig searchRequest.merchantId searchRequest.merchantOperatingCityId vehicleCategory mode >>= (\x -> return (x, []))) "buildSingleModeDirectRoutes"
+            BecknV2.OnDemand.Enums.METRO -> JMU.measureLatency (JMU.buildSingleModeDirectRoutes (getPreliminaryLeg now currentLocation searchRequest.fromLocation.address.area) searchRequest.routeCode searchRequest.originStopCode searchRequest.destinationStopCode mbIntegratedBPPConfig searchRequest.merchantId searchRequest.merchantOperatingCityId vehicleCategory mode >>= (\x -> return (x, []))) "buildSingleModeDirectRoutes"
+            BecknV2.OnDemand.Enums.SUBWAY -> JMU.measureLatency (JMU.buildTrainAllViaRoutes (getPreliminaryLeg now currentLocation searchRequest.fromLocation.address.area) searchRequest.originStopCode searchRequest.destinationStopCode mbIntegratedBPPConfig searchRequest.merchantId searchRequest.merchantOperatingCityId vehicleCategory mode False personId searchRequest.id.getId) "buildTrainAllViaRoutes"
+            _ -> return ([], [])
+        | otherwise = return ([], [])
+  (directSingleModeRoutes, restOfViaPoints) <- result
+  (singleModeWarningType, otpResponse) <- do
+    if not (null directSingleModeRoutes)
       then do
-        case mbJourneyWithIndex of
-          Just (idx, firstJourney) -> do
-            resp <-
-              if forkInitiateFirstJourney
-                then do
-                  fork "Initiate first the route" $ do
-                    void $ DMC.postMultimodalInitiate (Just searchRequest.riderId, searchRequest.merchantId) firstJourney.id
-                  return Nothing
-                else do
-                  res <- DMC.postMultimodalInitiate (Just searchRequest.riderId, searchRequest.merchantId) firstJourney.id
-                  return $ Just res {ApiTypes.crisSdkToken = mbCrisSdkToken}
-            fork "Rest of the routes Init" $ processRestOfRoutes [route' | (j, route') <- indexedRoutesToProcess, j /= idx] userPreferences
-            return resp
-          Nothing -> do
-            QSearchRequest.updateAllJourneysLoaded (Just True) searchRequest.id
-            return Nothing
+        return $
+          ( Nothing,
+            MInterface.MultiModalResponse
+              { routes = directSingleModeRoutes
+              }
+          )
       else do
-        QSearchRequest.updateAllJourneysLoaded (Just True) searchRequest.id
-        return Nothing
+        let sortingType = fromMaybe DMP.FASTEST userPreferences.journeyOptionsSortingType
+        destination <- extractDest searchRequest.toLocation
+        -- Get stop information if integrated BPP config is available
+        fromStopInfo <- case (mbIntegratedBPPConfig, searchRequest.originStopCode) of
+          (Just integratedBPPConfig, Just originStopCode) ->
+            OTPRest.getStationByGtfsIdAndStopCode originStopCode integratedBPPConfig
+          _ ->
+            return Nothing
 
-  return $
-    MultimodalSearchResp
-      { searchId = searchRequest.id,
-        crisSdkToken = mbCrisSdkToken,
-        searchExpiry = searchRequest.validTill,
-        journeys = fromMaybe [] journeys,
-        firstJourney = mbFirstJourney,
-        firstJourneyInfo = firstJourneyInfo,
-        showMultimodalWarning = isJust singleModeWarningType || showMultimodalWarningForFirstJourney,
-        multimodalWarning =
-          if isJust singleModeWarningType
-            then singleModeWarningType
-            else
-              if showMultimodalWarningForFirstJourney
-                then Just NoUserPreferredFirstJourney
-                else Nothing
-      }
+        let searchReqLoc :: LatLngV2 =
+              LatLngV2
+                { latitude = searchRequest.fromLocation.lat,
+                  longitude = searchRequest.fromLocation.lon
+                }
+
+        -- Determine the from location based on request type and stop info
+        let fromLocation :: LatLngV2 = case (req', fromStopInfo) of
+              (DSearch.PTSearch _, Just stopInfo) ->
+                case (stopInfo.lat, stopInfo.lon) of
+                  (Just lat, Just lon) ->
+                    LatLngV2
+                      { latitude = lat,
+                        longitude = lon
+                      }
+                  _ -> searchReqLoc
+              _ -> searchReqLoc
+
+        let transitRoutesReq =
+              GetTransitRoutesReq
+                { origin = WayPointV2 {location = LocationV2 {latLng = LatLngV2 {latitude = fromLocation.latitude, longitude = fromLocation.longitude}}},
+                  destination = WayPointV2 {location = LocationV2 {latLng = LatLngV2 {latitude = destination.lat, longitude = destination.lon}}},
+                  arrivalTime = Nothing,
+                  departureTime = Nothing,
+                  mode = Nothing,
+                  transitPreferences = Nothing,
+                  transportModes = Nothing,
+                  minimumWalkDistance = riderConfig.minimumWalkDistance,
+                  permissibleModes = fromMaybe [] riderConfig.permissibleModes,
+                  maxAllowedPublicTransportLegs = riderConfig.maxAllowedPublicTransportLegs,
+                  sortingType = JMU.convertSortingType sortingType
+                }
+        transitServiceReq <- TMultiModal.getTransitServiceReq searchRequest.merchantId merchantOperatingCityId
+        otpResponse' <- JMU.measureLatency (MultiModal.getTransitRoutes (Just searchRequest.id.getId) transitServiceReq transitRoutesReq >>= fromMaybeM (InternalError "routes dont exist")) "getTransitRoutes"
+        let otpResponse'' = MInterface.MultiModalResponse (map mkRouteDetailsForWalkLegs otpResponse'.routes)
+        logDebug $ "[Multimodal - OTP Response]" <> show otpResponse'' <> show searchRequest.id.getId
+        -- Add default auto leg if no routes are found
+        if null otpResponse''.routes
+          then do
+            case searchRequest.toLocation of
+              Just toLocation -> do
+                let toLocationV2 = LocationV2 {latLng = LatLngV2 {latitude = toLocation.lat, longitude = toLocation.lon}}
+                let distance = fromMaybe (Distance 0 Meter) searchRequest.distance
+                let duration = fromMaybe (Seconds 0) searchRequest.estimatedRideDuration
+                (autoLeg, startTime, endTime) <- mkAutoOrWalkLeg now Nothing toLocationV2 MultiModalTypes.Unspecified distance duration searchRequest.fromLocation.address.area (searchRequest.toLocation >>= ((.area) . (.address)))
+                let autoMultiModalResponse = mkMultimodalResponse autoLeg startTime endTime
+                return (Just NoPublicTransportRoutes, autoMultiModalResponse)
+              Nothing -> return (Nothing, otpResponse'')
+          else do
+            (finalRoutes, warningType) <- case req' of
+              DSearch.PTSearch _ -> do
+                let mbBestOneWayRoute = JMU.getBestOneWayRoute (castVehicleCategoryToGeneralVehicleType vehicleCategory) otpResponse''.routes searchRequest.originStopCode searchRequest.destinationStopCode
+                case mbBestOneWayRoute of
+                  Just bestOneWayRoute -> do
+                    mbPreliminaryLeg <-
+                      if ((listToMaybe bestOneWayRoute.legs) <&> (.mode)) == Just MultiModalTypes.Walk
+                        then return Nothing
+                        else join <$> mapM (getPreliminaryLeg now currentLocation searchRequest.fromLocation.address.area ((listToMaybe bestOneWayRoute.legs) >>= (.toStopDetails) >>= (.name))) ((listToMaybe bestOneWayRoute.legs) <&> (.startLocation))
+                    let updatedBestOneWayRoute =
+                          case mbPreliminaryLeg of
+                            Just leg -> bestOneWayRoute {MultiModalTypes.legs = [leg] ++ bestOneWayRoute.legs}
+                            Nothing -> bestOneWayRoute
+                    return ([updatedBestOneWayRoute], Nothing)
+                  Nothing -> return (otpResponse''.routes, Just NoSingleModeRoutes)
+              _ -> return (otpResponse''.routes, Nothing)
+            logDebug $ "finalRoutes: " <> show finalRoutes
+            filteredRoutes <- JM.filterTransitRoutes riderConfig finalRoutes
+            return (warningType, MInterface.MultiModalResponse {routes = filteredRoutes})
+  when (not (null restOfViaPoints) && isJust mbIntegratedBPPConfig) $ do
+    fork "Process rest of single mode routes" $ processSingleModeRoutes isSingleMode restOfViaPoints userPreferences mbIntegratedBPPConfig (getPreliminaryLeg now currentLocation searchRequest.fromLocation.address.area) routeLiveInfo
+
+  let (indexedRoutesToProcess, showMultimodalWarningForFirstJourney) = getIndexedRoutesAndWarning userPreferences otpResponse
+
+  mbCrisSdkToken <- getCrisSdkToken merchantOperatingCityId indexedRoutesToProcess
+
+  multimodalIntiateHelper isSingleMode singleModeWarningType otpResponse userPreferences indexedRoutesToProcess showMultimodalWarningForFirstJourney mbCrisSdkToken True (null restOfViaPoints) routeLiveInfo
   where
-    go :: [(Int, MultiModalTypes.MultiModalRoute)] -> ApiTypes.MultimodalUserPreferences -> Flow (Maybe (Int, Journey.Journey))
-    go [] _ = return Nothing
-    go ((idx, r) : routes) userPreferences = do
-      mbResult <- processRoute r userPreferences
+    processSingleModeRoutes isSingleMode restOfViaPoints userPreferences mbIntegratedBPPConfig preliminaryLeg routeLiveInfo = do
+      (restOfRoutes, _) <- JMU.getSubwayValidRoutes restOfViaPoints preliminaryLeg (fromJust mbIntegratedBPPConfig) searchRequest.merchantId searchRequest.merchantOperatingCityId (fromMaybe BecknV2.OnDemand.Enums.BUS searchRequest.vehicleCategory) (castVehicleCategoryToGeneralVehicleType (fromMaybe BecknV2.OnDemand.Enums.BUS searchRequest.vehicleCategory)) True
+      if null restOfRoutes
+        then
+          getAllRoutesLoadedKey searchRequest.id.getId >>= \case
+            True -> QSearchRequest.updateAllJourneysLoaded (Just True) searchRequest.id
+            False -> cacheAllRoutesLoadedKey searchRequest.id.getId True
+        else do
+          let multimodalResponse = MInterface.MultiModalResponse {routes = restOfRoutes}
+              (indexedRoutesToProcess, showMultimodalWarningForFirstJourney) = getIndexedRoutesAndWarning userPreferences multimodalResponse
+          void $ multimodalIntiateHelper isSingleMode Nothing multimodalResponse userPreferences indexedRoutesToProcess showMultimodalWarningForFirstJourney Nothing False True routeLiveInfo
+
+    multimodalIntiateHelper isSingleMode singleModeWarningType otpResponse userPreferences indexedRoutesToProcess showMultimodalWarningForFirstJourney mbCrisSdkToken isFirstJourneyReq allJourneysLoaded routeLiveInfo = do
+      mbJourneyWithIndex <- JMU.measureLatency (go isSingleMode indexedRoutesToProcess userPreferences routeLiveInfo) "Multimodal Init Time" -- process until first journey is found
+      QSearchRequest.updateHasMultimodalSearch (Just True) searchRequest.id
+
+      journeys <- JMU.measureLatency (if isFirstJourneyReq then DQuote.getJourneys searchRequest (Just True) else return Nothing) "getJourneys Multimodal Init time"
+      let mbFirstJourney = listToMaybe (fromMaybe [] journeys)
+      firstJourneyInfo <-
+        if initiateJourney && isFirstJourneyReq
+          then do
+            case mbJourneyWithIndex of
+              Just (idx, firstJourney) -> do
+                resp <-
+                  if forkInitiateFirstJourney
+                    then do
+                      fork "Initiate first the route" $ do
+                        void $ DMC.postMultimodalInitiate (Just searchRequest.riderId, searchRequest.merchantId) firstJourney.id
+                      return Nothing
+                    else do
+                      res <- DMC.postMultimodalInitiate (Just searchRequest.riderId, searchRequest.merchantId) firstJourney.id
+                      return $ Just res
+                fork "Rest of the routes Init" $ processRestOfRoutes [x | (j, x) <- zip [0 ..] otpResponse.routes, j /= idx] userPreferences routeLiveInfo allJourneysLoaded
+                return resp
+              Nothing -> do
+                QSearchRequest.updateAllJourneysLoaded (Just True) searchRequest.id
+                return Nothing
+          else do
+            case mbJourneyWithIndex of
+              Just (idx, _) -> do
+                fork "Process all routes " $ processRestOfRoutes [x | (j, x) <- indexedRoutesToProcess, j /= idx] userPreferences routeLiveInfo allJourneysLoaded
+              Nothing -> do
+                fork "Process all routes " $ processRestOfRoutes (map snd indexedRoutesToProcess) userPreferences routeLiveInfo allJourneysLoaded
+            return Nothing
+
+      return $
+        MultimodalSearchResp
+          { searchId = searchRequest.id,
+            crisSdkToken = mbCrisSdkToken,
+            searchExpiry = searchRequest.validTill,
+            journeys = fromMaybe [] journeys,
+            firstJourney = mbFirstJourney,
+            firstJourneyInfo = firstJourneyInfo,
+            showMultimodalWarning = isJust singleModeWarningType || showMultimodalWarningForFirstJourney,
+            multimodalWarning =
+              if isJust singleModeWarningType
+                then singleModeWarningType
+                else
+                  if showMultimodalWarningForFirstJourney
+                    then Just NoUserPreferredFirstJourney
+                    else Nothing
+          }
+    go :: Bool -> [(Int, MultiModalTypes.MultiModalRoute)] -> ApiTypes.MultimodalUserPreferences -> Maybe JMU.VehicleLiveRouteInfo -> Flow (Maybe (Int, Journey.Journey))
+    go _ [] _ _ = return Nothing
+    go isSingleMode ((idx, r) : routes) userPreferences routeLiveInfo = do
+      mbResult <- processRoute isSingleMode r userPreferences routeLiveInfo
       case mbResult of
-        Nothing -> go routes userPreferences
+        Nothing -> go isSingleMode routes userPreferences routeLiveInfo
         Just journey -> return $ Just (idx, journey)
 
-    processRoute :: MultiModalTypes.MultiModalRoute -> ApiTypes.MultimodalUserPreferences -> Flow (Maybe Journey.Journey)
-    processRoute r userPreferences = do
-      legs' <- mapM calculateLegProportionalDuration r.legs
+    processRoute :: Bool -> MultiModalTypes.MultiModalRoute -> ApiTypes.MultimodalUserPreferences -> Maybe JMU.VehicleLiveRouteInfo -> Flow (Maybe Journey.Journey)
+    processRoute isSingleMode r userPreferences routeLiveInfo = do
+      updatedRoute <- updateRouteWithLegDurations r
       let initReq =
             JMTypes.JourneyInitData
               { parentSearchId = searchRequest.id,
                 merchantId = searchRequest.merchantId,
                 merchantOperatingCityId = searchRequest.merchantOperatingCityId,
                 personId = searchRequest.riderId,
-                legs = legs',
-                estimatedDistance = r.distance,
-                estimatedDuration = r.duration,
-                startTime = r.startTime,
-                endTime = r.endTime,
+                legs = updatedRoute.legs,
+                routeLiveInfo = routeLiveInfo,
+                estimatedDistance = updatedRoute.distance,
+                estimatedDuration = updatedRoute.duration,
+                startTime = updatedRoute.startTime,
+                endTime = updatedRoute.endTime,
+                isSingleMode,
                 maximumWalkDistance = riderConfig.maximumWalkDistance,
-                straightLineThreshold = riderConfig.straightLineThreshold,
-                relevanceScore = r.relevanceScore
+                relevanceScore = updatedRoute.relevanceScore
               }
       JM.init initReq userPreferences
+
+    updateRouteWithLegDurations :: MultiModalTypes.MultiModalRoute -> Flow MultiModalTypes.MultiModalRoute
+    updateRouteWithLegDurations route_ = do
+      updatedLegs <- mapM calculateLegProportionalDuration route_.legs
+      let totalDuration = sum (map (.duration) updatedLegs)
+          -- Update endTime based on the new duration
+          updatedEndTime =
+            route_.startTime >>= \startTime ->
+              Just $ addUTCTime (secondsToNominalDiffTime totalDuration) startTime
+          route' = route_ {duration = totalDuration, legs = updatedLegs, endTime = updatedEndTime} :: MultiModalTypes.MultiModalRoute
+      return route'
+
+    straightLineDistance leg = highPrecMetersToMeters $ distanceBetweenInMeters (LatLong leg.startLocation.latLng.latitude leg.startLocation.latLng.longitude) (LatLong leg.endLocation.latLng.latitude leg.endLocation.latLng.longitude)
+
     -- Calculate proportional duration only for Walk and Unspecified legs
     calculateLegProportionalDuration :: MultiModalTypes.MultiModalLeg -> Flow MultiModalTypes.MultiModalLeg
     calculateLegProportionalDuration leg = do
@@ -485,7 +521,7 @@ multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJour
           totalEstimatedDistance = fromMaybe (Distance 0 Meter) searchRequest.distance
       case leg.mode of
         MultiModalTypes.Walk ->
-          if (distanceToMeters leg.distance) > riderConfig.maximumWalkDistance
+          if straightLineDistance leg > riderConfig.maximumWalkDistance
             then do
               -- Call OSRM for taxi/auto (car) distance/duration, fallback to proportional duration if it fails
               res <-
@@ -500,13 +536,13 @@ multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJour
                       }
               case res of
                 Right distResp -> do
-                  let newDistance = convertMetersToDistance Meter distResp.distance
-                  let newDuration = distResp.duration
-                  return (leg {distance = newDistance, duration = newDuration} :: MultiModalTypes.MultiModalLeg)
+                  let newDistance = if distResp.distance > 0 then convertMetersToDistance Meter distResp.distance else leg.distance
+                      updatedDurationLeg = updateDuration totalEstimatedDuration totalEstimatedDistance leg {distance = newDistance}
+                  return (updatedDurationLeg {duration = updatedDurationLeg.duration} :: MultiModalTypes.MultiModalLeg)
                 Left err -> do
                   logError $ "OSRM/Maps.getMultimodalWalkDistance failed: " <> show err <> ", falling back to proportional duration and distance" <> "latlong: " <> show (leg.startLocation.latLng.latitude, leg.startLocation.latLng.longitude) <> " " <> show (leg.endLocation.latLng.latitude, leg.endLocation.latLng.longitude)
                   return $ updateDuration totalEstimatedDuration totalEstimatedDistance leg
-            else return leg
+            else return leg{duration = JM.calculateWalkDuration leg.distance}
         MultiModalTypes.Unspecified -> return $ updateDuration totalEstimatedDuration totalEstimatedDistance leg
         _ -> return leg -- Skip other modes
       where
@@ -522,28 +558,44 @@ multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJour
                         propSecs = if totalMeters > 0 then totalSecs * legMeters / totalMeters else 0
                      in Seconds $ round propSecs
                   else leg.duration
-           in leg' {duration = proportionalDuration}
 
-    eitherWalkOrSingleMode :: BecknV2.OnDemand.Enums.VehicleCategory -> MultiModalTypes.MultiModalLeg -> Bool
-    eitherWalkOrSingleMode selectedMode leg = isLegModeIn [MultiModalTypes.Walk, MultiModalTypes.Unspecified, castVehicleCategoryToGeneralVehicleType selectedMode] leg
+              updateTimingWithBuffer mbFromTime mbToArrival mbToDeparture =
+                case (mbFromTime, mbToArrival, mbToDeparture) of
+                  (Just fromTime, Just arrival, Just departure) ->
+                    let newToArrival = Just $ addUTCTime (secondsToNominalDiffTime proportionalDuration) fromTime
+                        originalBuffer = abs (diffUTCTime departure arrival)
+                        newToDeparture = Just $ addUTCTime originalBuffer (fromJust newToArrival)
+                     in (newToArrival, newToDeparture)
+                  _ -> (mbToArrival, mbToDeparture)
 
-    onlySingleMode :: BecknV2.OnDemand.Enums.VehicleCategory -> MultiModalTypes.MultiModalLeg -> Bool
-    onlySingleMode selectedMode leg = leg.mode == castVehicleCategoryToGeneralVehicleType selectedMode
+              updatedRouteDetails = map updateRouteDetailTiming leg.routeDetails
+              updateRouteDetailTiming :: MultiModalTypes.MultiModalRouteDetails -> MultiModalTypes.MultiModalRouteDetails
+              updateRouteDetailTiming routeDetail =
+                let (newToArrival, newToDeparture) =
+                      updateTimingWithBuffer
+                        routeDetail.fromDepartureTime
+                        routeDetail.toArrivalTime
+                        routeDetail.toDepartureTime
+                 in routeDetail
+                      { toArrivalTime = newToArrival,
+                        toDepartureTime = newToDeparture
+                      }
 
-    filterWalkLegs :: MultiModalTypes.MultiModalRoute -> MultiModalTypes.MultiModalRoute
-    filterWalkLegs MultiModalTypes.MultiModalRoute {..} = do
-      let legsWithIndex = zip [0 ..] legs
-      let filteredLegs =
-            [ leg
-              | (index, leg) <- legsWithIndex,
-                not ((index == 0 || index == length legs - 1) && isLegModeIn [MultiModalTypes.Walk, MultiModalTypes.Unspecified] leg)
-            ]
-      MultiModalTypes.MultiModalRoute {legs = if null filteredLegs then legs else filteredLegs, ..}
+              -- Update leg timing
+              (newLegToArrival, newLegToDeparture) = updateTimingWithBuffer leg.fromDepartureTime leg.toArrivalTime leg.toDepartureTime
+           in leg'
+                { duration = proportionalDuration,
+                  toArrivalTime = newLegToArrival,
+                  toDepartureTime = newLegToDeparture,
+                  routeDetails = updatedRouteDetails
+                }
 
-    processRestOfRoutes :: [MultiModalTypes.MultiModalRoute] -> ApiTypes.MultimodalUserPreferences -> Flow ()
-    processRestOfRoutes routes userPreferences = do
-      forM_ routes $ \route' -> processRoute route' userPreferences
-      QSearchRequest.updateAllJourneysLoaded (Just True) searchRequest.id
+    processRestOfRoutes :: [MultiModalTypes.MultiModalRoute] -> ApiTypes.MultimodalUserPreferences -> Maybe JMU.VehicleLiveRouteInfo -> Bool -> Flow ()
+    processRestOfRoutes routes userPreferences routeLiveInfo allJourneysLoaded = do
+      forM_ routes $ \route' -> processRoute False route' userPreferences routeLiveInfo
+      allRoutesLoaded <- getAllRoutesLoadedKey searchRequest.id.getId
+      when (allJourneysLoaded || allRoutesLoaded) $ QSearchRequest.updateAllJourneysLoaded (Just True) searchRequest.id
+      cacheAllRoutesLoadedKey searchRequest.id.getId True
 
     extractDest Nothing = throwError $ InvalidRequest "Destination is required for multimodal search"
     extractDest (Just d) = return d
@@ -566,8 +618,42 @@ multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJour
       BecknV2.OnDemand.Enums.SUBWAY -> MultiModalTypes.Subway
       _ -> MultiModalTypes.Unspecified
 
-    mkAutoOrWalkLeg :: UTCTime -> Maybe LocationV2 -> LocationV2 -> MultiModalTypes.GeneralVehicleType -> Distance -> Seconds -> Flow (MultiModalTypes.MultiModalLeg, UTCTime, UTCTime)
-    mkAutoOrWalkLeg now fromLocation toLocation mode distance duration = do
+    mkRouteDetailsForWalkLegs :: MultiModalTypes.MultiModalRoute -> MultiModalTypes.MultiModalRoute
+    mkRouteDetailsForWalkLegs MultiModalTypes.MultiModalRoute {..} =
+      let mkRouteDetail leg =
+            [ MultiModalTypes.MultiModalRouteDetails
+                { gtfsId = Nothing,
+                  longName = Nothing,
+                  shortName = Nothing,
+                  alternateShortNames = [],
+                  color = Nothing,
+                  fromStopDetails = leg.fromStopDetails,
+                  toStopDetails = leg.toStopDetails,
+                  startLocation = leg.startLocation,
+                  endLocation = leg.endLocation,
+                  subLegOrder = 1,
+                  fromArrivalTime = leg.fromArrivalTime,
+                  fromDepartureTime = leg.fromDepartureTime,
+                  toArrivalTime = leg.toArrivalTime,
+                  toDepartureTime = leg.toDepartureTime
+                }
+            ]
+       in MultiModalTypes.MultiModalRoute
+            { legs =
+                map
+                  ( \leg ->
+                      leg{routeDetails =
+                            if null leg.routeDetails
+                              then mkRouteDetail leg
+                              else leg.routeDetails
+                         }
+                  )
+                  legs,
+              ..
+            }
+
+    mkAutoOrWalkLeg :: UTCTime -> Maybe LocationV2 -> LocationV2 -> MultiModalTypes.GeneralVehicleType -> Distance -> Seconds -> Maybe Text -> Maybe Text -> Flow (MultiModalTypes.MultiModalLeg, UTCTime, UTCTime)
+    mkAutoOrWalkLeg now fromLocation toLocation mode distance duration fromStopName toStopName = do
       let fromStopLocation = LocationV2 {latLng = LatLngV2 {latitude = searchRequest.fromLocation.lat, longitude = searchRequest.fromLocation.lon}}
       let toStopLocation = toLocation
       let startLocation = fromMaybe fromStopLocation fromLocation
@@ -581,8 +667,22 @@ multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJour
               mode,
               startLocation,
               endLocation = toStopLocation,
-              fromStopDetails = Nothing,
-              toStopDetails = Nothing,
+              fromStopDetails =
+                Just
+                  MultiModalTypes.MultiModalStopDetails
+                    { stopCode = Nothing,
+                      platformCode = Nothing,
+                      name = fromStopName,
+                      gtfsId = Nothing
+                    },
+              toStopDetails =
+                Just
+                  MultiModalTypes.MultiModalStopDetails
+                    { stopCode = Nothing,
+                      platformCode = Nothing,
+                      name = toStopName,
+                      gtfsId = Nothing
+                    },
               routeDetails =
                 [ MultiModalTypes.MultiModalRouteDetails
                     { gtfsId = Nothing,
@@ -594,7 +694,7 @@ multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJour
                       toStopDetails = Nothing,
                       startLocation,
                       endLocation = toStopLocation,
-                      subLegOrder = 0,
+                      subLegOrder = 1,
                       fromArrivalTime = Just startTime,
                       fromDepartureTime = Just startTime,
                       toArrivalTime = Just endTime,
@@ -617,67 +717,24 @@ multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJour
     isLegModeIn :: [GeneralVehicleType] -> MultiModalTypes.MultiModalLeg -> Bool
     isLegModeIn modes leg = leg.mode `elem` modes
 
-    getCrisSdkToken :: Id MerchantOperatingCity -> Maybe [DQuote.JourneyData] -> Flow (Maybe Text)
-    getCrisSdkToken _ Nothing = return Nothing
-    getCrisSdkToken merchantOperatingCityId (Just journeys) = do
-      person <- Person.findById personId >>= fromMaybeM (PersonNotFound personId.getId)
-      let subwayJourneys = filter (\j -> any (\leg -> leg.journeyMode == DTrip.Subway) j.journeyLegs) journeys
-      if null subwayJourneys
+    getCrisSdkToken :: Id MerchantOperatingCity -> [(Int, MultiModalTypes.MultiModalRoute)] -> Flow (Maybe Text)
+    getCrisSdkToken merchantOperatingCityId indexedRoutes = do
+      let subwayRoutes = filter (\(_, multiModalRoute) -> any (\leg -> leg.mode == MultiModalTypes.Subway) multiModalRoute.legs) indexedRoutes
+      if null subwayRoutes
         then return Nothing
         else do
-          mbMobileNumber <- mapM decrypt person.mobileNumber
-          mbImeiNumber <- mapM decrypt person.imeiNumber
-          sessionId <- getRandomInRange (1, 1000000 :: Int)
-          findValidSdkToken subwayJourneys mbMobileNumber mbImeiNumber sessionId
-      where
-        findValidSdkToken :: [DQuote.JourneyData] -> Maybe Text -> Maybe Text -> Int -> Flow (Maybe Text)
-        findValidSdkToken [] _ _ _ = return Nothing
-        findValidSdkToken (journey : restJourneys) mbMobileNumber mbImeiNumber sessionId = do
-          let subwayLegs = filter (\leg -> leg.journeyMode == DTrip.Subway) journey.journeyLegs
-          mbSdkToken <- findValidSdkTokenFromLegs subwayLegs mbMobileNumber mbImeiNumber sessionId
-          case mbSdkToken of
-            Just token -> return $ Just token
-            Nothing -> findValidSdkToken restJourneys mbMobileNumber mbImeiNumber sessionId
-
-        findValidSdkTokenFromLegs :: [DQuote.JourneyLeg] -> Maybe Text -> Maybe Text -> Int -> Flow (Maybe Text)
-        findValidSdkTokenFromLegs [] _ _ _ = return Nothing
-        findValidSdkTokenFromLegs (leg : restLegs) mbMobileNumber mbImeiNumber sessionId = do
-          mbSdkToken <- tryGetSdkTokenFromLeg leg mbMobileNumber mbImeiNumber sessionId
-          case mbSdkToken of
-            Just token -> return $ Just token
-            Nothing -> findValidSdkTokenFromLegs restLegs mbMobileNumber mbImeiNumber sessionId
-
-        tryGetSdkTokenFromLeg :: DQuote.JourneyLeg -> Maybe Text -> Maybe Text -> Int -> Flow (Maybe Text)
-        tryGetSdkTokenFromLeg leg mbMobileNumber mbImeiNumber sessionId = do
-          let mbRouteCode = listToMaybe leg.routeDetails >>= (.routeCode)
-          case (leg.fromStationCode, leg.toStationCode, mbRouteCode) of
-            (Just fromCode, Just toCode, Just routeCode) -> do
-              SIBC.findMaybeIntegratedBPPConfig Nothing merchantOperatingCityId BecknV2.OnDemand.Enums.SUBWAY DIBC.MULTIMODAL
-                >>= \case
-                  Just integratedBPPConfig -> do
-                    case integratedBPPConfig.providerConfig of
-                      DIBC.CRIS config' -> do
-                        intermediateStations <- CallAPI.buildStations routeCode fromCode toCode integratedBPPConfig Station.START Station.END
-
-                        let viaStations = T.intercalate "-" $ map (.stationCode) $ filter (\station -> station.stationType == Station.INTERMEDIATE) intermediateStations
-                            viaPoints = if T.null viaStations then " " else viaStations
-
-                        let routeFareReq =
-                              CRISRouteFare.CRISFareRequest
-                                { mobileNo = mbMobileNumber,
-                                  imeiNo = fromMaybe "ed409d8d764c04f7" mbImeiNumber,
-                                  appSession = sessionId,
-                                  sourceCode = fromCode,
-                                  changeOver = " ",
-                                  destCode = toCode,
-                                  via = viaPoints
-                                }
-
-                        fares <- CRISRouteFare.getRouteFare config' merchantOperatingCityId routeFareReq <&> listToMaybe
-                        return $ fares >>= (.fareDetails) >>= Just . (.sdkToken)
-                      _ -> return Nothing
-                  Nothing -> return Nothing
-            _ -> return Nothing
+          SIBC.findMaybeIntegratedBPPConfig Nothing merchantOperatingCityId BecknV2.OnDemand.Enums.SUBWAY DIBC.MULTIMODAL >>= \case
+            Just integratedBPPConfig -> do
+              case integratedBPPConfig.providerConfig of
+                DIBC.CRIS config -> do
+                  mbGetSdkDataReq <- mkGetSDKDataReq personId
+                  case mbGetSdkDataReq of
+                    Just getSDKDataReq -> do
+                      getSdkDataResp <- getSDKData config getSDKDataReq
+                      return $ Just getSdkDataResp.sdkData
+                    Nothing -> return Nothing
+                _ -> return Nothing
+            Nothing -> return Nothing
 
     mkMultimodalResponse :: MultiModalTypes.MultiModalLeg -> UTCTime -> UTCTime -> MultiModalTypes.MultiModalResponse
     mkMultimodalResponse leg startTime endTime =
@@ -694,8 +751,8 @@ multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJour
             ]
         }
 
-    getPreliminaryLeg :: UTCTime -> Maybe LocationV2 -> LocationV2 -> Flow (Maybe MultiModalTypes.MultiModalLeg)
-    getPreliminaryLeg now mbCurrentLocation fromStopLocation = do
+    getPreliminaryLeg :: UTCTime -> Maybe LocationV2 -> Maybe Text -> Maybe Text -> LocationV2 -> Flow (Maybe MultiModalTypes.MultiModalLeg)
+    getPreliminaryLeg now mbCurrentLocation fromStopName toStopName fromStopLocation = do
       case mbCurrentLocation of
         Nothing -> return Nothing
         Just currentLocation -> do
@@ -710,7 +767,7 @@ multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJour
               if distance < riderConfig.minimumWalkDistance
                 then return Nothing
                 else do
-                  (leg, _, _) <- mkAutoOrWalkLeg now (Just currentLocation) fromStopLocation MultiModalTypes.Walk (convertMetersToDistance Meter distance) duration
+                  (leg, _, _) <- mkAutoOrWalkLeg now (Just currentLocation) fromStopLocation MultiModalTypes.Walk (convertMetersToDistance Meter distance) duration fromStopName toStopName
                   return $ Just leg
             Nothing -> return Nothing
 
@@ -738,6 +795,22 @@ multiModalSearch searchRequest riderConfig initiateJourney forkInitiateFirstJour
     locationV2ToLatLong :: LocationV2 -> Maps.LatLong
     locationV2ToLatLong locationV2 = Maps.LatLong {lat = locationV2.latLng.latitude, lon = locationV2.latLng.longitude}
 
+    getIndexedRoutesAndWarning :: ApiTypes.MultimodalUserPreferences -> MultiModalTypes.MultiModalResponse -> ([(Int, MultiModalTypes.MultiModalRoute)], Bool)
+    getIndexedRoutesAndWarning userPreferences otpResponse = do
+      let userPreferredTransitModes = userPreferencesToGeneralVehicleTypes userPreferences.allowedTransitModes
+          hasOnlyUserPreferredTransitModes otpRoute = all (isLegModeIn userPreferredTransitModes) otpRoute.legs
+          hasOnlyWalkOrUnspecifiedTransitModes otpRoute = all (isLegModeIn [MultiModalTypes.Walk, MultiModalTypes.Unspecified]) otpRoute.legs
+          indexedRoutes = zip [0 ..] otpResponse.routes
+          removeOnlyWalkAndUnspecifiedTransitModes = filter (not . hasOnlyWalkOrUnspecifiedTransitModes . snd)
+          filteredUserPreferredIndexedRoutes = filter (hasOnlyUserPreferredTransitModes . snd) indexedRoutes
+          baseRoutes = if null filteredUserPreferredIndexedRoutes then indexedRoutes else filteredUserPreferredIndexedRoutes
+          indexedRoutesToProcess =
+            if riderConfig.filterWalkAndUnspecifiedTransitModes
+              then removeOnlyWalkAndUnspecifiedTransitModes baseRoutes
+              else baseRoutes
+          showMultimodalWarningForFirstJourney = null filteredUserPreferredIndexedRoutes
+      (indexedRoutesToProcess, showMultimodalWarningForFirstJourney)
+
 checkSearchRateLimit ::
   ( Redis.HedisFlow m r,
     HasFlowEnv m r '["slackCfg" ::: SlackConfig],
@@ -764,3 +837,132 @@ updateVersions personId mbBundleVersion mbClientVersion mbClientConfigVersion mb
   person <- Person.findById personId >>= fromMaybeM (PersonNotFound $ getId personId)
   deploymentVersion <- asks (.version)
   void $ Person.updatePersonVersions person mbBundleVersion mbClientVersion mbClientConfigVersion (getDeviceFromText mbDevice) deploymentVersion.getDeploymentVersion mbRnVersion
+
+searchTrigger' ::
+  ( DSearch.SearchRequestFlow m r,
+    HasFlowEnv m r '["ondcTokenHashMap" ::: HM.HashMap KeyConfig TokenConfig],
+    Redis.HedisFlow m r,
+    HasFlowEnv m r '["slackCfg" ::: SlackConfig],
+    HasFlowEnv m r '["searchRateLimitOptions" ::: APIRateLimitOptions],
+    HasFlowEnv m r '["searchLimitExceedNotificationTemplate" ::: Text],
+    MonadFlow m,
+    CoreMetrics m,
+    HasFlowEnv m r '["internalEndPointHashMap" ::: HM.HashMap BaseUrl BaseUrl],
+    CacheFlow m r,
+    HasFlowEnv m r '["kafkaProducerTools" ::: KafkaProducerTools],
+    HasFlowEnv m r '["ondcTokenHashMap" ::: HM.HashMap KeyConfig TokenConfig],
+    EsqDBFlow m r,
+    HasField "shortDurationRetryCfg" r RetryCfg,
+    HasFlowEnv m r '["nwAddress" ::: BaseUrl]
+  ) =>
+  (Id Person.Person, Id Merchant.Merchant) ->
+  DSearch.SearchReq ->
+  Maybe Version ->
+  Maybe Version ->
+  Maybe Version ->
+  Maybe Text ->
+  Maybe (Id DC.Client) ->
+  Maybe Text ->
+  Maybe Bool ->
+  m DSearch.SearchResp
+searchTrigger' (personId, merchantId) req mbBundleVersion mbClientVersion mbClientConfigVersion mbRnVersion mbClientId mbDevice mbIsDashboardRequest = withPersonIdLogTag personId $ do
+  checkSearchRateLimit personId
+  fork "updating person versions" $ updateVersions personId mbBundleVersion mbClientVersion mbClientConfigVersion mbRnVersion mbDevice
+  merchant <- CQM.findById (cast merchantId) >>= fromMaybeM (MerchantNotFound merchantId.getId)
+  -- TODO : remove this code after multiple search req issue get fixed from frontend
+  --BEGIN
+  whenJust merchant.stuckRideAutoCancellationBuffer $ \stuckRideAutoCancellationBuffer -> do
+    mbSReq <- QSearchRequest.findLastSearchRequestInKV personId
+    shouldCancelPrevSearch <- maybe (return False) (checkValidSearchReq merchant.scheduleRideBufferTime) mbSReq
+    when shouldCancelPrevSearch $ do
+      fork "handle multiple search request issue" $ do
+        case mbSReq of
+          Just sReq -> do
+            mbEstimate <- QEstimate.findBySRIdAndStatusesInKV sReq.id [Estimate.DRIVER_QUOTE_REQUESTED, Estimate.GOT_DRIVER_QUOTE]
+            case mbEstimate of
+              Just estimate -> do
+                resp <- try @_ @SomeException $ JLT.cancelSearch' (personId, merchantId) estimate.id
+                case resp of
+                  Left _ -> void $ handleBookingCancellation' merchantId personId stuckRideAutoCancellationBuffer sReq.id req
+                  Right _ -> pure ()
+              Nothing -> void $ handleBookingCancellation' merchantId personId stuckRideAutoCancellationBuffer sReq.id req
+          _ -> pure ()
+  -- TODO : remove this code after multiple search req issue get fixed from frontend
+  --END
+  dSearchRes <- DSearch.search personId req mbBundleVersion mbClientVersion mbClientConfigVersion mbRnVersion mbClientId mbDevice (fromMaybe False mbIsDashboardRequest) False Nothing
+  fork "search cabs" . withShortRetry $ do
+    becknTaxiReqV2 <- TaxiACL.buildSearchReqV2 dSearchRes
+    let generatedJson = encode becknTaxiReqV2
+    logDebug $ "Beckn Taxi Request V2: " <> T.pack (show generatedJson)
+    void $ CallBPP.searchV2 dSearchRes.gatewayUrl becknTaxiReqV2 merchantId
+  fork "Multimodal Search" $ do
+    riderConfig <- QRC.findByMerchantOperatingCityIdInRideFlow dSearchRes.searchRequest.merchantOperatingCityId dSearchRes.searchRequest.configInExperimentVersions >>= fromMaybeM (RiderConfigNotFound dSearchRes.searchRequest.merchantOperatingCityId.getId)
+    when riderConfig.makeMultiModalSearch $ throwError $ InvalidRequest "Multimodal not supported currently for Ny Regular" -------- will support multimodal in future
+  return $ DSearch.SearchResp dSearchRes.searchRequest.id dSearchRes.searchRequestExpiry dSearchRes.shortestRouteInfo
+  where
+    -- TODO : remove this code after multiple search req issue get fixed from frontend
+    --BEGIN
+    checkValidSearchReq scheduleRideBufferTime sReq = do
+      now <- getCurrentTime
+      let isNonScheduled = diffUTCTime sReq.startTime sReq.createdAt < scheduleRideBufferTime
+          isValid = sReq.validTill > now
+      return $ isNonScheduled && isValid
+
+handleBookingCancellation' ::
+  ( DSearch.SearchRequestFlow m r,
+    HasFlowEnv m r '["ondcTokenHashMap" ::: HM.HashMap KeyConfig TokenConfig],
+    Redis.HedisFlow m r,
+    HasFlowEnv m r '["slackCfg" ::: SlackConfig],
+    HasFlowEnv m r '["searchRateLimitOptions" ::: APIRateLimitOptions],
+    HasFlowEnv m r '["searchLimitExceedNotificationTemplate" ::: Text],
+    MonadFlow m,
+    CoreMetrics m,
+    HasFlowEnv m r '["internalEndPointHashMap" ::: HM.HashMap BaseUrl BaseUrl],
+    CacheFlow m r,
+    HasFlowEnv m r '["kafkaProducerTools" ::: KafkaProducerTools],
+    HasFlowEnv m r '["ondcTokenHashMap" ::: HM.HashMap KeyConfig TokenConfig],
+    EsqDBFlow m r,
+    HasField "shortDurationRetryCfg" r RetryCfg,
+    HasFlowEnv m r '["nwAddress" ::: BaseUrl]
+  ) =>
+  Id Merchant.Merchant ->
+  Id Person.Person ->
+  Seconds ->
+  Id SearchRequest.SearchRequest ->
+  DSearch.SearchReq ->
+  m ()
+handleBookingCancellation' merchantId _personId stuckRideAutoCancellationBuffer sReqId req = do
+  mbBooking <- QBooking.findByTransactionIdAndStatus sReqId.getId Booking.activeBookingStatus
+  case mbBooking of
+    Just booking -> do
+      let reasonCode = SCR.CancellationReasonCode "multiple search request issue"
+          reasonStage = SCR.OnSearch
+      let cancelReq =
+            DCancel.CancelReq
+              { additionalInfo = Nothing,
+                reallocate = Just False,
+                blockOnCancellationRate = Nothing,
+                ..
+              }
+      mRide <- QR.findActiveByRBId booking.id
+      whenJust mRide $ \ride -> do
+        isCancellingAllowed <- checkIfCancellingAllowed ride
+        when (ride.status `elem` [DRide.NEW, DRide.UPCOMING] && isCancellingAllowed) $ do
+          dCancelRes <- DCancel.cancel booking mRide cancelReq SBCR.ByUser
+          void $ withShortRetry $ CallBPP.cancelV2 merchantId dCancelRes.bppUrl =<< ACL.buildCancelReqV2 dCancelRes cancelReq.reallocate
+    _ -> pure ()
+  where
+    checkIfCancellingAllowed ride =
+      case req of
+        DSearch.OneWaySearch DSearch.OneWaySearchReq {verifyBeforeCancellingOldBooking} -> do
+          let verifyBeforeCancelling = fromMaybe False verifyBeforeCancellingOldBooking -- defaulting to old behaviour when flag is not sent from frontend
+          if verifyBeforeCancelling
+            then do
+              now <- getCurrentTime
+              if addUTCTime (fromIntegral stuckRideAutoCancellationBuffer) ride.createdAt < now
+                then return True
+                else throwError (InvalidRequest "ACTIVE_BOOKING_PRESENT") -- 2 mins buffer
+            else do
+              return True -- this is the old behaviour, to cancel automatically
+        _ -> do
+          return True

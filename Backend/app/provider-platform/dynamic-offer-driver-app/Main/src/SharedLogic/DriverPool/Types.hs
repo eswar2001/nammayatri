@@ -63,9 +63,11 @@ data CalculateGoHomeDriverPoolReq a = CalculateGoHomeDriverPoolReq
     isInterCity :: Bool,
     isValueAddNP :: Bool,
     onlinePayment :: Bool,
+    rideFare :: Maybe HighPrecMoney,
     currentSearchInfo :: DTS.CurrentSearchInfo,
     transporterConfig :: DTC.TransporterConfig,
-    configsInExperimentVersions :: [LYT.ConfigVersionMap]
+    configsInExperimentVersions :: [LYT.ConfigVersionMap],
+    enforceSufficientDriverBalance :: Bool
   }
 
 data CancellationScoreRelatedConfig = CancellationScoreRelatedConfig
@@ -91,6 +93,7 @@ data DriverPoolResult = DriverPoolResult
     vehicleAge :: Maybe Months,
     clientSdkVersion :: Maybe Version,
     clientBundleVersion :: Maybe Version,
+    reactBundleVersion :: Maybe Text,
     clientConfigVersion :: Maybe Version,
     clientDevice :: Maybe Device,
     backendConfigVersion :: Maybe Version,
@@ -99,7 +102,10 @@ data DriverPoolResult = DriverPoolResult
     latestScheduledPickup :: Maybe Maps.LatLong,
     customerTags :: Maybe A.Value,
     driverTags :: A.Value,
-    score :: Maybe A.Value
+    score :: Maybe A.Value,
+    minRideDistance :: Maybe Meters,
+    maxRideDistance :: Maybe Meters,
+    maxPickupDistance :: Maybe Meters
   }
   deriving (Generic, Show, HasCoordinates, FromJSON, ToJSON)
 
@@ -121,6 +127,7 @@ instance Default DriverPoolResult where
         vehicleAge = Nothing,
         clientSdkVersion = Nothing,
         clientBundleVersion = Nothing,
+        reactBundleVersion = Nothing,
         clientConfigVersion = Nothing,
         clientDevice = Nothing,
         backendConfigVersion = Nothing,
@@ -129,7 +136,10 @@ instance Default DriverPoolResult where
         latestScheduledPickup = Nothing,
         customerTags = Nothing,
         driverTags = A.emptyObject,
-        score = Nothing
+        score = Nothing,
+        minRideDistance = Nothing,
+        maxRideDistance = Nothing,
+        maxPickupDistance = Nothing
       }
 
 data DriverPoolResultCurrentlyOnRide = DriverPoolResultCurrentlyOnRide
@@ -149,6 +159,7 @@ data DriverPoolResultCurrentlyOnRide = DriverPoolResultCurrentlyOnRide
     mode :: Maybe DriverMode,
     clientSdkVersion :: Maybe Version,
     clientBundleVersion :: Maybe Version,
+    reactBundleVersion :: Maybe Text,
     vehicleAge :: Maybe Months,
     clientConfigVersion :: Maybe Version,
     clientDevice :: Maybe Device,
@@ -157,7 +168,10 @@ data DriverPoolResultCurrentlyOnRide = DriverPoolResultCurrentlyOnRide
     latestScheduledBooking :: Maybe UTCTime,
     latestScheduledPickup :: Maybe Maps.LatLong,
     driverTags :: A.Value,
-    score :: Maybe A.Value
+    score :: Maybe A.Value,
+    minRideDistance :: Maybe Meters,
+    maxRideDistance :: Maybe Meters,
+    maxPickupDistance :: Maybe Meters
   }
   deriving (Generic, Show, HasCoordinates, FromJSON, ToJSON)
 

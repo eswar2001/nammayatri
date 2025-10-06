@@ -30,10 +30,12 @@ module Domain.Action.Dashboard.Merchant
     postMerchantTicketConfigUpsert,
     postMerchantConfigSpecialLocationUpsert,
     postMerchantSchedulerTrigger,
+    postMerchantConfigOperatingCityWhiteList,
   )
 where
 
 import qualified "dashboard-helper-api" API.Types.RiderPlatform.Management.Merchant as Common
+import qualified BecknV2.FRFS.Enums as FRFS
 import Control.Applicative
 import qualified Data.Aeson as JSON
 import qualified Data.ByteString as BS
@@ -53,13 +55,15 @@ import qualified Domain.Types.Merchant as DM
 import qualified Domain.Types.MerchantMessage as DMM
 import qualified Domain.Types.MerchantOperatingCity as DMOC
 import qualified Domain.Types.MerchantPaymentMethod as DMPM
+import qualified Domain.Types.MerchantPushNotification as DMPN
 import qualified Domain.Types.MerchantServiceConfig as DMSC
 import qualified Domain.Types.MerchantServiceUsageConfig as DMSUC
 import qualified Domain.Types.RiderConfig as DRC
 import Domain.Types.ServiceCategory
 import Domain.Types.ServicePeopleCategory
-import Domain.Types.TicketPlace
+import Domain.Types.TicketPlace hiding (Fee (..))
 import Domain.Types.TicketService
+import qualified Domain.Types.WhiteListOrg as WLO
 import Environment
 import qualified EulerHS.Language as L
 import qualified "shared-services" IssueManagement.Common as ICommon
@@ -105,6 +109,7 @@ import qualified Storage.CachedQueries.Merchant as CQM
 import qualified Storage.CachedQueries.Merchant.MerchantMessage as CQMM
 import qualified Storage.CachedQueries.Merchant.MerchantOperatingCity as CQMOC
 import qualified Storage.CachedQueries.Merchant.MerchantPaymentMethod as CQMPM
+import qualified Storage.CachedQueries.Merchant.MerchantPushNotification as CQMPN
 import qualified Storage.CachedQueries.Merchant.MerchantServiceConfig as CQMSC
 import qualified Storage.CachedQueries.Merchant.MerchantServiceUsageConfig as CQMSUC
 import qualified Storage.CachedQueries.Merchant.RiderConfig as QRC
@@ -113,6 +118,7 @@ import qualified Storage.Queries.BusinessHour as SQBH
 import qualified Storage.Queries.BusinessHourExtra as SQBHE
 import qualified Storage.Queries.Geometry as QGEO
 import qualified Storage.Queries.Merchant as QM
+import qualified Storage.Queries.MerchantPushNotification as SQMPN
 import qualified Storage.Queries.MerchantServiceConfig as SQMSC
 import qualified Storage.Queries.ServiceCategory as SQSC
 import qualified Storage.Queries.ServiceCategoryExtra as SQSCE
@@ -120,6 +126,7 @@ import qualified Storage.Queries.ServicePeopleCategory as SQSPC
 import qualified Storage.Queries.ServicePeopleCategoryExtra as SQSPCE
 import qualified Storage.Queries.TicketPlace as SQTP
 import qualified Storage.Queries.TicketService as SQTS
+import qualified Storage.Queries.WhiteListOrg as QWLO
 import Tools.Error
 import qualified Tools.Payment as Payment
 
@@ -429,7 +436,14 @@ postMerchantConfigOperatingCityCreate :: ShortId DM.Merchant -> Context.City -> 
 postMerchantConfigOperatingCityCreate merchantShortId city req = do
   when (req.city == Context.AnyCity) $ throwError $ InvalidRequest "This Operation is not Allowed For AnyCity"
   baseMerchant <- findMerchantByShortId merchantShortId
-  baseOperatingCity <- CQMOC.findByMerchantIdAndCity baseMerchant.id city >>= fromMaybeM (MerchantOperatingCityNotFound $ "merchant-Id-" <> baseMerchant.id.getId <> "-city-" <> show city)
+  baseRequestedCityMerchant <- case req.baseRequestMerchant of
+    Just merchant -> findMerchantByShortId (ShortId merchant)
+    Nothing -> return baseMerchant
+
+  baseOperatingCity <- case req.baseRequestCity of
+    Just reqCity -> CQMOC.findByMerchantIdAndCity baseRequestedCityMerchant.id reqCity >>= fromMaybeM (MerchantOperatingCityNotFound $ "merchant-Id-" <> baseRequestedCityMerchant.id.getId <> "-city-" <> show reqCity)
+    Nothing -> CQMOC.findByMerchantIdAndCity baseMerchant.id city >>= fromMaybeM (MerchantOperatingCityNotFound $ "merchant-Id-" <> baseMerchant.id.getId <> "-city-" <> show city)
+
   now <- getCurrentTime
   let baseMerchantId = baseMerchant.id
       baseOperatingCityId = baseOperatingCity.id
@@ -537,27 +551,95 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
       _ -> return Nothing
 
   -- beckn config
+  becknConfigList <- SQBC.findAllByMerchantOperatingCityId (Just baseOperatingCityId)
+  let becknConfigFRFS = find (\bcknCfg -> bcknCfg.domain == show FRFS.FRFS) becknConfigList
   mbBecknConfig <-
     SQBC.findAllByMerchantOperatingCityId (Just newMerchantOperatingCityId) >>= \case
       [] -> do
-        becknConfig <- SQBC.findAllByMerchantOperatingCityId (Just baseOperatingCityId)
-        newBecknConfig <- mapM (buildBecknConfig newMerchantId newMerchantOperatingCityId now) becknConfig
+        newBecknConfig <- mapM (buildBecknConfig newMerchantId newMerchantOperatingCityId now) becknConfigList
         return $ Just newBecknConfig
       _ -> return Nothing
 
-  nyRegistryUrl <- asks (.nyRegistryUrl)
+  -- merchant push notification
+  mbMerchantPushNotification <-
+    SQMPN.findAllByMerchantOpCityId baseOperatingCityId >>= \case
+      merchantPushNotifications -> do
+        newMerchantPushNotifications <- mapM (buildMerchantPushNotification newMerchantId newMerchantOperatingCityId now) merchantPushNotifications
+        return $ Just newMerchantPushNotifications
+
+  nyRegistryBaseUrl <- asks (.nyRegistryUrl)
   let uniqueKeyId = baseMerchant.bapUniqueKeyId
       subscriberId = baseMerchant.bapId
       subType = BecknSub.BAP
       domain = Context.MOBILITY
       lookupReq = SimpleLookupRequest {unique_key_id = uniqueKeyId, subscriber_id = subscriberId, merchant_id = baseMerchant.id.getId, subscriber_type = subType, ..}
+  oldSubscriber <- Registry.registryLookup nyRegistryBaseUrl lookupReq subscriberId
+  case oldSubscriber of
+    Just sub -> do
+      whenJust mbNewMerchant $ \newMerchant -> do
+        let subscriberUrl_ = showBaseUrl sub.subscriber_url
+            newSubscriberUrlText = T.replace baseMerchant.id.getId newMerchant.id.getId subscriberUrl_
+            ukId = newMerchant.bapUniqueKeyId
+            subId = newMerchant.bapId
+            subscriberType = BecknSub.BAP
+            subDomain = Context.MOBILITY
+            newCities = req.city
+            country = req.country
+            signingPublicKey = sub.signing_public_key
+            createdAt = now
+        newSubscriberUrl <- parseBaseUrl newSubscriberUrlText
+        void $ RegistryIF.createSubscriber nyRegistryBaseUrl (RegistryT.createNewSubscriberReq ukId subId newSubscriberUrl subscriberType subDomain newCities country signingPublicKey createdAt)
+    Nothing ->
+      logInfo $ "No existing MOBILITY subscriber found for " <> subscriberId <> " skipping subscriber creation"
+
+  -- support for adding FRFS subscriber
+  let buildFRFSSubscriber_ = fromMaybe False req.buildFRFSSubscriber
+  frfsUkId <- generateGUID
+  case (becknConfigFRFS, buildFRFSSubscriber_) of
+    (Just bcknCfg, True) -> do
+      case oldSubscriber of
+        Just sub -> do
+          case mbNewMerchant of
+            Just newMerchant -> do
+              let frfsSubUrl = showBaseUrl bcknCfg.subscriberUrl
+                  newFrfsSubUrl = T.replace baseMerchant.id.getId newMerchant.id.getId frfsSubUrl
+                  frfsUkId_ = frfsUkId
+                  frfsSubId_ = T.replace baseMerchant.id.getId newMerchant.id.getId sub.subscriber_id
+                  subscriberType = BecknSub.BAP
+                  frfsDomain = Context.PUBLIC_TRANSPORT
+                  newCities = req.city
+                  country = req.country
+                  signingPublicKey = sub.signing_public_key
+                  createdAt = now
+              newSubscriberUrl <- parseBaseUrl newFrfsSubUrl
+              void $
+                RegistryIF.createSubscriber nyRegistryBaseUrl $
+                  RegistryT.createNewSubscriberReq
+                    frfsUkId_
+                    frfsSubId_
+                    newSubscriberUrl
+                    subscriberType
+                    frfsDomain
+                    newCities
+                    country
+                    signingPublicKey
+                    createdAt
+            Nothing -> logInfo "Subscriber creation aborted for old Merchant"
+        Nothing ->
+          logInfo $ "No Subscriber found for baseMerchant: " <> baseMerchant.id.getId <> "building new FRFS subscriber" <> show True
+    (_, _) ->
+      logInfo $ "FRFS beckn Config not found for baseMerchant :" <> baseMerchant.id.getId
+
   mbAddCityReq <-
-    Registry.registryLookup nyRegistryUrl lookupReq subscriberId >>= \case
+    case mbNewMerchant of
+      Just _ -> return Nothing
       Nothing -> do
-        logError $ "No entry found for subscriberId: " <> subscriberId <> ", uniqueKeyId: " <> uniqueKeyId <> " in NY registry"
-        return Nothing
-      Just sub | req.city `elem` sub.city -> return Nothing
-      Just _ -> Just <$> RegistryT.buildAddCityNyReq (req.city :| []) uniqueKeyId subscriberId subType domain
+        case oldSubscriber of
+          Nothing -> do
+            logError $ "No entry found for subscriberId: " <> subscriberId <> ", uniqueKeyId: " <> uniqueKeyId <> " in NY registry"
+            return Nothing
+          Just sub | req.city `elem` sub.city -> return Nothing
+          Just _ -> Just <$> RegistryT.buildAddCityNyReq (req.city :| []) uniqueKeyId subscriberId subType domain
 
   finally
     ( do
@@ -570,7 +652,7 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
         whenJust mbMerchantServiceConfig $ \merchantServiceConfigs -> mapM_ SQMSC.create merchantServiceConfigs
         whenJust mbBecknConfig $ \becknConfig -> mapM_ SQBC.create becknConfig
         whenJust mbRiderConfig $ \riderConfig -> QRC.create riderConfig
-
+        whenJust mbMerchantPushNotification $ \newMerchantPushNotifications -> mapM_ CQMPN.create newMerchantPushNotifications
         whenJust mbExophone $ \exophones -> do
           whenJust (find (\ex -> ex.callService == Exotel) exophones) $ \exophone -> do
             exophone' <- buildNewExophone newMerchantId newMerchantOperatingCityId now exophone
@@ -747,6 +829,17 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
             subscriberId = maybe subscriberId (\mId -> T.replace mId.getId newMerchantId.getId subscriberId) merchantId,
             subscriberUrl = newSubscriberUrl,
             uniqueKeyId = fromMaybe uniqueKeyId (req.merchantData <&> (.uniqueKeyId)),
+            createdAt = currentTime,
+            updatedAt = currentTime,
+            ..
+          }
+    buildMerchantPushNotification mercId merchantOpCityId currentTime DMPN.MerchantPushNotification {..} = do
+      newId <- generateGUID
+      return $
+        DMPN.MerchantPushNotification
+          { id = newId,
+            merchantId = mercId,
+            merchantOperatingCityId = merchantOpCityId,
             createdAt = currentTime,
             updatedAt = currentTime,
             ..
@@ -1060,7 +1153,7 @@ postMerchantTicketConfigUpsert merchantShortId opCity request = do
           lon :: Maybe Double = readMaybeCSVField idx row.lon "Longitude"
           mapImageUrl :: Maybe Text = cleanMaybeCSVField idx row.mapImageUrl "Map Image URL"
           termsAndConditionsUrl :: Maybe Text = cleanMaybeCSVField idx row.termsAndConditionsUrl "Terms and conditions URL"
-          ticketPlace = TicketPlace {id = ticketPlaceId, priority = 0, ticketMerchantId = Nothing, customTabs = Nothing, rules = Nothing, recommend = False, ..}
+          ticketPlace = TicketPlace {id = ticketPlaceId, priority = 0, ticketMerchantId = Nothing, customTabs = Nothing, rules = Nothing, recommend = False, faqs = Nothing, isRecurring = True, metadata = Nothing, platformFee = Nothing, platformFeeVendor = Nothing, pricingOnwards = Nothing, endDate = Nothing, isClosed = False, startDate = Nothing, venue = Nothing, assignTicketToBpp = False, enforcedAsSubPlace = False, ..}
 
       ------------- TicketService --------------------------------------------------
       service <- cleanCSVField idx row.svc "Service"
@@ -1089,9 +1182,12 @@ postMerchantTicketConfigUpsert merchantShortId opCity request = do
               { id = Id ticketServiceId,
                 businessHours = [],
                 shortDesc = svcShortDesc,
+                subPlaceId = Nothing,
                 merchantOperatingCityId = Just merchantOperatingCityId,
                 rules = Nothing,
                 isClosed = False,
+                serviceDetails = Nothing,
+                maxSelection = Nothing,
                 ..
               }
 
@@ -1125,6 +1221,8 @@ postMerchantTicketConfigUpsert merchantShortId opCity request = do
                 rules = Nothing,
                 isClosed = False,
                 remainingActions = Nothing,
+                inclusionPoints = Nothing,
+                maxSelection = Nothing,
                 ..
               }
 
@@ -1332,7 +1430,7 @@ postMerchantConfigSpecialLocationUpsert merchantShortId opCity req = do
       gateInfoId <- generateGUID
       gateInfoName :: Text <- cleanCSVField idx row.gateInfoName "Gate Info (name)"
       gateInfoLat :: Double <- readCSVField idx row.gateInfoLat "Gate Info (latitude)"
-      gateInfoLon :: Double <- readCSVField idx row.gateInfoLat "Gate Info (longitude)"
+      gateInfoLon :: Double <- readCSVField idx row.gateInfoLon "Gate Info (longitude)"
       let gateInfoDefaultDriverExtra :: Maybe Int = readMaybeCSVField idx row.gateInfoDefaultDriverExtra "Gate Info (default_driver_extra)"
           gateInfoAddress :: Maybe Text = cleanMaybeCSVField idx row.gateInfoAddress "Gate Info (address)"
       gateInfoType :: DGI.GateType <- readCSVField idx row.gateInfoType "Gate Info (type)"
@@ -1439,3 +1537,31 @@ postMerchantSchedulerTrigger merchantShortId opCity req = do
               pure Success
             Nothing -> throwError $ InternalError "invalid job data"
         Nothing -> throwError $ InternalError "invalid job name"
+
+-- create the EP here
+
+postMerchantConfigOperatingCityWhiteList :: ShortId DM.Merchant -> Context.City -> Common.WhiteListOperatingCityReq -> Flow Common.WhiteListOperatingCityRes
+postMerchantConfigOperatingCityWhiteList _ _ req = do
+  let merchantId = req.bapMerchantId
+      merchantOperatingCityId = req.bapMerchantOperatingCityId
+      bppSubDomain = req.bppSubscriberDomain
+  now <- getCurrentTime
+  whiteListOrgId <- generateGUID
+  let whiteListOrgReq =
+        WLO.WhiteListOrg
+          { domain = bppSubDomain,
+            id = whiteListOrgId,
+            merchantId = Id merchantId,
+            merchantOperatingCityId = Id merchantOperatingCityId,
+            subscriberId = req.bppSubscriberId,
+            createdAt = now,
+            updatedAt = now
+          }
+  QWLO.create whiteListOrgReq
+
+  pure $
+    Common.WhiteListOperatingCityRes
+      { whiteListSuccess = True,
+        whiteListMessage = "Success",
+        whiteListError = Nothing
+      }

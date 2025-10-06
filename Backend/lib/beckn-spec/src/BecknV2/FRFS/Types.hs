@@ -1414,7 +1414,9 @@ data Price = Price
   { -- |
     priceCurrency :: Maybe Text,
     -- | Describes a numerical value in decimal form
-    priceValue :: Maybe Text
+    priceValue :: Maybe Text,
+    -- | This field is not according to ONDC spec. It is used only in case of CHALO (Odisha Yatri)
+    priceOfferedValue :: Maybe Text
   }
   deriving (Show, Eq, Generic, Data)
 
@@ -1433,7 +1435,8 @@ optionsPrice =
   where
     table =
       [ ("priceCurrency", "currency"),
-        ("priceValue", "value")
+        ("priceValue", "value"),
+        ("priceOfferedValue", "offered_value")
       ]
 
 -- | Describes the catalog of a business.
@@ -1796,9 +1799,11 @@ optionsTimeRange =
       ]
 
 -- | Describes a vehicle is a device that is designed or used to transport people or cargo over land, water, air, or through space.&lt;br&gt;This has properties like category, capacity, make, model, size,variant,color,energy_type,registration
-newtype Vehicle = Vehicle
+data Vehicle = Vehicle
   { -- |
-    vehicleCategory :: Maybe Text
+    vehicleCategory :: Maybe Text,
+    -- This field is not according to the spec, but is used to store the variant of the vehicle for Odisha Yatri
+    vehicleVariant :: Maybe Text
   }
   deriving (Show, Eq, Generic, Data)
 
@@ -1816,5 +1821,6 @@ optionsVehicle =
     }
   where
     table =
-      [ ("vehicleCategory", "category")
+      [ ("vehicleCategory", "category"),
+        ("vehicleVariant", "variant")
       ]

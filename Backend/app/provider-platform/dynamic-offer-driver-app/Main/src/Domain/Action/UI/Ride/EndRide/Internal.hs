@@ -14,6 +14,7 @@
 
 module Domain.Action.UI.Ride.EndRide.Internal
   ( endRideTransaction,
+    createDriverWalletTransaction,
     putDiffMetric,
     getRouteAndDistanceBetweenPoints,
     safeMod,
@@ -36,6 +37,8 @@ module Domain.Action.UI.Ride.EndRide.Internal
     getMonth,
     pickedWaypointsForEditDestination,
     pickNWayPoints,
+    makeWalletRunningBalanceLockKey,
+    makeSubscriptionRunningBalanceLockKey,
   )
 where
 
@@ -44,6 +47,7 @@ import qualified Data.Map as M
 import qualified Data.Text as T
 import Data.Time hiding (getCurrentTime, secondsToNominalDiffTime)
 import Data.Time.Calendar.OrdinalDate (sundayStartWeek)
+import qualified Domain.Action.Internal.DriverMode as DDriverMode
 import qualified Domain.Action.UI.Plan as Plan
 import qualified Domain.Types.Booking as SRB
 import qualified Domain.Types.CancellationCharges as DCC
@@ -52,6 +56,8 @@ import Domain.Types.DailyStats as DDS
 import qualified Domain.Types.DriverFee as DF
 import qualified Domain.Types.DriverInformation as DI
 import Domain.Types.DriverPlan
+import qualified Domain.Types.DriverWallet as DW
+import Domain.Types.Extra.MerchantPaymentMethod
 import qualified Domain.Types.FareParameters as DFare
 import qualified Domain.Types.FarePolicy as DFP
 import qualified Domain.Types.LeaderBoardConfigs as LConfig
@@ -64,6 +70,7 @@ import qualified Domain.Types.Ride as Ride
 import qualified Domain.Types.RideRelatedNotificationConfig as DRN
 import qualified Domain.Types.RiderDetails as RD
 import Domain.Types.SubscriptionConfig
+import qualified Domain.Types.SubscriptionTransaction as SubscriptionTransaction
 import Domain.Types.TransporterConfig
 import qualified Domain.Types.VehicleCategory as DVC
 import qualified Domain.Types.VehicleVariant as Variant
@@ -73,7 +80,9 @@ import GHC.Float (double2Int)
 import GHC.Num.Integer (integerFromInt, integerToInt)
 import Kernel.External.Maps
 import qualified Kernel.External.Notification.FCM.Types as FCM
+import Kernel.External.Payment.Juspay.Types.Common
 import Kernel.Prelude hiding (find, forM_, map, whenJust)
+import qualified Kernel.Storage.Clickhouse.Config as CH
 import qualified Kernel.Storage.Esqueleto as Esq
 import Kernel.Storage.Hedis as Hedis
 import qualified Kernel.Storage.Hedis as Redis
@@ -102,28 +111,35 @@ import SharedLogic.TollsDetector
 import qualified Storage.Cac.TransporterConfig as SCTC
 import qualified Storage.CachedQueries.Merchant as CQM
 import Storage.CachedQueries.Merchant.LeaderBoardConfig as QLeaderConfig
+import qualified Storage.CachedQueries.Merchant.MerchantPaymentMethod as CQMPM
 import qualified Storage.CachedQueries.Merchant.MerchantPushNotification as CPN
 import qualified Storage.CachedQueries.Merchant.PayoutConfig as CPC
 import qualified Storage.CachedQueries.PlanExtra as CQP
 import qualified Storage.CachedQueries.RideRelatedNotificationConfig as CRN
 import qualified Storage.CachedQueries.SubscriptionConfig as CQSC
+import qualified Storage.CachedQueries.VendorSplitDetails as CQVSD
 import qualified Storage.Queries.Booking as QRB
 import qualified Storage.Queries.CancellationCharges as QCC
 import qualified Storage.Queries.DailyStats as QDailyStats
 import qualified Storage.Queries.DriverFee as QDF
 import qualified Storage.Queries.DriverInformation as QDI
+import qualified Storage.Queries.DriverInformationExtra as QDIE
 import Storage.Queries.DriverPlan (findByDriverIdWithServiceName)
 import qualified Storage.Queries.DriverPlan as QDPlan
 import qualified Storage.Queries.DriverStats as QDriverStats
+import qualified Storage.Queries.DriverWallet as QDW
+import qualified Storage.Queries.DriverWalletExtra as QDWE
 import qualified Storage.Queries.FareParameters as QFare
 import Storage.Queries.FleetDriverAssociationExtra as QFDAE
 import Storage.Queries.FleetOwnerInformation as QFOI
 import Storage.Queries.Person as SQP
+import qualified Storage.Queries.Person as QPerson
 import qualified Storage.Queries.Ride as QRide
 import qualified Storage.Queries.RiderDetails as QRD
+import qualified Storage.Queries.RiderDetails as QRiderDetails
+import qualified Storage.Queries.SubscriptionTransaction as QSubscriptionTransaction
 import qualified Storage.Queries.Vehicle as QV
 import qualified Storage.Queries.VendorFee as QVF
-import qualified Storage.Queries.VendorSplitDetails as QVSD
 import Tools.Error
 import Tools.Event
 import qualified Tools.Maps as Maps
@@ -146,7 +162,9 @@ endRideTransaction ::
     HasField "jobInfoMap" r (M.Map Text Bool),
     HasFlowEnv m r '["maxNotificationShards" ::: Int],
     LT.HasLocationService m r,
-    HasShortDurationRetryCfg r c
+    HasShortDurationRetryCfg r c,
+    HasField "serviceClickhouseCfg" r CH.ClickhouseCfg,
+    HasField "serviceClickhouseEnv" r CH.ClickhouseEnv
   ) =>
   Id DP.Driver ->
   SRB.Booking ->
@@ -157,12 +175,18 @@ endRideTransaction ::
   TransporterConfig ->
   m ()
 endRideTransaction driverId booking ride mbFareParams mbRiderDetailsId newFareParams thresholdConfig = do
+  merchant <- CQM.findById booking.providerId >>= fromMaybeM (MerchantNotFound booking.providerId.getId)
   updateOnRideStatusWithAdvancedRideCheck ride.driverId (Just ride)
   QDI.updateHasRideStarted driverId False
   QRB.updateStatus booking.id SRB.COMPLETED
+  whenJust mbRiderDetailsId $ \riderDetailsId -> do
+    QRiderDetails.updateCompletedRidesCount riderDetailsId.getId
   whenJust mbFareParams QFare.create
   QRide.updateAll ride.id ride
-  driverInfo <- QDI.findById (cast ride.driverId) >>= fromMaybeM (PersonNotFound ride.driverId.getId)
+  oldDriverInfo <- QDI.findById (cast ride.driverId) >>= fromMaybeM (PersonNotFound ride.driverId.getId)
+  let newFlowStatus = DDriverMode.getDriverFlowStatus oldDriverInfo.mode oldDriverInfo.active
+  DDriverMode.updateDriverModeAndFlowStatus driverId thresholdConfig oldDriverInfo.active oldDriverInfo.mode newFlowStatus oldDriverInfo
+  let driverInfo = oldDriverInfo {DI.driverFlowStatus = Just newFlowStatus}
   let safetyPlusCharges = maybe Nothing (\a -> find (\ac -> ac.chargeCategory == DAC.SAFETY_PLUS_CHARGES) a) $ (mbFareParams <&> (.conditionalCharges)) <|> (Just newFareParams.conditionalCharges)
   QDriverStats.incrementTotalRidesAndTotalDistAndIdleTime (cast ride.driverId) (fromMaybe 0 ride.chargeableDistance)
   when (isJust safetyPlusCharges) $ QDriverStats.incSafetyPlusRiderCountAndEarnings (cast ride.driverId) (fromMaybe 0.0 $ safetyPlusCharges <&> (.charge))
@@ -170,9 +194,17 @@ endRideTransaction driverId booking ride mbFareParams mbRiderDetailsId newFarePa
   Hedis.del $ searchRequestKey booking.transactionId
   clearCachedFarePolicyByEstOrQuoteId booking.quoteId
   clearTollStartGateBatchCache ride.driverId
+  when (fromMaybe False merchant.enforceSufficientDriverBalance && isJust thresholdConfig.prepaidSubscriptionThreshold) $ do
+    case ride.fare of
+      Just fare -> fork "update driver's prepaid balance" $ updateBalance fare
+      Nothing -> logWarning $ "Fare is not present for ride: " <> show ride.id.getId
   when (thresholdConfig.subscription) $ do
+    -- Turn this off for only prepaid subscriptions
     let serviceName = YATRI_SUBSCRIPTION
     createDriverFee booking.providerId booking.merchantOperatingCityId driverId ride.fare ride.currency newFareParams driverInfo booking serviceName
+
+  when (fromMaybe False merchant.enforceSufficientDriverBalance && fromMaybe False thresholdConfig.enableDriverWallet) $ do
+    fork "createDriverWalletTransaction" $ createDriverWalletTransaction ride booking thresholdConfig
 
   triggerRideEndEvent RideEventData {ride = ride{status = Ride.COMPLETED}, personId = cast driverId, merchantId = booking.providerId}
   triggerBookingCompletedEvent BookingEventData {booking = booking{status = SRB.COMPLETED}, personId = cast driverId, merchantId = booking.providerId}
@@ -181,7 +213,7 @@ endRideTransaction driverId booking ride mbFareParams mbRiderDetailsId newFarePa
 
   let validRide = isValidRide ride
   sendReferralFCM validRide ride booking mbRiderDetails thresholdConfig
-  when validRide $ updateLeaderboardZScore booking ride
+  when (validRide && (ride.traveledDistance > 1000 || (fromMaybe False ride.distanceCalculationFailed && fromMaybe 0 ride.chargeableDistance > 1000))) $ updateLeaderboardZScore booking ride
   DS.driverScoreEventHandler booking.merchantOperatingCityId DST.OnRideCompletion {merchantId = booking.providerId, driverId = cast driverId, ride = ride, fareParameter = Just newFareParams, ..}
   let currency = booking.currency
   let customerCancellationDues = fromMaybe 0.0 newFareParams.customerCancellationDues
@@ -208,6 +240,112 @@ endRideTransaction driverId booking ride mbFareParams mbRiderDetailsId newFarePa
   now <- getCurrentTime
   rideRelatedNotificationConfigList <- CRN.findAllByMerchantOperatingCityIdAndTimeDiffEventInRideFlow booking.merchantOperatingCityId DRN.END_TIME booking.configInExperimentVersions
   forM_ rideRelatedNotificationConfigList (SN.pushReminderUpdatesInScheduler booking ride now driverId)
+  where
+    updateBalance fare = do
+      Redis.withWaitOnLockRedisWithExpiry (makeSubscriptionRunningBalanceLockKey ride.driverId.getId) 10 10 $ do
+        -- Fetching again to avoid race conditions
+        freshDriverInfo <- QDI.findById (cast ride.driverId) >>= fromMaybeM (PersonNotFound ride.driverId.getId)
+        let newBalance = fromMaybe 0 freshDriverInfo.prepaidSubscriptionBalance - fare
+        driver <- QPerson.findById driverId >>= fromMaybeM (PersonNotFound driverId.getId)
+        let balanceUpdateMessage = "Thank you for taking the ride. Your updated subscription balance is Rs." <> show newBalance
+            balanceUpdatedTitle = "Subscription balance updated!"
+        sendNotificationToDriver driver.merchantOperatingCityId FCM.SHOW Nothing FCM.PREPAID_BALANCE_UPDATE balanceUpdatedTitle balanceUpdateMessage driver driver.deviceToken
+        QDIE.updatePrepaidSubscriptionBalance (cast ride.driverId) newBalance
+        createSubscriptionTransaction ride newBalance booking
+        when (newBalance < fromMaybe 0 thresholdConfig.prepaidSubscriptionThreshold) $ do
+          logInfo $ "Prepaid subscription balance is less than threshold for driver: " <> show driverId.getId
+          let unsubscribedMessage = "Your subscription balance is low. Please recharge to get rides"
+              unsubscribedTitle = "Low Balance Alert!"
+          sendNotificationToDriver driver.merchantOperatingCityId FCM.SHOW Nothing FCM.DRIVER_UNSUBSCRIBED unsubscribedTitle unsubscribedMessage driver driver.deviceToken
+
+createSubscriptionTransaction ::
+  ( MonadFlow m,
+    EsqDBFlow m r,
+    CacheFlow m r
+  ) =>
+  Ride.Ride ->
+  HighPrecMoney ->
+  SRB.Booking ->
+  m ()
+createSubscriptionTransaction ride runningBalance booking = do
+  now <- getCurrentTime
+  id <- generateGUID
+  let transaction =
+        SubscriptionTransaction.SubscriptionTransaction
+          { id = id,
+            merchantId = ride.merchantId,
+            merchantOperatingCityId = ride.merchantOperatingCityId,
+            driverId = ride.driverId,
+            entityId = Just ride.id.getId,
+            transactionType = SubscriptionTransaction.RIDE,
+            amount = fromMaybe 0 ride.fare,
+            status = CHARGED,
+            runningBalance = runningBalance,
+            fromLocationId = Just booking.fromLocation.id,
+            toLocationId = (.id) <$> booking.toLocation,
+            createdAt = now,
+            updatedAt = now
+          }
+  QSubscriptionTransaction.create transaction
+
+createDriverWalletTransaction ::
+  ( MonadFlow m,
+    EsqDBFlow m r,
+    CacheFlow m r
+  ) =>
+  Ride.Ride ->
+  SRB.Booking ->
+  TransporterConfig ->
+  m ()
+createDriverWalletTransaction ride booking transporterConfig = do
+  now <- getCurrentTime
+  newId <- generateGUID
+  let collectionAmount = fromMaybe 0 ride.fare
+      gstPercentage = fromMaybe 0.0 transporterConfig.gstPercentage
+      gstDeduction = collectionAmount * (realToFrac gstPercentage / 100)
+
+  Redis.withWaitOnLockRedisWithExpiry (makeWalletRunningBalanceLockKey ride.driverId.getId) 10 10 $ do
+    lastTransaction <- QDWE.findLatestByDriverId ride.driverId
+    let lastRunningBalance = maybe 0 (.runningBalance) lastTransaction
+
+    (merchantPayable, driverPayable) <- do
+      mbPaymentMethod <- forM booking.paymentMethodId $ \paymentMethodId ->
+        do
+          CQMPM.findByIdAndMerchantOpCityId paymentMethodId booking.merchantOperatingCityId
+          >>= fromMaybeM (MerchantPaymentMethodNotFound paymentMethodId.getId)
+      case mbPaymentMethod of
+        Nothing -> pure (0, gstDeduction) -- Considering OFFLINE. To be tested
+        Just paymentMethod -> do
+          case paymentMethod.paymentInstrument of
+            Cash -> pure (0, gstDeduction) -- OFFLINE
+            _ -> pure (collectionAmount - gstDeduction, 0) -- ONLINE
+    let newRunningBalance = lastRunningBalance + merchantPayable - driverPayable
+    let driverWallet =
+          DW.DriverWallet
+            { id = newId,
+              merchantId = ride.merchantId,
+              merchantOperatingCityId = ride.merchantOperatingCityId,
+              driverId = ride.driverId,
+              rideId = Just ride.id,
+              transactionType = DW.RIDE_TRANSACTION,
+              collectionAmount = Just collectionAmount,
+              gstDeduction = Just gstDeduction,
+              merchantPayable = Just merchantPayable,
+              driverPayable = Just driverPayable,
+              runningBalance = newRunningBalance,
+              payoutOrderId = Nothing,
+              payoutStatus = Nothing,
+              createdAt = now,
+              updatedAt = now
+            }
+    QDI.updateWalletBalance (Just newRunningBalance) ride.driverId
+    QDW.create driverWallet
+
+makeWalletRunningBalanceLockKey :: Text -> Text
+makeWalletRunningBalanceLockKey personId = "WalletRunningBalanceLockKey:" <> personId
+
+makeSubscriptionRunningBalanceLockKey :: Text -> Text
+makeSubscriptionRunningBalanceLockKey personId = "SubscriptionRunningBalanceLockKey:" <> personId
 
 sendReferralFCM ::
   ( CacheFlow m r,
@@ -301,7 +439,8 @@ sendReferralFCM validRide ride booking mbRiderDetails transporterConfig = do
                     numDriversOnboarded = 0,
                     numFleetsOnboarded = 0,
                     merchantId = ride.merchantId,
-                    merchantOperatingCityId = Just $ ride.merchantOperatingCityId
+                    merchantOperatingCityId = Just $ ride.merchantOperatingCityId,
+                    onlineDuration = Nothing
                   }
           QDailyStats.create dailyStatsOfDriver'
 
@@ -574,7 +713,7 @@ createDriverFee merchantId merchantOpCityId driverId rideFare currency newFarePa
     let fleetIsSubscriptionEligble = maybe True (.isEligibleForSubscription) fleetOwnerInfo
     freeTrialDaysLeft' <- getFreeTrialDaysLeft transporterConfig.freeTrialDays driverInfo
     let govtCharges = fromMaybe 0.0 newFareParams.govtCharges
-    let chargeBy = if (not fleetIsSubscriptionEligble) then DFP.NoCharge else newFareParams.platformFeeChargesBy
+    let chargeBy = if not fleetIsSubscriptionEligble then DFP.NoCharge else newFareParams.platformFeeChargesBy
     case chargeBy of
       DFP.NoCharge -> pure ()
       _ -> createDriverFee' transporterConfig freeTrialDaysLeft' govtCharges
@@ -623,13 +762,20 @@ createDriverFee merchantId merchantOpCityId driverId rideFare currency newFarePa
         fork "Updating vendor fees" $
           when (fromMaybe False (subscriptionConfig >>= (.isVendorSplitEnabled))) $ do
             let vehicleVariant = Variant.castServiceTierToVariant booking.vehicleServiceTier
-            vendorSplitDetails <- QVSD.findAllByAreaCityAndVariant (fromMaybe Default booking.area) merchantOpCityId vehicleVariant
-            let vendorAmounts = DL.map (\vendor -> (vendor.vendorId, toRational vendor.splitValue)) vendorSplitDetails
-                vendorFees = DL.map (mkVendorFee (maybe driverFee.id (.id) lastDriverFee) now) vendorAmounts
-
-            case lastDriverFee of
-              Just ldFee | now >= ldFee.startTime && now < ldFee.endTime -> QVF.updateManyVendorFee vendorFees
-              _ -> QVF.createMany vendorFees
+            allVendorSplitDetails <- CQVSD.findAllByAreaIncludingDefaultAndCityAndVariant booking.area merchantOpCityId vehicleVariant
+            let vendorSplitDetails = case booking.area of
+                  Just area ->
+                    let areaDetails = DL.filter (\detail -> detail.area == area) allVendorSplitDetails
+                     in if null areaDetails
+                          then DL.filter (\detail -> detail.area == Default) allVendorSplitDetails
+                          else areaDetails
+                  Nothing -> DL.filter (\detail -> detail.area == Default) allVendorSplitDetails
+            unless (null vendorSplitDetails) $ do
+              let vendorAmounts = DL.map (\vendor -> (vendor.vendorId, toRational vendor.splitValue)) vendorSplitDetails
+                  vendorFees = DL.map (mkVendorFee (maybe driverFee.id (.id) lastDriverFee) now) vendorAmounts
+              case lastDriverFee of
+                Just ldFee | now >= ldFee.startTime && now < ldFee.endTime -> QVF.updateManyVendorFee merchantOpCityId vendorFees
+                _ -> QVF.createMany vendorFees
 
         plan <- getPlan mbDriverPlan serviceName merchantOpCityId Nothing currentVehicleCategory
         fork "Sending switch plan nudge" $ PaymentNudge.sendSwitchPlanNudge transporterConfig driverInfo plan mbDriverPlan numRides serviceName
@@ -649,7 +795,7 @@ createDriverFee merchantId merchantOpCityId driverId rideFare currency newFarePa
           Just subsConfig -> Plan.isOnFreeTrial driverId subsConfig freeTrialDaysLeft' mbDriverPlan'
           Nothing -> return (True, Nothing)
       let chargeSPZRides = transporterConfig.considerSpecialZoneRideChargesInFreeTrial
-          isEligibleForDefaultPlanAfterFreeTrial = (not isOnFreeTrial') && planMandatory && transporterConfig.allowDefaultPlanAllocation
+          isEligibleForDefaultPlanAfterFreeTrial = not isOnFreeTrial' && planMandatory && transporterConfig.allowDefaultPlanAllocation
           isEligibleForDefaultPlanBeforeFreeTrial = isOnFreeTrial' && chargeSPZRides && planMandatory
       if isNothing mbDriverPlan'
         then do
@@ -790,6 +936,7 @@ mkDriverFee serviceName now startTime' endTime' merchantId driverId rideFare gov
         hasSibling = Just False,
         siblingFeeId = Nothing,
         splitOfDriverFeeId = Nothing,
+        validDays = Nothing,
         ..
       }
   where

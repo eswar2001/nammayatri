@@ -8,13 +8,17 @@ module Domain.Action.Dashboard.Fleet.Onboarding
 where
 
 import qualified API.Types.ProviderPlatform.Fleet.Onboarding as CommonOnboarding
+import qualified API.Types.ProviderPlatform.Management.Account as Common
 import qualified API.Types.ProviderPlatform.Management.DriverRegistration as CommonDriverRegistration
 import qualified API.Types.UI.DriverOnboardingV2 as Onboarding
 import qualified Dashboard.Common
 import qualified Data.Text as Text
+import qualified Domain.Action.UI.DriverOnboarding.AadhaarVerification as DAV
+import qualified Domain.Action.UI.DriverOnboarding.GstVerification as DGV
+import qualified Domain.Action.UI.DriverOnboarding.PanVerification as DPV
 import Domain.Action.UI.DriverOnboarding.Referral
-import qualified Domain.Action.UI.DriverOnboarding.VehicleRegistrationCertificate as DVRC
 import qualified Domain.Action.UI.DriverOnboardingV2 as DOnboarding
+import qualified Domain.Types.DriverPanCard as DPan
 import qualified Domain.Types.Merchant as DM
 import Domain.Types.Person
 import qualified Domain.Types.VehicleCategory as DVC
@@ -22,7 +26,6 @@ import qualified Environment
 import Kernel.Beam.Functions
 import Kernel.External.Types (Language (ENGLISH))
 import Kernel.Prelude
-import Kernel.Types.APISuccess
 import qualified Kernel.Types.Beckn.Context as Context
 import Kernel.Types.Error hiding (Unauthorized)
 import Kernel.Types.Id
@@ -67,7 +70,8 @@ getOnboardingDocumentConfigs merchantShortId opCity fleetOwnerId makeSelfieAadha
         bikes = fmap (castDocumentVerificationConfigAPIEntity <$>) bikes,
         bus = fmap (castDocumentVerificationConfigAPIEntity <$>) bus,
         cabs = fmap (castDocumentVerificationConfigAPIEntity <$>) cabs,
-        trucks = fmap (castDocumentVerificationConfigAPIEntity <$>) trucks
+        trucks = fmap (castDocumentVerificationConfigAPIEntity <$>) trucks,
+        boat = fmap (castDocumentVerificationConfigAPIEntity <$>) boat
       }
 
 castDocumentVerificationConfigAPIEntity :: Onboarding.DocumentVerificationConfigAPIEntity -> CommonOnboarding.DocumentVerificationConfigAPIEntity
@@ -106,8 +110,9 @@ getOnboardingRegisterStatus ::
   Maybe Bool ->
   Maybe DVC.VehicleCategory ->
   Maybe Bool ->
+  Maybe Bool ->
   Environment.Flow CommonOnboarding.StatusRes
-getOnboardingRegisterStatus merchantShortId opCity fleetOwnerId mbPersonId makeSelfieAadhaarPanMandatory onboardingVehicleCategory prefillData = do
+getOnboardingRegisterStatus merchantShortId opCity fleetOwnerId mbPersonId makeSelfieAadhaarPanMandatory onboardingVehicleCategory prefillData onlyMandatoryDocs = do
   let personId = fromMaybe fleetOwnerId ((.getId) <$> mbPersonId)
   merchant <- findMerchantByShortId merchantShortId
   merchantOpCity <- CQMOC.findByMerchantIdAndCity merchant.id opCity >>= fromMaybeM (MerchantOperatingCityNotFound $ "merchantShortId: " <> merchantShortId.getShortId <> " ,city: " <> show opCity)
@@ -117,22 +122,34 @@ getOnboardingRegisterStatus merchantShortId opCity fleetOwnerId mbPersonId makeS
   driverImages <- IQuery.findAllByPersonId transporterConfig (Id personId)
   now <- getCurrentTime
   let driverImagesInfo = IQuery.DriverImagesInfo {driverId = Id personId, merchantOperatingCity = merchantOpCity, driverImages, transporterConfig, now}
-  castStatusRes <$> SStatus.statusHandler' driverImagesInfo makeSelfieAadhaarPanMandatory multipleRC prefillData onboardingVehicleCategory mDL (Just True)
+  let shouldActivateRc = True
+  castStatusRes <$> SStatus.statusHandler' Nothing driverImagesInfo makeSelfieAadhaarPanMandatory multipleRC prefillData onboardingVehicleCategory mDL (Just True) shouldActivateRc onlyMandatoryDocs
 
 postOnboardingVerify ::
   ShortId DM.Merchant ->
   Context.City ->
   CommonOnboarding.VerifyType ->
+  Maybe Common.DashboardAccessType ->
+  Maybe Bool ->
   CommonOnboarding.VerifyReq ->
-  Environment.Flow APISuccess
-postOnboardingVerify merchantShortId opCity reqType req = do
+  Environment.Flow CommonOnboarding.VerifyDocumentRes
+postOnboardingVerify merchantShortId opCity reqType mbAccessType adminApprovalRequired req = do
   merchant <- findMerchantByShortId merchantShortId
   merchantOpCity <- CQMOC.findByMerchantIdAndCity merchant.id opCity >>= fromMaybeM (MerchantOperatingCityNotFound $ "merchantShortId: " <> merchantShortId.getShortId <> " ,city: " <> show opCity)
-  _transporterConfig <- findByMerchantOpCityId merchantOpCity.id Nothing >>= fromMaybeM (TransporterConfigNotFound merchantOpCity.id.getId)
-  case reqType of
-    CommonOnboarding.VERIFY_PAN -> DVRC.verifyPan True (Just merchant) (Id req.driverId, merchant.id, merchantOpCity.id) (DVRC.DriverPanReq {panNumber = req.identifierNumber, imageId = req.imageId, driverId = req.driverId})
-    CommonOnboarding.VERIFY_GST -> DVRC.verifyGstin True (Just merchant) (Id req.driverId, merchant.id, merchantOpCity.id) (DVRC.DriverGstinReq {gstin = req.identifierNumber, imageId = req.imageId, driverId = req.driverId})
-    CommonOnboarding.VERIFY_AADHAAR -> DVRC.verifyAadhaar True (Just merchant) (Id req.driverId, merchant.id, merchantOpCity.id) (DVRC.DriverAadhaarReq {aadhaarNumber = req.identifierNumber, aadhaarFrontImageId = req.imageId, aadhaarBackImageId = req.optionalImageId, consent = True, driverId = req.driverId})
+  let verifyBy = case mbAccessType of
+        Just accessTypeValue -> case accessTypeValue of
+          Common.DASHBOARD_ADMIN -> DPan.DASHBOARD_ADMIN
+          Common.DASHBOARD_USER -> DPan.DASHBOARD_USER
+          _ -> DPan.DASHBOARD
+        Nothing -> DPan.DASHBOARD
+  enable <- case reqType of
+    CommonOnboarding.VERIFY_PAN -> DPV.verifyPan verifyBy (Just merchant) (Id req.driverId, merchant.id, merchantOpCity.id) (DPV.DriverPanReq {panNumber = req.identifierNumber, imageId = req.imageId, driverId = req.driverId, panName = Nothing}) adminApprovalRequired True
+    CommonOnboarding.VERIFY_GST -> DGV.verifyGstin verifyBy (Just merchant) (Id req.driverId, merchant.id, merchantOpCity.id) (DGV.DriverGstinReq {gstin = req.identifierNumber, imageId = req.imageId, driverId = req.driverId}) adminApprovalRequired True
+    CommonOnboarding.VERIFY_AADHAAR -> DAV.verifyAadhaar verifyBy (Just merchant) (Id req.driverId, merchant.id, merchantOpCity.id) (DAV.DriverAadhaarReq {aadhaarNumber = Just req.identifierNumber, aadhaarFrontImageId = req.imageId, aadhaarBackImageId = req.optionalImageId, consent = True, driverId = req.driverId, aadhaarName = Nothing}) adminApprovalRequired
+  return
+    CommonOnboarding.VerifyDocumentRes
+      { enableFleetOwner = enable
+      }
 
 castStatusRes :: SStatus.StatusRes' -> CommonOnboarding.StatusRes
 castStatusRes SStatus.StatusRes' {..} =

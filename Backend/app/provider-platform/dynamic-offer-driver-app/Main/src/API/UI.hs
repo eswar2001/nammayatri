@@ -23,6 +23,7 @@ import qualified API.Action.UI.CallFeedback as CallFeedback
 import qualified API.Action.UI.DemandHotspots as DemandHotspots
 import qualified API.Action.UI.DriverOnboardingV2 as DriverOnboardingV2
 import qualified API.Action.UI.DriverProfileQuestions as DriverProfileQuestions
+import qualified API.Action.UI.DriverWallet as DriverWallet
 import qualified API.Action.UI.EditBooking as EditBooking
 import qualified API.Action.UI.FareCalculator as FareCalculator
 import qualified API.Action.UI.Insurance as Insurance
@@ -32,12 +33,14 @@ import qualified API.Action.UI.Merchant as Merchant
 import qualified API.Action.UI.MeterRide as MeterRide
 import qualified API.Action.UI.OperationHub as OH
 import qualified API.Action.UI.Operator as Operator
+import qualified API.Action.UI.PickupInstructions as PickupInstructions
 import qualified API.Action.UI.PriceBreakup as PriceBreakup
 import qualified API.Action.UI.Reels as Reels
 import qualified API.Action.UI.ReferralPayout as ReferralPayout
 import qualified API.Action.UI.SocialLogin as SocialLogin
 import qualified API.Action.UI.SpecialLocation as SpecialLocation
 import qualified API.Action.UI.SpecialLocationWarrior as SpecialLocationWarrior
+import qualified API.Action.UI.SubscriptionTransaction as SubscriptionTransaction
 import qualified API.Action.UI.Tokenization as Tokenization
 import qualified API.Action.UI.VehicleDetails as VehicleDetails
 import qualified API.Action.UI.WMB as WMB
@@ -126,9 +129,12 @@ type API =
            :<|> WMB.API
            :<|> OH.API
            :<|> Operator.API
+           :<|> PickupInstructions.API
            :<|> CallFeedback.API
            :<|> Invoice.API
            :<|> Insurance.API
+           :<|> DriverWallet.API
+           :<|> SubscriptionTransaction.API
        )
 
 handler :: FlowServer API
@@ -182,6 +188,9 @@ handler =
     :<|> WMB.handler
     :<|> OH.handler
     :<|> Operator.handler
+    :<|> PickupInstructions.handler
     :<|> CallFeedback.handler
     :<|> Invoice.handler
     :<|> Insurance.handler
+    :<|> DriverWallet.handler
+    :<|> SubscriptionTransaction.handler

@@ -12,6 +12,7 @@ import qualified Domain.Action.UI.DriverOnboarding.Image as Image
 import qualified Domain.Types.AadhaarCard
 import Domain.Types.BackgroundVerification
 import Domain.Types.Common
+import qualified Domain.Types.CommonDriverOnboardingDocuments
 import qualified Domain.Types.DocumentVerificationConfig
 import qualified Domain.Types.DocumentVerificationConfig as DTO
 import qualified Domain.Types.DocumentVerificationConfig as Domain
@@ -61,6 +62,7 @@ import qualified Storage.CachedQueries.VehicleServiceTier as CQVST
 import qualified Storage.Queries.AadhaarCard as QAadhaarCard
 import qualified Storage.Queries.BackgroundVerification as QBV
 import qualified Storage.Queries.Booking as QBooking
+import qualified Storage.Queries.CommonDriverOnboardingDocuments as QCommonDriverOnboardingDocuments
 import qualified Storage.Queries.DriverBankAccount as QDBA
 import qualified Storage.Queries.DriverGstin as QDGTIN
 import qualified Storage.Queries.DriverInformation as QDI
@@ -98,6 +100,7 @@ mkDocumentVerificationConfigAPIEntity language Domain.Types.DocumentVerification
     API.Types.UI.DriverOnboardingV2.DocumentVerificationConfigAPIEntity
       { title = maybe title (.message) mbTitle,
         description = maybe description (Just . (.message)) mbDescription,
+        isMandatoryForEnabling = fromMaybe isMandatory isMandatoryForEnabling,
         ..
       }
 
@@ -128,6 +131,7 @@ getOnboardingConfigs' personLanguage merchantOpCityId makeSelfieAadhaarPanMandat
   bikeConfigsRaw <- CQDVC.findByMerchantOpCityIdAndCategory merchantOpCityId DVC.MOTORCYCLE Nothing
   ambulanceConfigsRaw <- CQDVC.findByMerchantOpCityIdAndCategory merchantOpCityId DVC.AMBULANCE Nothing
   truckConfigsRaw <- CQDVC.findByMerchantOpCityIdAndCategory merchantOpCityId DVC.TRUCK Nothing
+  boatConfigsRaw <- CQDVC.findByMerchantOpCityIdAndCategory merchantOpCityId DVC.BOAT Nothing
   busConfigsRaw <- CQDVC.findByMerchantOpCityIdAndCategory merchantOpCityId DVC.BUS Nothing
   cabConfigs <- SDO.filterInCompatibleFlows makeSelfieAadhaarPanMandatory <$> mapM (mkDocumentVerificationConfigAPIEntity personLanguage) (SDO.filterVehicleDocuments cabConfigsRaw mbOnlyVehicle)
   autoConfigs <- SDO.filterInCompatibleFlows makeSelfieAadhaarPanMandatory <$> mapM (mkDocumentVerificationConfigAPIEntity personLanguage) (SDO.filterVehicleDocuments autoConfigsRaw mbOnlyVehicle)
@@ -135,6 +139,7 @@ getOnboardingConfigs' personLanguage merchantOpCityId makeSelfieAadhaarPanMandat
   ambulanceConfigs <- SDO.filterInCompatibleFlows makeSelfieAadhaarPanMandatory <$> mapM (mkDocumentVerificationConfigAPIEntity personLanguage) (SDO.filterVehicleDocuments ambulanceConfigsRaw mbOnlyVehicle)
   truckConfigs <- SDO.filterInCompatibleFlows makeSelfieAadhaarPanMandatory <$> mapM (mkDocumentVerificationConfigAPIEntity personLanguage) (SDO.filterVehicleDocuments truckConfigsRaw mbOnlyVehicle)
   busConfigs <- SDO.filterInCompatibleFlows makeSelfieAadhaarPanMandatory <$> mapM (mkDocumentVerificationConfigAPIEntity personLanguage) (SDO.filterVehicleDocuments busConfigsRaw mbOnlyVehicle)
+  boatConfigs <- SDO.filterInCompatibleFlows makeSelfieAadhaarPanMandatory <$> mapM (mkDocumentVerificationConfigAPIEntity personLanguage) (SDO.filterVehicleDocuments boatConfigsRaw mbOnlyVehicle)
   return $
     API.Types.UI.DriverOnboardingV2.DocumentVerificationConfigList
       { cabs = SDO.toMaybe cabConfigs,
@@ -142,7 +147,8 @@ getOnboardingConfigs' personLanguage merchantOpCityId makeSelfieAadhaarPanMandat
         bikes = SDO.toMaybe bikeConfigs,
         ambulances = SDO.toMaybe ambulanceConfigs,
         trucks = SDO.toMaybe truckConfigs,
-        bus = SDO.toMaybe busConfigs
+        bus = SDO.toMaybe busConfigs,
+        boat = SDO.toMaybe boatConfigs
       }
 
 getDriverVehiclePhotos ::
@@ -254,9 +260,9 @@ getDriverRateCard (mbPersonId, _, merchantOperatingCityId) reqDistance reqDurati
     getRateCardForServiceTier mbDistance mbDuration mbPickupLatLon transporterConfig tripCategory distanceUnit serviceTierType = do
       now <- getCurrentTime
       eitherFullFarePolicy <-
-        try @_ @SomeException (getFarePolicy mbPickupLatLon Nothing Nothing Nothing Nothing merchantOperatingCityId False tripCategory serviceTierType Nothing Nothing Nothing Nothing [])
+        try @_ @SomeException (getFarePolicy mbPickupLatLon Nothing Nothing Nothing Nothing Nothing merchantOperatingCityId False tripCategory serviceTierType Nothing Nothing Nothing Nothing [])
           >>= \case
-            Left _ -> try @_ @SomeException $ getFarePolicy Nothing Nothing Nothing Nothing Nothing merchantOperatingCityId False (Delivery OneWayOnDemandDynamicOffer) serviceTierType Nothing Nothing Nothing Nothing []
+            Left _ -> try @_ @SomeException $ getFarePolicy Nothing Nothing Nothing Nothing Nothing Nothing merchantOperatingCityId False (Delivery OneWayOnDemandDynamicOffer) serviceTierType Nothing Nothing Nothing Nothing []
             Right farePolicy -> return $ Right farePolicy
       case eitherFullFarePolicy of
         Left _ -> return Nothing
@@ -594,13 +600,25 @@ postDriverRegisterPancard ::
     API.Types.UI.DriverOnboardingV2.DriverPanReq ->
     Environment.Flow Kernel.Types.APISuccess.APISuccess
   )
-postDriverRegisterPancard (mbPersonId, merchantId, merchantOpCityId) req = do
+postDriverRegisterPancard (mbPersonId, merchantId, merchantOpCityId) req = postDriverRegisterPancardHelper (mbPersonId, merchantId, merchantOpCityId) False req
+
+postDriverRegisterPancardHelper ::
+  ( ( Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person),
+      Kernel.Types.Id.Id Domain.Types.Merchant.Merchant,
+      Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity
+    ) ->
+    Bool ->
+    API.Types.UI.DriverOnboardingV2.DriverPanReq ->
+    Flow APISuccess
+  )
+postDriverRegisterPancardHelper (mbPersonId, merchantId, merchantOpCityId) isDashboard req = do
   personId <- mbPersonId & fromMaybeM (PersonNotFound "No person found")
   person <- runInReplica $ PersonQuery.findById personId >>= fromMaybeM (PersonNotFound personId.getId)
   merchantServiceUsageConfig <-
     CQMSUC.findByMerchantOpCityId merchantOpCityId Nothing
       >>= fromMaybeM (MerchantServiceUsageConfigNotFound merchantOpCityId.getId)
-  let mbPanVerificationService = merchantServiceUsageConfig.panVerificationService
+  let mbPanVerificationService =
+        (if isDashboard then merchantServiceUsageConfig.dashboardPanVerificationService else merchantServiceUsageConfig.panVerificationService)
 
   mbPanInfo <- QDPC.findUnInvalidByPanNumber req.panNumber
   whenJust mbPanInfo $ \panInfo -> do
@@ -628,7 +646,7 @@ postDriverRegisterPancard (mbPersonId, merchantId, merchantOpCityId) req = do
       imageMetadata <- ImageQuery.findById imageId >>= fromMaybeM (ImageNotFound imageId.getId)
       unless (imageMetadata.verificationStatus == Just Documents.VALID) $ throwError (ImageNotValid imageId.getId)
       unless (imageMetadata.imageType == DTO.PanCard) $
-        throwError (ImageInvalidType (show DTO.PanCard) (show imageMetadata.imageType))
+        throwError (ImageInvalidType (show DTO.PanCard) "")
       Redis.withLockRedisAndReturnValue (Image.imageS3Lock (imageMetadata.s3Path)) 5 $
         S3.get $ T.unpack imageMetadata.s3Path
     checkIfGenuineReq :: (ServiceFlow m r) => API.Types.UI.DriverOnboardingV2.DriverPanReq -> m ()
@@ -743,7 +761,7 @@ postDriverRegisterGstin (mbPersonId, merchantId, merchantOpCityId) req = do
       imageMetadata <- ImageQuery.findById imageId >>= fromMaybeM (ImageNotFound imageId.getId)
       unless (imageMetadata.verificationStatus == Just Documents.VALID) $ throwError (ImageNotValid imageId.getId)
       unless (imageMetadata.imageType == DTO.GSTCertificate) $
-        throwError (ImageInvalidType (show DTO.GSTCertificate) (show imageMetadata.imageType))
+        throwError (ImageInvalidType (show DTO.GSTCertificate) "")
       Redis.withLockRedisAndReturnValue (Image.imageS3Lock (imageMetadata.s3Path)) 5 $
         S3.get $ T.unpack imageMetadata.s3Path
     callIdfy :: Text -> Flow Documents.VerificationStatus
@@ -1007,4 +1025,44 @@ postDriverRegisterLogHvSdkCall (mbDriverId, merchantId, merchantOperatingCityId)
           { createdAt = now,
             updatedAt = now,
             ..
+          }
+
+postDriverRegisterCommonDocument ::
+  ( ( Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person),
+      Kernel.Types.Id.Id Domain.Types.Merchant.Merchant,
+      Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity
+    ) ->
+    API.Types.UI.DriverOnboardingV2.CommonDocumentReq ->
+    Environment.Flow APISuccess
+  )
+postDriverRegisterCommonDocument (mbDriverId, merchantId, merchantOperatingCityId) APITypes.CommonDocumentReq {..} = do
+  driverId <- mbDriverId & fromMaybeM (PersonNotFound "No person found")
+
+  -- Validate that imageId exists if provided
+  whenJust imageId $ \imgId -> do
+    mbImage <- ImageQuery.findById imgId
+    whenNothing_ mbImage $ throwError (InvalidRequest "Image not found")
+
+  -- Create the common document entry
+  documentEntry <- buildCommonDocument driverId
+  logInfo $ "documentEntry: " <> show documentEntry
+  QCommonDriverOnboardingDocuments.create documentEntry
+  return Success
+  where
+    buildCommonDocument driverId = do
+      id <- generateGUID
+      now <- getCurrentTime
+      return $
+        Domain.Types.CommonDriverOnboardingDocuments.CommonDriverOnboardingDocuments
+          { id = id,
+            documentImageId = imageId,
+            driverId = Just driverId,
+            documentType = documentType,
+            documentData = documentData,
+            rejectReason = Nothing,
+            verificationStatus = Documents.MANUAL_VERIFICATION_REQUIRED,
+            merchantOperatingCityId = merchantOperatingCityId,
+            merchantId = merchantId,
+            createdAt = now,
+            updatedAt = now
           }

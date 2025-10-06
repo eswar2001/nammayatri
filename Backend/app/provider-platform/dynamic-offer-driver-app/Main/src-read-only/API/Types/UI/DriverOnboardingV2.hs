@@ -47,6 +47,14 @@ data BankAccountResp = BankAccountResp {chargesEnabled :: Kernel.Prelude.Bool, d
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
+data CommonDocumentReq = CommonDocumentReq
+  { documentData :: Kernel.Prelude.Text,
+    documentType :: Domain.Types.DocumentVerificationConfig.DocumentType,
+    imageId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Image.Image)
+  }
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
 data DocumentVerificationConfigAPIEntity = DocumentVerificationConfigAPIEntity
   { checkExpiry :: Kernel.Prelude.Bool,
     checkExtraction :: Kernel.Prelude.Bool,
@@ -59,6 +67,7 @@ data DocumentVerificationConfigAPIEntity = DocumentVerificationConfigAPIEntity
     isDisabled :: Kernel.Prelude.Bool,
     isHidden :: Kernel.Prelude.Bool,
     isMandatory :: Kernel.Prelude.Bool,
+    isMandatoryForEnabling :: Kernel.Prelude.Bool,
     rcNumberPrefixList :: [Kernel.Prelude.Text],
     title :: Kernel.Prelude.Text
   }
@@ -69,6 +78,7 @@ data DocumentVerificationConfigList = DocumentVerificationConfigList
   { ambulances :: Kernel.Prelude.Maybe [DocumentVerificationConfigAPIEntity],
     autos :: Kernel.Prelude.Maybe [DocumentVerificationConfigAPIEntity],
     bikes :: Kernel.Prelude.Maybe [DocumentVerificationConfigAPIEntity],
+    boat :: Kernel.Prelude.Maybe [DocumentVerificationConfigAPIEntity],
     bus :: Kernel.Prelude.Maybe [DocumentVerificationConfigAPIEntity],
     cabs :: Kernel.Prelude.Maybe [DocumentVerificationConfigAPIEntity],
     trucks :: Kernel.Prelude.Maybe [DocumentVerificationConfigAPIEntity]

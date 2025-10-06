@@ -1,6 +1,5 @@
 module Storage.Queries.SearchRequestExtra where
 
-import Domain.Types.Journey
 import qualified Domain.Types.Location as DL
 import qualified Domain.Types.LocationMapping as DLM
 import Domain.Types.Person (Person)
@@ -12,7 +11,6 @@ import Kernel.Prelude
 import Kernel.Types.Common
 import Kernel.Types.Id
 import Kernel.Utils.Common
-import qualified Lib.JourneyLeg.Types as JLT
 import qualified Sequelize as Se
 import qualified SharedLogic.LocationMapping as SLM
 import qualified Storage.Beam.SearchRequest as BeamSR
@@ -22,7 +20,7 @@ import Storage.Queries.OrphanInstances.SearchRequest ()
 
 createDSReq' :: (MonadFlow m, EsqDBFlow m r) => SearchRequest -> m ()
 createDSReq' searchReq = do
-  if fromMaybe False searchReq.isMultimodalSearch then createWithKVWithOptions Nothing True searchReq else createWithKV searchReq
+  if fromMaybe False searchReq.isMultimodalSearch then createWithKVWithOptions (Just 21600) True searchReq else createWithKV searchReq
 
 create :: (MonadFlow m, CacheFlow m r, EsqDBFlow m r) => SearchRequest -> m ()
 create dsReq = do
@@ -88,34 +86,10 @@ updateMultipleByRequestId (Id searchRequestId) autoAssignedEnabled autoAssignedE
     ]
     [Se.Is BeamSR.id (Se.Eq searchRequestId)]
 
-findAllByJourneyId :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => Kernel.Types.Id.Id Domain.Types.Journey.Journey -> m [Domain.Types.SearchRequest.SearchRequest]
-findAllByJourneyId journeyId =
-  findAllWithKVAndConditionalDB
-    [Se.Is BeamSR.journeyId $ Se.Eq (Just journeyId.getId)]
-    Nothing
-
-updatePricingId :: (MonadFlow m, EsqDBFlow m r) => Id SearchRequest -> Maybe Text -> m ()
-updatePricingId (Id searchRequestId) pricingId = do
-  updateOneWithKV
-    [Se.Set BeamSR.pricingId pricingId]
-    [Se.Is BeamSR.id (Se.Eq searchRequestId)]
-
-updateSkipBooking :: (MonadFlow m, EsqDBFlow m r) => Id SearchRequest -> Maybe Bool -> m ()
-updateSkipBooking (Id searchRequestId) skipBooking = do
-  updateOneWithKV
-    [Se.Set BeamSR.skipBooking skipBooking]
-    [Se.Is BeamSR.id (Se.Eq searchRequestId)]
-
 updateDisability :: (MonadFlow m, EsqDBFlow m r) => Id SearchRequest -> Maybe Text -> m ()
 updateDisability (Id searchRequestId) disability = do
   updateOneWithKV
     [Se.Set BeamSR.disabilityTag disability]
-    [Se.Is BeamSR.id (Se.Eq searchRequestId)]
-
-updateIsCancelled :: (MonadFlow m, EsqDBFlow m r) => Id SearchRequest -> Maybe Bool -> m ()
-updateIsCancelled (Id searchRequestId) isDeleted = do
-  updateOneWithKV
-    [Se.Set BeamSR.isDeleted isDeleted]
     [Se.Is BeamSR.id (Se.Eq searchRequestId)]
 
 findAllById :: (MonadFlow m, CacheFlow m r, EsqDBFlow m r) => [Text] -> m [SearchRequest]
@@ -125,18 +99,4 @@ updateStartTime :: (MonadFlow m, EsqDBFlow m r) => Id SearchRequest -> UTCTime -
 updateStartTime (Id searchRequestId) startTime = do
   updateOneWithKV
     [Se.Set BeamSR.startTime startTime]
-    [Se.Is BeamSR.id (Se.Eq searchRequestId)]
-
-updateJourneyLegInfo :: (MonadFlow m, EsqDBFlow m r) => Id SearchRequest -> Maybe JLT.JourneySearchData -> m ()
-updateJourneyLegInfo (Id searchRequestId) journeyLegInfo = do
-  updateOneWithKV
-    [ Se.Set BeamSR.journeyId (journeyLegInfo <&> (.journeyId)),
-      Se.Set BeamSR.journeyLegOrder (journeyLegInfo <&> (.journeyLegOrder)),
-      Se.Set BeamSR.agency (journeyLegInfo >>= (.agency)),
-      Se.Set BeamSR.skipBooking (journeyLegInfo <&> (.skipBooking)),
-      Se.Set BeamSR.convenienceCost (journeyLegInfo <&> (.convenienceCost)),
-      Se.Set BeamSR.pricingId (journeyLegInfo >>= (.pricingId)),
-      Se.Set BeamSR.onSearchFailed (journeyLegInfo >>= (.onSearchFailed)),
-      Se.Set BeamSR.isDeleted (journeyLegInfo >>= (.isDeleted))
-    ]
     [Se.Is BeamSR.id (Se.Eq searchRequestId)]

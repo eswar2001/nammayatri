@@ -66,3 +66,14 @@ ALTER TABLE atlas_driver_offer_bpp.document_verification_config ADD COLUMN role 
 ------- SQL updates -------
 
 ALTER TABLE atlas_driver_offer_bpp.document_verification_config ADD COLUMN document_category text ;
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.document_verification_config ADD COLUMN is_mandatory_for_enabling boolean ;

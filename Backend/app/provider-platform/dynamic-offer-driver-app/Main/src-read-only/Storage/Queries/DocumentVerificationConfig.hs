@@ -26,7 +26,7 @@ createMany = traverse_ create
 
 findAllByMerchantOpCityId ::
   (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
-  (Maybe Int -> Maybe Int -> Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity -> m [Domain.Types.DocumentVerificationConfig.DocumentVerificationConfig])
+  (Maybe Int -> Maybe Int -> Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity -> m ([Domain.Types.DocumentVerificationConfig.DocumentVerificationConfig]))
 findAllByMerchantOpCityId limit offset merchantOperatingCityId = do findAllWithOptionsKV [Se.Is Beam.merchantOperatingCityId $ Se.Eq (Kernel.Types.Id.getId merchantOperatingCityId)] (Se.Asc Beam.order) limit offset
 
 findByPrimaryKey ::
@@ -58,6 +58,7 @@ updateByPrimaryKey (Domain.Types.DocumentVerificationConfig.DocumentVerification
       Se.Set Beam.isHidden isHidden,
       Se.Set Beam.isImageValidationRequired isImageValidationRequired,
       Se.Set Beam.isMandatory isMandatory,
+      Se.Set Beam.isMandatoryForEnabling isMandatoryForEnabling,
       Se.Set Beam.maxRetryCount maxRetryCount,
       Se.Set Beam.merchantId (Kernel.Types.Id.getId merchantId),
       Se.Set Beam.order order,

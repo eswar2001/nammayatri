@@ -1,9 +1,11 @@
 module ExternalBPP.ExternalAPI.Subway.CRIS.Auth where
 
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as DT
 import Domain.Types.Extra.IntegratedBPPConfig
 import EulerHS.Prelude
 import qualified EulerHS.Types as ET
-import ExternalBPP.ExternalAPI.Subway.CRIS.Error (CRISError)
+import ExternalBPP.ExternalAPI.Subway.CRIS.Error (CRISErrorUnhandled (..))
 import Kernel.External.Encryption
 import Kernel.Prelude
 import qualified Kernel.Storage.Hedis as Hedis
@@ -12,11 +14,12 @@ import Kernel.Utils.Common
 import Kernel.Utils.Monitoring.Prometheus.Servant
 import Servant hiding (throwError)
 import Tools.Error
+import Tools.HTTPManager (crisHttpManagerKey)
 import Tools.Metrics (CoreMetrics)
 
 type AuthAPI =
   "token"
-    :> Header "Authorization" Text
+    :> BasicAuth "username-password" BasicAuthData
     :> Header "Content-Type" Text
     :> ReqBody '[FormUrlEncoded] [(Text, Text)]
     :> Post '[JSON] CRISTokenRes
@@ -31,6 +34,13 @@ data CRISTokenRes = CRISTokenRes
 authAPI :: Proxy AuthAPI
 authAPI = Proxy
 
+mkBasicAuthData :: Text -> Text -> BasicAuthData
+mkBasicAuthData userName password =
+  BasicAuthData
+    { basicAuthUsername = DT.encodeUtf8 userName,
+      basicAuthPassword = DT.encodeUtf8 password
+    }
+
 getCRISTokenKey :: Text
 getCRISTokenKey = "cris-token"
 
@@ -39,10 +49,11 @@ resetAuthToken ::
   CRISConfig ->
   m Text
 resetAuthToken config = do
-  clientSecret <- decrypt config.clientSecret
-  let basicAuth = "Basic " <> clientSecret
+  consumerKey <- decrypt config.consumerKey
+  consumerSecret <- decrypt config.consumerSecret
+  let basicAuthData = mkBasicAuthData consumerKey consumerSecret
   tokenRes <-
-    callAPI config.baseUrl (ET.client authAPI (Just basicAuth) (Just "application/x-www-form-urlencoded") [("grant_type", "client_credentials")]) "authCRIS" authAPI
+    callAPI config.baseUrl (ET.client authAPI basicAuthData (Just "application/x-www-form-urlencoded") [("grant_type", "client_credentials")]) "authCRIS" authAPI
       >>= fromEitherM (ExternalAPICallError (Just "CRIS_AUTH_API") config.baseUrl)
   Hedis.setExp getCRISTokenKey (tokenRes.access_token) (tokenRes.expires_in * 90 `div` 100)
   return $ tokenRes.access_token
@@ -65,7 +76,7 @@ callCRISAPI ::
     ToJSON res,
     CacheFlow m r,
     EncFlow m r,
-    FromResponse CRISError
+    FromResponse CRISErrorUnhandled
   ) =>
   CRISConfig ->
   Proxy api ->
@@ -77,8 +88,8 @@ callCRISAPI config proxy clientFn description = do
   eitherResp <-
     try @_ @SomeException $
       callApiUnwrappingApiError
-        (identity @CRISError) -- Changed Error to CRISError
-        Nothing
+        (identity @CRISErrorUnhandled)
+        (Just $ ET.ManagerSelector $ T.pack crisHttpManagerKey)
         Nothing
         Nothing
         config.baseUrl
@@ -86,5 +97,5 @@ callCRISAPI config proxy clientFn description = do
         description
         proxy
   case eitherResp of
-    Left err -> throwError $ InternalError $ "Error while calling CRIS API" <> (show err)
+    Left err -> throwError $ CRISErrorUnhandled $ "Error while calling CRIS API : " <> T.pack (show err)
     Right res -> return res

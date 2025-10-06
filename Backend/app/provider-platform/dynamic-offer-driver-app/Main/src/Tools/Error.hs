@@ -517,6 +517,7 @@ data MediaFileError
   = FileSizeExceededError Text
   | FileDoNotExist Text
   | FileFormatNotSupported Text
+  | MismatchDataError Text
   deriving (Eq, Show, IsBecknAPIError)
 
 instanceExceptionWithParent 'HTTPException ''MediaFileError
@@ -526,10 +527,12 @@ instance IsHTTPError MediaFileError where
     FileSizeExceededError _ -> "FILE_SIZE_EXCEEDED"
     FileDoNotExist _ -> "FILE_DO_NOT_EXIST"
     FileFormatNotSupported _ -> "FILE_FORMAT_NOT_SUPPORTED"
+    MismatchDataError _ -> "MISMATCH_DATA_ERROR"
   toHttpCode = \case
     FileSizeExceededError _ -> E400
     FileDoNotExist _ -> E400
     FileFormatNotSupported _ -> E400
+    MismatchDataError _ -> E400
 
 instance IsAPIError MediaFileError
 
@@ -538,6 +541,7 @@ instance IsBaseError MediaFileError where
     FileSizeExceededError fileSize -> Just $ "Filesize is " <> fileSize <> " Bytes, which is more than the allowed 10MB limit."
     FileDoNotExist fileId -> Just $ "MediaFile with fileId \"" <> show fileId <> "\" do not exist."
     FileFormatNotSupported fileFormat -> Just $ "MediaFile with fileFormat \"" <> show fileFormat <> "\" not supported."
+    MismatchDataError dataMismatch -> Just $ "Data mismatch: " <> dataMismatch
 
 newtype DriverIntelligentPoolConfigError
   = DriverIntelligentPoolConfigNotFound Text
@@ -742,6 +746,7 @@ data DriverGoHomeRequestError
   | GoHomeFeaturePermanentlyDisabled
   | DriverCloseToHomeLocation
   | CannotEnableGoHomeForDifferentCity
+  | GoHomeRequestInProgress
   deriving (Eq, Show, IsBecknAPIError)
 
 instanceExceptionWithParent 'HTTPException ''DriverGoHomeRequestError
@@ -756,6 +761,7 @@ instance IsBaseError DriverGoHomeRequestError where
     GoHomeFeaturePermanentlyDisabled -> Just "GoHome feature is permanently disabled."
     DriverCloseToHomeLocation -> Just "Driver is close to home location."
     CannotEnableGoHomeForDifferentCity -> Just "Cannot Enable Go To For a Location outside currentCity."
+    GoHomeRequestInProgress -> Just "A Go Home request is already in progress."
 
 instance IsHTTPError DriverGoHomeRequestError where
   toErrorCode = \case
@@ -767,6 +773,7 @@ instance IsHTTPError DriverGoHomeRequestError where
     GoHomeFeaturePermanentlyDisabled -> "GO_HOME_FEATURE_PERMANENTLY_DISABLED"
     DriverCloseToHomeLocation -> "DRIVER_CLOSE_TO_HOME_LOCATION"
     CannotEnableGoHomeForDifferentCity -> "CANNOT_ENABLE_GO_HOME_FOR_DIFFERENT_CITY"
+    GoHomeRequestInProgress -> "GO_HOME_REQUEST_IN_PROGRESS"
   toHttpCode = \case
     DriverGoHomeRequestErrorNotFound _ -> E500
     DriverGoHomeRequestErrorDoesNotExist _ -> E400
@@ -776,6 +783,7 @@ instance IsHTTPError DriverGoHomeRequestError where
     GoHomeFeaturePermanentlyDisabled -> E400
     DriverCloseToHomeLocation -> E400
     CannotEnableGoHomeForDifferentCity -> E400
+    GoHomeRequestInProgress -> E400
 
 instance IsAPIError DriverGoHomeRequestError
 
@@ -1242,7 +1250,7 @@ instance IsBaseError DriverOnboardingError where
     ImageNotFound id_ -> Just $ "Image with imageId \"" <> id_ <> "\" not found."
     ImageNotValid id_ -> Just $ "Image with imageId \"" <> id_ <> "\" is not valid."
     DriverAlreadyLinked -> Just "Other doc is already linked with driver."
-    DLAlreadyLinked -> Just "Driver license not available."
+    DLAlreadyLinked -> Just "Driver License Is Already Linked With Another Driver."
     DLAlreadyUpdated -> Just "No action required. Driver license is already linked to driver."
     RCAlreadyLinked -> Just "Vehicle RC not available."
     RCAlreadyUpdated -> Just "No action required. Vehicle RC is already linked to driver."

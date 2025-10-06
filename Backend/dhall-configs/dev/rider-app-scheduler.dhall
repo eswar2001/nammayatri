@@ -4,6 +4,8 @@ let appCfg = ./rider-app.dhall
 
 let sec = ./secrets/rider-app.dhall
 
+let inMemConfig = { enableInMem = True, maxInMemSize = +100000000 }
+
 let schedulerConfig =
       { loggerConfig =
               common.loggerConfig
@@ -12,6 +14,7 @@ let schedulerConfig =
               , prettyPrinting = True
               }
       , esqDBCfg = appCfg.esqDBCfg
+      , esqDBReplicaCfg = appCfg.esqDBReplicaCfg
       , metricsPort = +8056
       , hedisCfg = appCfg.hedisCfg
       , hedisClusterCfg = appCfg.hedisClusterCfg
@@ -37,6 +40,7 @@ let schedulerConfig =
       , readCount = +1
       , kafkaProducerCfg = appCfg.kafkaProducerCfg
       , cacConfig = appCfg.cacConfig
+      , inMemConfig
       }
 
 in  { appCfg =

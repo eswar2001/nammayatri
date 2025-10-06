@@ -46,16 +46,20 @@ import Data.List (nub)
 import qualified Data.Text as Text
 import Data.Time hiding (getCurrentTime)
 import qualified Domain.Action.Beckn.Common as Common
+import qualified Domain.SharedLogic.Cancel as SharedCancel
 import qualified Domain.Types.Booking as DRB
 import qualified Domain.Types.BookingCancellationReason as DBCR
+import qualified Domain.Types.BookingStatus as DRB
+import qualified Domain.Types.BookingStatus as SRB
 import qualified Domain.Types.BookingUpdateRequest as DBUR
 import qualified Domain.Types.Estimate as DEstimate
-import qualified Domain.Types.Extra.Booking as SRB
+import qualified Domain.Types.EstimateStatus as DEstimate
 import qualified Domain.Types.FareBreakup as DFareBreakup
 import qualified Domain.Types.LocationMapping as DLM
 import qualified Domain.Types.Person as DPerson
 import qualified Domain.Types.PersonFlowStatus as DPFS
 import qualified Domain.Types.Ride as DRide
+import qualified Domain.Types.RideStatus as DRide
 import qualified Domain.Types.SearchRequest as DSR
 import Domain.Types.VehicleVariant
 import Environment
@@ -67,7 +71,6 @@ import Kernel.Prelude
 import Kernel.Sms.Config (SmsConfig)
 import Kernel.Storage.Clickhouse.Config
 import Kernel.Storage.Esqueleto.Config (EsqDBReplicaFlow)
-import qualified Kernel.Storage.Hedis as Redis
 import Kernel.Types.Flow
 import Kernel.Types.Id
 import Kernel.Utils.Common
@@ -422,7 +425,7 @@ onUpdate = \case
   OUValidatedRideStartedReq req -> Common.rideStartedReqHandler req
   OUValidatedRideCompletedReq req -> Common.rideCompletedReqHandler req
   OUValidatedFarePaidReq req -> Common.farePaidReqHandler req
-  OUValidatedBookingCancelledReq req -> Common.bookingCancelledReqHandler req JM.getAllLegsInfoWithoutAddingSkipLeg
+  OUValidatedBookingCancelledReq req -> Common.bookingCancelledReqHandler req
   OUValidatedBookingReallocationReq ValidatedBookingReallocationReq {..} -> do
     mbRide <- QRide.findActiveByRBId booking.id
     bookingCancellationReason <- mkBookingCancellationReason booking (mbRide <&> (.id)) reallocationSource
@@ -449,6 +452,7 @@ onUpdate = \case
     QBPL.makeAllInactiveByBookingId booking.id
     -- notify customer
     Notify.notifyOnEstOrQuoteReallocated cancellationSource booking estimate.id.getId
+    SharedCancel.releaseCancellationLock booking.transactionId
   OUValidatedQuoteRepetitionReq ValidatedQuoteRepetitionReq {..} -> do
     when (cancellationSource /= DBCR.ByUser) $ do
       -- in case cancellation is by user, we don't need to create a new booking cancellation reason as already created in the previous step
@@ -489,6 +493,7 @@ onUpdate = \case
     void $ SPayment.cancelPaymentIntent booking.merchantId booking.merchantOperatingCityId ride.id
     -- notify customer
     Notify.notifyOnEstOrQuoteReallocated cancellationSource booking quote.id.getId
+    SharedCancel.releaseCancellationLock booking.transactionId
   OUValidatedSafetyAlertReq ValidatedSafetyAlertReq {..} -> do
     logDebug $ "Safety alert triggered for rideId: " <> ride.id.getId
     merchantOperatingCityId <- maybe (QRB.findById ride.bookingId >>= fromMaybeM (BookingNotFound ride.bookingId.getId) >>= pure . (.merchantOperatingCityId)) pure ride.merchantOperatingCityId
@@ -531,11 +536,13 @@ onUpdate = \case
     QFareBreakup.createMany fareBreakups
     estimatedFare <- bookingUpdateRequest.estimatedFare & fromMaybeM (InternalError "Estimated fare not found for bookingUpdateRequestId")
     QRB.updateMultipleById True estimatedFare estimatedFare (convertHighPrecMetersToDistance bookingUpdateRequest.distanceUnit <$> bookingUpdateRequest.estimatedDistance) bookingUpdateRequest.bookingId
-    whenJust booking.journeyId $ \journeyId -> do
-      journeyLegId <- Redis.safeGet (mkExtendLegKey journeyId.getId) >>= fromMaybeM (InvalidRequest "journeyLegId not found in Redis")
+    mbJourneyLeg <- QJourneyLeg.findByLegSearchId (Just booking.transactionId)
+    whenJust mbJourneyLeg $ \journeyLeg -> do
+      let journeyId = journeyLeg.journeyId
       toLocation <- ride.toLocation & fromMaybeM (InvalidRequest $ "toLocation not found for rideId: " <> show ride.id)
-      JM.cancelRemainingLegs journeyId True
-      QJourneyLeg.updateAfterEditLocation booking.estimatedDuration booking.estimatedDistance (Maps.LatLngV2 {latitude = toLocation.lat, longitude = toLocation.lon}) journeyLegId
+      -- fix it properly later
+      -- JM.cancelRemainingLegs journeyId True booking.riderId
+      QJourneyLeg.updateAfterEditLocation Nothing (convertHighPrecMetersToDistance bookingUpdateRequest.distanceUnit <$> bookingUpdateRequest.estimatedDistance) (Maps.LatLngV2 {latitude = toLocation.lat, longitude = toLocation.lon}) journeyLeg.id
       JM.updateJourneyChangeLogCounter journeyId
     Notify.notifyOnTripUpdate booking ride Nothing
   OUValidatedTollCrossedEventReq ValidatedTollCrossedEventReq {..} -> do
@@ -716,6 +723,3 @@ mkBookingCancellationReason booking mbRideId cancellationSource = do
         createdAt = now,
         updatedAt = now
       }
-
-mkExtendLegKey :: Text -> Text
-mkExtendLegKey journeyId = "Extend:Leg:For:JourneyId-" <> journeyId

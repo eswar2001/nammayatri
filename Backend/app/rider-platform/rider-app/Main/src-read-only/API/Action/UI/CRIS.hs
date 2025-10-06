@@ -9,7 +9,7 @@ where
 
 import qualified API.Types.UI.CRIS
 import qualified Control.Lens
-import qualified Domain.Action.UI.CRIS as Domain.Action.UI.CRIS
+import qualified Domain.Action.UI.CRIS
 import qualified Domain.Types.IntegratedBPPConfig
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.Person
@@ -26,10 +26,10 @@ import Tools.Auth
 type API =
   ( TokenAuth :> "cris" :> "getSDKData" :> QueryParam "integratedBppConfigId" (Kernel.Types.Id.Id Domain.Types.IntegratedBPPConfig.IntegratedBPPConfig)
       :> ReqBody
-           ('[JSON])
+           '[JSON]
            API.Types.UI.CRIS.GetSDKDataRequest
       :> Post
-           ('[JSON])
+           '[JSON]
            API.Types.UI.CRIS.GetSDKDataResponse
       :<|> TokenAuth
       :> "cris"
@@ -39,7 +39,7 @@ type API =
            "integratedBppConfigId"
            (Kernel.Types.Id.Id Domain.Types.IntegratedBPPConfig.IntegratedBPPConfig)
       :> Get
-           ('[JSON])
+           '[JSON]
            Kernel.Types.APISuccess.APISuccess
       :<|> TokenAuth
       :> "cris"
@@ -49,10 +49,10 @@ type API =
            "integratedBppConfigId"
            (Kernel.Types.Id.Id Domain.Types.IntegratedBPPConfig.IntegratedBPPConfig)
       :> ReqBody
-           ('[JSON])
+           '[JSON]
            API.Types.UI.CRIS.CrisChangeDeviceRequest
       :> Post
-           ('[JSON])
+           '[JSON]
            Kernel.Types.APISuccess.APISuccess
   )
 

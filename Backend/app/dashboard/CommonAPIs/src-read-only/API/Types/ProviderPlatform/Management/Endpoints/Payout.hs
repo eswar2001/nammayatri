@@ -34,6 +34,8 @@ data EntityName
   | RETRY_VIA_DASHBOARD
   | DRIVER_FEE
   | INVALID
+  | DRIVER_WALLET_TRANSACTION
+  | DRIVER_WALLET_TOPUP
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 

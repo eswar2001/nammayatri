@@ -31,13 +31,14 @@ import qualified SharedLogic.DriverOnboarding.Status as SStatus
 import Storage.Cac.TransporterConfig
 import qualified Storage.CachedQueries.Merchant.MerchantOperatingCity as SMOC
 import qualified Storage.Queries.Image as IQuery
+import qualified Storage.Queries.Person as QPerson
 import Utils.Common.Cac.KeyNameConstants
 
 data StatusRes = StatusRes
   { dlVerificationStatus :: SStatus.ResponseStatus, -- deprecated
     dlVerficationMessage :: Text, -- deprecated
     rcVerificationStatus :: SStatus.ResponseStatus, -- deprecated
-    rcVerficationMessage :: Text, -- deprecated
+    rcVerficationMessage :: Text, -- deprecated (not for MSIL)
     aadhaarVerificationStatus :: SStatus.ResponseStatus, -- deprecated
 
     --- use these fields
@@ -50,18 +51,21 @@ data StatusRes = StatusRes
   }
   deriving (Show, Eq, Generic, ToJSON, FromJSON, ToSchema)
 
-statusHandler :: (Id SP.Person, Id DM.Merchant, Id DMOC.MerchantOperatingCity) -> Maybe Bool -> Maybe Bool -> Maybe Bool -> Maybe DVC.VehicleCategory -> Maybe Bool -> Flow StatusRes
-statusHandler (personId, _merchantId, merchantOpCityId) makeSelfieAadhaarPanMandatory multipleRC prefillData onboardingVehicleCategory useHVSdkForDL = do
+statusHandler :: (Id SP.Person, Id DM.Merchant, Id DMOC.MerchantOperatingCity) -> Maybe Bool -> Maybe Bool -> Maybe Bool -> Maybe DVC.VehicleCategory -> Maybe Bool -> Maybe Bool -> Maybe Bool -> Flow StatusRes
+statusHandler (personId, _merchantId, merchantOpCityId) makeSelfieAadhaarPanMandatory multipleRC prefillData onboardingVehicleCategory useHVSdkForDL onlyMandatoryDocs useDriverLanguage = do
   -- multipleRC flag is temporary to support backward compatibility
   merchantOperatingCity <- SMOC.findById merchantOpCityId >>= fromMaybeM (MerchantOperatingCityNotFound merchantOpCityId.getId)
+  person <- QPerson.findById personId >>= fromMaybeM (PersonNotFound personId.getId)
   transporterConfig <- findByMerchantOpCityId merchantOpCityId (Just (DriverId (cast personId))) >>= fromMaybeM (TransporterConfigNotFound merchantOpCityId.getId)
   driverImages <- IQuery.findAllByPersonId transporterConfig personId
   now <- getCurrentTime
   let driverImagesInfo = IQuery.DriverImagesInfo {driverId = personId, merchantOperatingCity, driverImages, transporterConfig, now}
-  (dlStatus, mDL, dlVerficationMessage) <- SStatus.getDLAndStatus driverImagesInfo merchantOperatingCity.language useHVSdkForDL
-  (rcStatus, _, rcVerficationMessage) <- SStatus.getRCAndStatus driverImagesInfo multipleRC merchantOperatingCity.language
+      language = if useDriverLanguage == Just True then fromMaybe merchantOperatingCity.language person.language else merchantOperatingCity.language
+  (dlStatus, mDL, dlVerficationMessage) <- SStatus.getDLAndStatus driverImagesInfo language useHVSdkForDL
+  (rcStatus, _, rcVerficationMessage) <- SStatus.getRCAndStatus driverImagesInfo multipleRC language
   (aadhaarStatus, _) <- SStatus.getAadhaarStatus personId
-  SStatus.StatusRes' {..} <- SStatus.statusHandler' driverImagesInfo makeSelfieAadhaarPanMandatory multipleRC prefillData onboardingVehicleCategory mDL useHVSdkForDL
+  let shouldActivateRc = True
+  SStatus.StatusRes' {..} <- SStatus.statusHandler' (Just person) driverImagesInfo makeSelfieAadhaarPanMandatory multipleRC prefillData onboardingVehicleCategory mDL useHVSdkForDL shouldActivateRc onlyMandatoryDocs
   pure $
     StatusRes
       { dlVerificationStatus = dlStatus,

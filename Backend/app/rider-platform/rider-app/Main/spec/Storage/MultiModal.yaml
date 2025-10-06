@@ -8,19 +8,24 @@ imports:
   Currency: Kernel.Types.Common
   Location: Domain.Types.Location
   Person: Domain.Types.Person
-  JourneySearchData: Lib.JourneyLeg.Types
   PolylinePoints: Kernel.External.Maps.Google.MapsClient.Types
   LatLngV2: Kernel.External.Maps.Google.MapsClient.Types
   MultiModalStopDetails: Kernel.External.MultiModal.Interface.Types
-  MultiModalRouteDetails: Kernel.External.MultiModal.Interface.Types
   MultiModalAgency: Kernel.External.MultiModal.Interface.Types
   MultiModalLegGate: Kernel.External.MultiModal.Interface.Types
+  PriceAPIEntity: Kernel.Types.Common
+  FRFSQuote: Domain.Types.FRFSQuote
   RecentLocation: Domain.Types.RecentLocation
+  SourceType: Domain.Types.RouteStopTimeTable
   ServiceTierType: BecknV2.FRFS.Enums
   PaymentOrder: Lib.Payment.Domain.Types.PaymentOrder
   AbsoluteDirection: Kernel.External.MultiModal.OpenTripPlanner.Types
   Value: Data.Aeson
   JourneyLegStatus: Lib.JourneyLeg.Types
+  RouteDetails: Domain.Types.RouteDetails
+  TrackingStatus: Lib.JourneyModule.State.Types
+  AvailableRoutesByTier: Domain.Types.RouteDetails
+
 
 # add journeyLegId (Maybe (Id JourneyLeg)) in SearchRequest
 Journey:
@@ -33,7 +38,7 @@ Journey:
 
   fields:
     id: Id Journey
-    searchRequestId: Id SearchRequest
+    searchRequestId: Text
     riderId: Id Person
     startTime: Maybe UTCTime
     endTime: Maybe UTCTime
@@ -48,11 +53,15 @@ Journey:
     relevanceScore: Maybe Double
     hasPreferredServiceTier: Maybe Bool
     hasPreferredTransitModes: Maybe Bool
-    fromLocationAddress: Maybe Text
-    toLocationAddress: Maybe Text
+    hasStartedTrackingWithoutBooking: Maybe Bool
+    fromLocation: Location
+    toLocation: Maybe Location
     isPublicTransportIncluded: Maybe Bool
+    isSingleMode: Maybe Bool
     paymentOrderShortId: Maybe (ShortId PaymentOrder)
     journeyExpiryTime: Maybe UTCTime
+    merchantId: Id Merchant
+    merchantOperatingCityId: Id MerchantOperatingCity
 
   beamType:
     status: Maybe JourneyStatus
@@ -64,12 +73,24 @@ Journey:
     estimatedDistance:
       estimatedDistance: HighPrecDistance
       distanceUnit: DistanceUnit
+    fromLocation:
+      fromLocationId: Maybe Text
+      fromLocationAddress: Maybe Text
+    toLocation:
+      toLocationId: Maybe Text
+      toLocationAddress: Maybe Text
 
   fromTType:
+    fromLocation: Storage.Queries.Transformers.Journey.getLocation fromLocationId fromLocationAddress|EM
+    toLocation: Just <$> Storage.Queries.Transformers.Journey.getLocation toLocationId toLocationAddress|EM
     estimatedDistance: (Kernel.Types.Common.Distance estimatedDistance distanceUnit)|E
     status: (fromMaybe Domain.Types.Journey.NEW status)|E
 
   toTType:
+    fromLocationId: (Just $ Kernel.Types.Id.getId ((.id) fromLocation))|E
+    toLocationId: (Kernel.Types.Id.getId <$> (toLocation <&> (.id)))|E
+    fromLocationAddress: Nothing|E
+    toLocationAddress: Nothing|E
     estimatedDistance: ((.value))|I
     distanceUnit: ((.unit))|I
     status: (Just status)|E
@@ -87,13 +108,13 @@ Journey:
         kvFunction: updateOneWithKV
         params: [status]
         where: id
-    updatePaymentStatus:
-        kvFunction: updateOneWithKV
-        params: [isPaymentSuccess]
-        where: id
     updatePaymentOrderShortId:
         kvFunction: updateOneWithKV
-        params: [paymentOrderShortId]
+        params: [paymentOrderShortId, isPaymentSuccess]
+        where: id
+    updateHasStartedTrackingWithoutBooking:
+        kvFunction: updateOneWithKV
+        params: [hasStartedTrackingWithoutBooking]
         where: id
 
   domainInstance:
@@ -101,141 +122,14 @@ Journey:
 
   sqlType:
     modes: "text[]"
+    fromLocationId: character varying(36)
+    toLocationId: character varying(36)
 
   extraOperations:
     - EXTRA_QUERY_FILE
 
   default:
     riderId: "''" # default value for backward compatibility
-
-#passenger details
-JourneyBooking:
-  fields:
-    id: Id JourneyBooking
-    journeyId: Id Journey
-    fare: Maybe Price
-    estimatedFare: Maybe Price
-    estimatedDistance: Distance
-    estimatedDuration: Maybe Seconds
-    modes: "[MultimodalTravelMode]"
-    numberOfPassengers: Int
-    convenienceCost: Int
-    isBookingCancellable: Bool
-    customerCancelled: Bool
-
-  beamFields:
-    fare:
-      fare: Maybe HighPrecMoney
-      currency: Maybe Currency
-    estimatedDistance:
-      estimatedDistance: HighPrecDistance
-      distanceUnit: DistanceUnit
-
-  beamType:
-    estimatedFare: Maybe HighPrecMoney
-
-  fromTType:
-    fare: ((Kernel.Types.Common.mkPrice currency) <$> fare)|E
-    estimatedFare: ((Kernel.Types.Common.mkPrice currency) <$> estimatedFare)|E
-    estimatedDistance: (Kernel.Types.Common.Distance estimatedDistance distanceUnit)|E
-
-  toTType:
-    fare: (Kernel.Prelude.fmap (.amount))|I
-    currency: (Kernel.Prelude.fmap (.currency))|I
-    estimatedFare: (Kernel.Prelude.fmap (.amount))|I
-    estimatedDistance: ((.value))|I
-    distanceUnit: ((.unit))|I
-
-  constraints:
-    id: PrimaryKey
-    journeyId: "!SecondaryKey"
-
-# use booking, FRFS booking and bus booking for journey leg booking and attach the journey booking id there
-PassengerDetails:
-  fields:
-    id: Id PassengerDetails
-    bookingId: Text
-    firstName: Text
-    lastName: Maybe Text
-    age: Maybe Int
-
-WalkLegMultimodal:
-  tableName: walk_leg_multimodal
-
-  derives: "Generic, Show"
-
-  types:
-    WalkLegStatus:
-      enum: "InPlan, Ongoing, Finishing, Completed"
-
-  fields:
-    id: Id WalkLegMultimodal
-    startTime: UTCTime
-    # validTill: UTCTime
-    riderId: Id Person
-    fromLocation: Location
-    toLocation: Maybe Location
-    estimatedDistance: Maybe Distance
-    estimatedDuration: Maybe Seconds
-    status: WalkLegStatus
-    merchantId: Id Merchant
-    merchantOperatingCityId: Id MerchantOperatingCity
-    # clientDevice: Maybe Device
-    journeyLegInfo: Maybe JourneySearchData
-
-  sqlType:
-    toLocationId: character varying(36)
-    fromLocationId: character varying(36)
-
-  queries:
-    findById:
-      kvFunction: findOneWithKV
-      where: id
-    updateStatus:
-      kvFunction: updateOneWithKV
-      params: [status]
-      where: id
-
-  beamFields:
-    estimatedDistance:
-      estimatedDistance: Maybe HighPrecDistance
-      distanceUnit: Maybe DistanceUnit
-    fromLocation:
-      fromLocationId: Maybe Text
-    toLocation:
-      toLocationId: Maybe Text
-    journeyLegInfo:
-      journeyLegOrder: Maybe Int
-      journeyId: Maybe Text
-      agency: Maybe Text
-      skipBooking: Maybe Bool
-      convenienceCost: Maybe Int
-      pricingId: Maybe Text
-      isDeleted: Maybe Bool
-      onSearchFailed: Maybe Bool
-
-  fromTType:
-    estimatedDistance: (Kernel.Types.Common.Distance <$> estimatedDistance <*> distanceUnit)|E
-    fromLocation: Storage.Queries.Transformers.MultiModal.getFromLocation id|EM
-    toLocation: Storage.Queries.Transformers.MultiModal.getToLocation id|EM
-    journeyLegInfo: Storage.Queries.Transformers.MultiModal.mkJourneyLegInfo
-
-  toTType:
-    estimatedDistance: (.value) <$> |I
-    distanceUnit: (.unit) <$> |I
-    fromLocationId: (Just $ Kernel.Types.Id.getId ((.id) fromLocation))|E
-    toLocationId: (Kernel.Types.Id.getId <$> (toLocation <&> (.id)))|E
-    journeyLegOrder: Kernel.Prelude.fmap (.journeyLegOrder)|I
-    journeyId: Kernel.Prelude.fmap (.journeyId)|I
-    agency: (journeyLegInfo >>= (.agency))|E
-    skipBooking: Kernel.Prelude.fmap (.skipBooking)|I
-    convenienceCost: Kernel.Prelude.fmap (.convenienceCost)|I
-    pricingId: (journeyLegInfo >>= (.pricingId))|E
-    isDeleted: (journeyLegInfo >>= (.isDeleted))|E
-    onSearchFailed: (journeyLegInfo >>= (.onSearchFailed))|E
-
-  extraOperations:
-    - EXTRA_QUERY_FILE
 
 MultimodalPreferences:
   tableName: multimodal_preferences
@@ -271,19 +165,61 @@ MultimodalPreferences:
   constraints:
     personId: PrimaryKey
 
+JourneyLegMapping:
+  fields:
+    id: Id JourneyLegMapping
+    journeyId: Id Journey
+    journeyLegId: Id JourneyLeg
+    sequenceNumber: Int
+    isDeleted: Bool
+    merchantId: Id Merchant
+    merchantOperatingCityId: Id MerchantOperatingCity
+
+  constraints:
+    id: PrimaryKey
+    journeyId: "!SecondaryKey"
+    journeyLegId: "!SecondaryKey"
+
+  queries:
+    updateIsDeleted:
+      kvFunction: updateOneWithKV
+      params: [isDeleted]
+      where: journeyLegId
+    updateJourneyLegId:
+      kvFunction: updateOneWithKV
+      params: [journeyLegId]
+      where: id
+    findAllLegsMappingByJourneyId:
+      kvFunction: findAllWithOptionsKV
+      where:
+        and: [journeyId, isDeleted]
+      orderBy:
+        field: sequenceNumber
+        order: asc
+    findByJourneyIdAndSequenceNumber:
+      kvFunction: findOneWithKV
+      where:
+        and: [journeyId, sequenceNumber, isDeleted]
+    findByJourneyLegId:
+      kvFunction: findOneWithKV
+      where: journeyLegId
+
 JourneyLeg:
+  types:
+    BusBoardingMethod:
+      enum: "UserActivated | UserSpotBooked | Detected"
+      derive: "ToParamSchema"
   fields:
     id: Id JourneyLeg
-    journeyId: Id Journey
+    groupCode: Maybe Text # <parentSearchRequestId>-<mode>-<fromStopDetails.stopCode>-<toStopDetails.stopCode>
     duration: Maybe Seconds
     distance: Maybe Distance
-    # polylinePoints: PolylinePoints     #to see    #Polyline.encodedPolyline
     mode: MultimodalTravelMode
-    startLocation: LatLngV2 #LocationV2     #Location.latLng
-    endLocation: LatLngV2 #LocationV2
+    startLocation: LatLngV2
+    endLocation: LatLngV2
     fromStopDetails: Maybe MultiModalStopDetails
     toStopDetails: Maybe MultiModalStopDetails
-    routeDetails: "[MultiModalRouteDetails]"
+    routeDetails: "[RouteDetails]"
     agency: Maybe MultiModalAgency
     fromArrivalTime: Maybe UTCTime
     fromDepartureTime: Maybe UTCTime
@@ -291,25 +227,41 @@ JourneyLeg:
     estimatedMaxFare: Maybe HighPrecMoney
     toArrivalTime: Maybe UTCTime
     toDepartureTime: Maybe UTCTime
-    sequenceNumber: Int
     serviceTypes: Maybe [ServiceTierType]
     legSearchId: Maybe Text
-    isDeleted: Maybe Bool
+    legPricingId: Maybe Text
     changedBusesInSequence: "Maybe [Text]"
     finalBoardedBusNumber: Maybe Text
-    isSkipped: Maybe Bool
-    entrance: Maybe MultiModalLegGate
-    exit: Maybe MultiModalLegGate
-    status: Maybe JourneyLegStatus
+    straightLineEntrance: Maybe MultiModalLegGate
+    straightLineExit: Maybe MultiModalLegGate
+    osmEntrance: Maybe MultiModalLegGate
+    osmExit: Maybe MultiModalLegGate
+    merchantId: Id Merchant
+    merchantOperatingCityId: Id MerchantOperatingCity
+    journeyId: Id Journey
+    isDeleted: Maybe Bool
+    sequenceNumber: Int
+    multimodalSearchRequestId: Maybe Text
+    finalBoardedBusNumberSource: Maybe BusBoardingMethod
+    finalBoardedDepotNo: Maybe Text
+    finalBoardedWaybillId: Maybe Text
+    finalBoardedScheduleNo: Maybe Text
 
   sqlType:
     serviceTypes: text[]
-    entrance: "json"
-    exit: "json"
+    straightLineEntrance: "json"
+    straightLineExit: "json"
+    osmEntrance: "json"
+    osmExit: "json"
 
   beamType:
-    entrance: Maybe Value
-    exit: Maybe Value
+    straightLineEntrance: Maybe Value
+    straightLineExit: Maybe Value
+    osmEntrance: Maybe Value
+    osmExit: Maybe Value
+    journeyId: Maybe Text
+    isDeleted: Maybe Bool
+    sequenceNumber: Maybe Int
 
   beamFields:
     distance:
@@ -337,72 +289,59 @@ JourneyLeg:
       endLocationLon: Double
     legSearchId:
       legId: Maybe Text
-
   queries:
-    findAllByJourneyId:
-      kvFunction: findAllWithKV
-      where: journeyId
-    updateLegSearchId:
-      kvFunction: updateOneWithKV
-      params: [legSearchId]
-      where: id
-    updateMode:
-      kvFunction: updateOneWithKV
-      params: [mode]
-      where: id
-    updateIsDeleted:
-      kvFunction: updateOneWithKV
-      params: [isDeleted]
-      where: legSearchId
-    updateIsSkipped:
-      kvFunction: updateOneWithKV
-      params: [isSkipped]
-      where: legSearchId
-    updateDistanceAndDuration:
-      kvFunction: updateWithKV
-      params: [distance, duration]
+    findById:
+      kvFunction: findOneWithKV
       where: id
     findByLegSearchId:
       kvFunction: findOneWithKV
       where: legSearchId
+    updateLegSearchId:
+      kvFunction: updateOneWithKV
+      params: [legSearchId]
+      where: id
+    updateLegPricingIdByLegSearchId:
+      kvFunction: updateOneWithKV
+      params: [legPricingId]
+      where: legSearchId
+    updateMode:
+      kvFunction: updateOneWithKV
+      params: [mode]
+      where: id
+    updateDistanceAndDuration:
+      kvFunction: updateWithKV
+      params: [distance, duration]
+      where: id
     updateAfterEditLocation:
       kvFunction: updateWithKV
       params: [duration, distance, endLocation]
       where: id
-    findByJourneyIdAndSequenceNumber:
-      kvFunction: findOneWithKV
-      where:
-        and: [journeyId, sequenceNumber]
-    updateEstimatedFaresByJourneyIdAndSequenceNumber:
-      kvFunction: updateWithKV
-      params: [estimatedMinFare, estimatedMaxFare]
-      where:
-        and: [journeyId, sequenceNumber]
     updateEstimatedFaresBySearchId:
       kvFunction: updateWithKV
       params: [estimatedMinFare, estimatedMaxFare]
       where: legSearchId
-    updateStatusByJourneyIdAndSequenceNumber:
-      kvFunction: updateWithKV
-      params: [status]
-      where:
-        and: [journeyId, sequenceNumber]
 
   intermediateTransformers:
     fromTType:
-      - routeDetailsList: Storage.Queries.RouteDetails.findAllByJourneyLegId (Kernel.Types.Id.Id id)|EM
+      - mbJourneyLegMapping: Storage.Queries.JourneyLegMapping.findByJourneyLegId (Kernel.Types.Id.Id id)|EM
 
   fromTType:
     distance: (Kernel.Types.Common.Distance <$> distance <*> distanceUnit)|E
     fromStopDetails: (Just $ Kernel.External.MultiModal.Interface.Types.MultiModalStopDetails fromStopCode fromStopPlatformCode fromStopName fromStopGtfsId)|E
     toStopDetails: (Just $ Kernel.External.MultiModal.Interface.Types.MultiModalStopDetails toStopCode toStopPlatformCode toStopName toStopGtfsId)|E
-    routeDetails: Storage.Queries.Transformers.RouteDetails.getTransformedRouteDetails routeDetailsList|E
+    routeDetails: Storage.Queries.RouteDetails.findAllByJourneyLegId Nothing Nothing id|EM
     agency: (Kernel.External.MultiModal.Interface.Types.MultiModalAgency agencyGtfsId <$> agencyName)|E
     startLocation: Kernel.External.Maps.Google.MapsClient.LatLngV2 startLocationLat startLocationLon|E
     endLocation: Kernel.External.Maps.Google.MapsClient.LatLngV2 endLocationLat endLocationLon|E
     legSearchId: legId|E
-    entrance: entrance >>= Kernel.Utils.JSON.valueToMaybe|E
-    exit: exit >>= Kernel.Utils.JSON.valueToMaybe|E
+    straightLineEntrance: straightLineEntrance >>= Kernel.Utils.JSON.valueToMaybe|E
+    straightLineExit: straightLineExit >>= Kernel.Utils.JSON.valueToMaybe|E
+    osmEntrance: osmEntrance >>= Kernel.Utils.JSON.valueToMaybe|E
+    osmExit: osmExit >>= Kernel.Utils.JSON.valueToMaybe|E
+    journeyId: Storage.Queries.Transformers.JourneyLeg.getJourneyId mbJourneyLegMapping journeyId|EM
+    isDeleted: Storage.Queries.Transformers.JourneyLeg.getIsDeleted mbJourneyLegMapping isDeleted|EM
+    sequenceNumber: Storage.Queries.Transformers.JourneyLeg.getSequenceNumber mbJourneyLegMapping sequenceNumber|EM
+    alternateRouteIds: Kernel.Prelude.fromMaybe []|I
 
   toTType:
     distance: (.value) <$> |I
@@ -420,10 +359,14 @@ JourneyLeg:
     endLocationLat: (endLocation & (.latitude))|E
     endLocationLon: (endLocation & (.longitude))|E
     legId: legSearchId|E
-    entrance: entrance >>= Just . Data.Aeson.toJSON|E
-    exit: exit >>= Just . Data.Aeson.toJSON|E
+    straightLineEntrance: straightLineEntrance >>= Just . Data.Aeson.toJSON|E
+    straightLineExit: straightLineExit >>= Just . Data.Aeson.toJSON|E
+    osmEntrance: osmEntrance >>= Just . Data.Aeson.toJSON|E
+    osmExit: osmExit >>= Just . Data.Aeson.toJSON|E
     agencyGtfsId: (agency >>= (.gtfsId))|E
     agencyName: (agency <&> (.name))|E
+    journeyId: (Just $ Kernel.Types.Id.getId journeyId)|E
+    sequenceNumber: (Just sequenceNumber)|E
 
   excludedDefaultQueries:
     - create
@@ -432,20 +375,44 @@ JourneyLeg:
     id: PrimaryKey
     journeyId: "!SecondaryKey"
     legId: "!SecondaryKey"
+    groupCode: "!SecondaryKey"
 
   extraOperations:
     - EXTRA_QUERY_FILE
 
 RouteDetails:
+  types:
+    AvailableRoutesInfo:
+      shortName: "Text"
+      longName: "Text"
+      routeCode: "Text"
+      routeTimings: "[Seconds]"
+      isLiveTrackingAvailable: "Bool"
+      source: "SourceType"
+    AvailableRoutesByTier:
+      serviceTier: "ServiceTierType"
+      serviceTierName: "Maybe Text"
+      serviceTierDescription: "Maybe Text"
+      via: "Maybe Text"
+      trainTypeCode: "Maybe Text"
+      quoteId: "Maybe (Id FRFSQuote)"
+      availableRoutes: "[Text]"
+      availableRoutesInfo: "[AvailableRoutesInfo]"
+      nextAvailableBuses: "[Seconds]"
+      nextAvailableTimings: "[(TimeOfDay, TimeOfDay)]"
+      fare: "PriceAPIEntity"
+      source: "SourceType"
   fields:
     id: Id RouteDetails
-    journeyLegId: Id JourneyLeg
+    journeyLegId: Text
     routeGtfsId: Maybe Text
+    routeCode: Maybe Text
     routeLongName: Maybe Text
     routeShortName: Maybe Text
     routeColorName: Maybe Text
     routeColorCode: Maybe Text
-    alternateShortNames: Maybe [Text]
+    alternateShortNames: "[Text]"
+    alternateRouteIds: "Maybe [Text]"
     frequency: Maybe Seconds
     agencyGtfsId: Maybe Text
     agencyName: Maybe Text
@@ -461,23 +428,47 @@ RouteDetails:
     toStopGtfsId: Maybe Text
     toStopPlatformCode: Maybe Text
     # Times --
+    legStartTime: Maybe UTCTime
+    legEndTime: Maybe UTCTime
     fromArrivalTime: Maybe UTCTime
     fromDepartureTime: Maybe UTCTime
     toArrivalTime: Maybe UTCTime
     toDepartureTime: Maybe UTCTime
     # startLocation:
-    startLocationLat: Maybe Double
-    startLocationLon: Maybe Double
+    startLocationLat: Double
+    startLocationLon: Double
     # endLocation:
-    endLocationLat: Maybe Double
-    endLocationLon: Maybe Double
+    endLocationLat: Double
+    endLocationLon: Double
+    # Tracking --
+    trackingStatus: Maybe TrackingStatus
+    trackingStatusLastUpdatedAt: Maybe UTCTime
+
   queries:
+    findById:
+      kvFunction: findOneWithKV
+      where: id
     findAllByJourneyLegId:
-      kvFunction: findAllWithKV
+      kvFunction: findAllWithOptionsKV
+      where: journeyLegId
+      orderBy:
+        field: subLegOrder
+        order: asc
+    updateAlternateShortNamesAndRouteIds:
+      kvFunction: updateWithKV
+      params: [alternateShortNames, alternateRouteIds]
+      where: journeyLegId
+    updateRoute:
+      kvFunction: updateOneWithKV
+      params: [routeGtfsId, routeCode, routeLongName, routeShortName]
       where: journeyLegId
 
+  extraOperations:
+    - EXTRA_QUERY_FILE
+
   sqlType:
-    alternateShortNames: text[]
+    alternateShortNames: "text[]"
+    alternateRouteIds: "text[]"
 
   constraints:
     id: PrimaryKey
@@ -501,19 +492,3 @@ JourneyFeedback:
   constraints:
     journeyId: PrimaryKey
     riderId: SecondaryKey
-
-JourneyLegsFeedbacks:
-  fields:
-    journeyId: Id Journey
-    legOrder: Int
-    isExperienceGood: Maybe Bool
-    travelMode: Maybe MultimodalTravelMode
-
-  queries:
-    findAllByJourneyId:
-      kvFunction: findAllWithKV
-      where: journeyId
-
-  constraints:
-    journeyId: PrimaryKey
-    legOrder: PrimaryKey

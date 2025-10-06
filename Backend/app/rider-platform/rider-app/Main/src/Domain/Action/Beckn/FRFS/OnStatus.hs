@@ -23,14 +23,19 @@ import qualified Domain.Action.Beckn.FRFS.GWLink as GWSA
 import qualified Domain.Types.Extra.MerchantServiceConfig as DEMSC
 import qualified Domain.Types.FRFSTicket as Ticket
 import qualified Domain.Types.FRFSTicketBooking as Booking
+import qualified Domain.Types.FRFSTicketBookingStatus as Booking
+import qualified Domain.Types.FRFSTicketStatus as Ticket
+import qualified Domain.Types.IntegratedBPPConfig as DIBC
 import Domain.Types.Merchant as Merchant
 import qualified Domain.Types.PartnerOrgConfig as DPOC
 import Environment
 import Kernel.Beam.Functions
 import Kernel.Prelude hiding (second)
+import qualified Kernel.Storage.Hedis as Redis
 import Kernel.Types.Error
 import Kernel.Types.Id
 import Kernel.Utils.Common
+import qualified SharedLogic.IntegratedBPPConfig as SIBC
 import qualified Storage.CachedQueries.Merchant as QMerch
 import qualified Storage.CachedQueries.PartnerOrgConfig as CQPOC
 import qualified Storage.Queries.FRFSSearch as QSearch
@@ -60,25 +65,66 @@ validateRequest (TicketVerification DTicketPayload {..}) = do
 
 onStatus :: Merchant -> Booking.FRFSTicketBooking -> DOnStatus -> Flow DOnStatusResp
 onStatus _merchant booking (Booking dOrder) = do
-  statuses <- traverse (Utils.getTicketStatus booking) dOrder.tickets
-  let googleWalletStates = map (\(ticketNumber, status, _vehicleNumber) -> (ticketNumber, GWSA.mapToGoogleTicketStatus status)) statuses
-  whenJust dOrder.orderStatus $ \status ->
-    case status of
-      Spec.COMPLETE | booking.status == Booking.CANCEL_INITIATED -> QTBooking.updateStatusById Booking.TECHNICAL_CANCEL_REJECTED booking.id
-      Spec.CANCELLED | not booking.customerCancelled -> QTBooking.updateStatusById Booking.COUNTER_CANCELLED booking.id
-      _ -> pure ()
-  traverse_ updateTicket statuses
+  integratedBPPConfig <- SIBC.findIntegratedBPPConfigFromEntity booking
+  checkInprogress <- fetchCheckInprogress integratedBPPConfig.providerConfig
+  tickets <-
+    if null dOrder.tickets
+      then do
+        tickets <- QTicket.findAllByTicketBookingId booking.id
+        pure $ map mapTicketToDTicket tickets
+      else return dOrder.tickets
+  statuses <- traverse (Utils.getTicketStatus booking checkInprogress) tickets
+  statuses' <-
+    case dOrder.orderStatus of
+      Just Spec.COMPLETE
+        | booking.status == Booking.CANCEL_INITIATED -> do
+          QTBooking.updateStatusById Booking.TECHNICAL_CANCEL_REJECTED booking.id
+          pure statuses
+        | otherwise -> pure $ updateTicketStatuses statuses
+      Just Spec.CANCELLED | not booking.customerCancelled -> do
+        QTBooking.updateStatusById Booking.COUNTER_CANCELLED booking.id
+        pure statuses
+      _ -> pure statuses
+  let googleWalletStates = map (\ticketStatus -> (ticketStatus.ticketNumber, GWSA.mapToGoogleTicketStatus ticketStatus.status)) statuses'
+  traverse_ updateTicket statuses'
   whenJust booking.partnerOrgId $ \pOrgId -> do
     walletPOCfg <- do
       pOrgCfg <- CQPOC.findByIdAndCfgType pOrgId DPOC.WALLET_CLASS_NAME >>= fromMaybeM (PartnerOrgConfigNotFound pOrgId.getId $ show DPOC.WALLET_CLASS_NAME)
       DPOC.getWalletClassNameConfig pOrgCfg.config
     let mbClassName = HashMap.lookup booking.merchantOperatingCityId.getId walletPOCfg.className
     whenJust mbClassName $ \_ -> fork ("updating status of tickets in google wallet for bookingId " <> booking.id.getId) $ traverse_ updateStatesForGoogleWallet googleWalletStates
-  traverse_ refreshTicket dOrder.tickets
+  traverse_ refreshTicket tickets
   return Async
   where
-    updateTicket (ticketNumber, status, vehicleNumber) =
-      void $ QTicket.updateStatusByTBookingIdAndTicketNumber status vehicleNumber booking.id ticketNumber
+    mapTicketToDTicket :: Ticket.FRFSTicket -> DTicket
+    mapTicketToDTicket ticket =
+      DTicket
+        { qrData = ticket.qrData,
+          vehicleNumber = ticket.scannedByVehicleNumber,
+          description = ticket.description,
+          bppFulfillmentId = Nothing,
+          ticketNumber = ticket.ticketNumber,
+          validTill = ticket.validTill,
+          status = (mapFRFSStatusToDTicketStatus ticket.status),
+          qrRefreshAt = ticket.qrRefreshAt,
+          commencingHours = ticket.commencingHours
+        }
+
+    mapFRFSStatusToDTicketStatus :: Ticket.FRFSTicketStatus -> Text
+    mapFRFSStatusToDTicketStatus = \case
+      Ticket.ACTIVE -> "UNCLAIMED"
+      Ticket.INPROGRESS -> "UNCLAIMED"
+      Ticket.EXPIRED -> "EXPIRED"
+      Ticket.USED -> "CLAIMED"
+      Ticket.CANCELLED -> "CANCELLED"
+      Ticket.COUNTER_CANCELLED -> "CANCELLED"
+      Ticket.CANCEL_INITIATED -> "CANCELLED"
+      Ticket.TECHNICAL_CANCEL_REJECTED -> "UNCLAIMED"
+
+    updateTicketStatuses :: [Utils.TicketStatus] -> [Utils.TicketStatus]
+    updateTicketStatuses = fmap (\ts@Utils.TicketStatus {} -> ts {Utils.status = Ticket.USED})
+    updateTicket ticketStatus =
+      void $ QTicket.updateStatusByTBookingIdAndTicketNumber ticketStatus.status ticketStatus.vehicleNumber booking.id ticketStatus.ticketNumber
     updateStatesForGoogleWallet (ticketNumber, state') = do
       let serviceName = DEMSC.WalletService GW.GoogleWallet
       let mId = booking.merchantId
@@ -97,6 +143,12 @@ onStatus _merchant booking (Booking dOrder) = do
     refreshTicket ticket =
       whenJust ticket.qrRefreshAt $ \qrRefreshAt ->
         void $ QTicket.updateRefreshTicketQRByTBookingIdAndTicketNumber ticket.qrData (Just qrRefreshAt) booking.id ticket.ticketNumber
+    fetchCheckInprogress :: DIBC.ProviderConfig -> Flow Bool
+    fetchCheckInprogress = \case
+      DIBC.ONDC _ -> do
+        let key = Utils.mkCheckInprogressKey booking.searchId.getId
+        fromMaybe True <$> Redis.get key >>= \val -> when val (Redis.del key) >> pure val
+      _ -> pure True
 onStatus _merchant booking (TicketVerification ticketPayload) = do
   ticket <- runInReplica $ QTicket.findByTicketBookingIdTicketNumber booking.id ticketPayload.ticketNumber >>= fromMaybeM (InternalError "Ticket Does Not Exist")
   let terminalTicketStates = [Ticket.USED, Ticket.EXPIRED, Ticket.CANCELLED]

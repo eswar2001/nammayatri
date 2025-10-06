@@ -14,11 +14,11 @@ imports:
   Money: Kernel.Utils.Common
   Centesimal: Kernel.Utils.Common
   LocationAddress: Domain.Types.LocationAddress
-  BookingStatus: Domain.Types.Extra.Booking
+  BookingStatus: Domain.Types.BookingStatus
   Quote: Domain.Types.Quote
   MerchantPaymentMethod: Domain.Types.MerchantPaymentMethod
   TripTerms: Domain.Types.TripTerms
-  PaymentStatus: BecknV2.OnDemand.Enums
+  PaymentStatus: Domain.Types.Extra.Booking
   BaseUrl: Kernel.Types.Common
   FareProductType: Domain.Types.FarePolicy.FareProductType
   TripCategory: Domain.Types.Common
@@ -33,9 +33,8 @@ imports:
   TripParty: Domain.Types.Trip
   ConfigVersionMap: Lib.Yudhishthira.Types
   Value: Data.Aeson
-  Journey: Domain.Types.Journey
-  ParcelType: Domain.Types.ParcelDetails
-  JourneyLegStatus: Lib.JourneyLeg.Types
+  ParcelType: Domain.Types.ParcelType
+  JourneyLeg: Domain.Types.JourneyLeg
   RecentLocation: Domain.Types.RecentLocation
 
 BookingLocation:
@@ -132,48 +131,48 @@ BookingLocation:
 Booking:
   tableName: booking
 
-  derives: Generic,Show
+  derives: Generic,Show,FromJSON,ToJSON
 
   types:
     BPPBooking: {}
     BookingDetails:
       enum: OneWayDetails OneWayBookingDetails,RentalDetails RentalBookingDetails,DriverOfferDetails OneWayBookingDetails,OneWaySpecialZoneDetails OneWaySpecialZoneBookingDetails,InterCityDetails InterCityBookingDetails, AmbulanceDetails AmbulanceBookingDetails, DeliveryDetails DeliveryBookingDetails, MeterRideDetails MeterRideBookingDetails
-      derive': Show
+      derive': Generic,Show,FromJSON,ToJSON
     OneWayBookingDetails:
       stops: "[Location]"
       toLocation: Location
       distance: Distance
       isUpgradedToCab: Maybe Bool
-      derive': Show
+      derive': Generic,Show,FromJSON,ToJSON
     RentalBookingDetails:
       stopLocation: Maybe Location
       otpCode: Maybe Text
-      derive': Show
+      derive': Generic,Show,FromJSON,ToJSON
     OneWaySpecialZoneBookingDetails:
       toLocation: Location
       stops: "[Location]"
       distance: Distance
       otpCode: Maybe Text
-      derive': Show
+      derive': Generic,Show,FromJSON,ToJSON
     InterCityBookingDetails:
       toLocation: Location
       distance: Distance
       stops: "[Location]"
       otpCode: Maybe Text
-      derive': Show
+      derive': Generic,Show,FromJSON,ToJSON
     AmbulanceBookingDetails:
       toLocation: Location
       distance: Distance
-      derive': Show
+      derive': Generic,Show,FromJSON,ToJSON
     DeliveryBookingDetails:
-      derive': Generic,Show
+      derive': Generic,Show,FromJSON,ToJSON
       toLocation: Location
       distance: Distance
       otpCode: Maybe Text
       parcelType: ParcelType
       parcelQuantity: Maybe Int
     MeterRideBookingDetails:
-      derive': Generic,Show
+      derive': Generic,Show,FromJSON,ToJSON
       distanceCovered: Maybe Distance
       toLocation: Maybe Location
 
@@ -186,7 +185,7 @@ Booking:
     quoteId: Maybe (Id Quote)
     paymentMethodId: Maybe PaymentMethodId
     paymentUrl: Maybe Text
-    status: BookingStatus
+    status: BookingStatus|NoRelation
     providerId: Text
     providerUrl: BaseUrl
     bppEstimateId: Text
@@ -235,18 +234,14 @@ Booking:
     initiatedBy: Maybe TripParty
     isReferredRide: Maybe Bool
     disabilityTag: Maybe Text
-    journeyLegOrder: Maybe Int
-    isDeleted: Maybe Bool
-    isSkipped: Maybe Bool
     configInExperimentVersions: "[ConfigVersionMap]"
-    journeyId: Maybe (Id Journey)
-    journeyLegStatus: Maybe JourneyLegStatus
     preferSafetyPlus: Bool
     recentLocationId: Maybe (Id RecentLocation)
     isInsured: Bool
     insuredAmount: Maybe Text
     driverInsuredAmount: Maybe Text
     isMultimodalSearch: Maybe Bool
+    multimodalSearchRequestId: Maybe Text
 
   beamFields:
     estimatedDistance:
@@ -284,6 +279,7 @@ Booking:
       clientManufacturer: Maybe Text
     bppEstimateId:
       itemId: Text
+
   beamInstance: MakeTableInstancesWithTModifier [("bppBookingId", "bpp_ride_booking_id"), ("riderTransactionId", "transaction_id")]
   beamType:
     discount: Maybe HighPrecMoney

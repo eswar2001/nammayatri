@@ -5,6 +5,7 @@ module Domain.Types.VendorSplitDetails where
 
 import Data.Aeson
 import qualified Data.Text
+import qualified Domain.Types.Extra.VendorSplitDetails
 import qualified Domain.Types.IntegratedBPPConfig
 import qualified Domain.Types.MerchantOperatingCity
 import Kernel.Prelude
@@ -15,6 +16,7 @@ data VendorSplitDetails = VendorSplitDetails
   { id :: Kernel.Types.Id.Id Domain.Types.VendorSplitDetails.VendorSplitDetails,
     includeInSplit :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     integratedBPPConfigId :: Kernel.Types.Id.Id Domain.Types.IntegratedBPPConfig.IntegratedBPPConfig,
+    splitShare :: Kernel.Prelude.Maybe Domain.Types.Extra.VendorSplitDetails.SplitShare,
     splitType :: Domain.Types.VendorSplitDetails.SplitType,
     vendorId :: Data.Text.Text,
     merchantOperatingCityId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity),

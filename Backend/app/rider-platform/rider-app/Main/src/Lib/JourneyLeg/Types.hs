@@ -20,6 +20,7 @@ data JourneyLegStatus
   | Finishing
   | Cancelled
   | Completed
+  | Failed
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema, ToParamSchema)
 
@@ -30,18 +31,6 @@ instance ToHttpApiData JourneyLegStatus where
   toUrlPiece = show
 
 $(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''JourneyLegStatus)
-
-data JourneySearchData = JourneySearchData
-  { journeyId :: Text,
-    journeyLegOrder :: Int,
-    agency :: Maybe Text,
-    skipBooking :: Bool,
-    convenienceCost :: Int,
-    pricingId :: Maybe Text,
-    onSearchFailed :: Maybe Bool,
-    isDeleted :: Maybe Bool
-  }
-  deriving (Generic, Show, ToJSON, FromJSON, ToSchema, Eq)
 
 data MultiModalJourneyRouteDetails = MultiModalJourneyRouteDetails
   { frequency :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,

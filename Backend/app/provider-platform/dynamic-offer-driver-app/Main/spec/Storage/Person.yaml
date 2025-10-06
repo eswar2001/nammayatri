@@ -69,6 +69,7 @@ Person:
     registrationLon : Maybe Double
     useFakeOtp : Maybe Text
     clientSdkVersion : Maybe Version
+    reactBundleVersion : Maybe Text
     clientBundleVersion : Maybe Version
     clientConfigVersion : Maybe Version
     clientDevice : Maybe Device

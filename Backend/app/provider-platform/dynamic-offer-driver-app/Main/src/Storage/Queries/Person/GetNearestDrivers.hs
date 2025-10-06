@@ -47,6 +47,7 @@ data NearestDriversResult = NearestDriversResult
     clientSdkVersion :: Maybe Version,
     clientBundleVersion :: Maybe Version,
     clientConfigVersion :: Maybe Version,
+    reactBundleVersion :: Maybe Text,
     clientDevice :: Maybe Device,
     vehicleAge :: Maybe Months,
     backendConfigVersion :: Maybe Version,
@@ -54,7 +55,10 @@ data NearestDriversResult = NearestDriversResult
     latestScheduledBooking :: Maybe UTCTime,
     latestScheduledPickup :: Maybe Maps.LatLong,
     driverTags :: A.Value,
-    score :: Maybe A.Value
+    score :: Maybe A.Value,
+    tripDistanceMinThreshold :: Maybe Meters,
+    tripDistanceMaxThreshold :: Maybe Meters,
+    maxPickupDistance :: Maybe Meters
   }
   deriving (Generic, Show, HasCoordinates)
 
@@ -67,6 +71,8 @@ data NearestDriversReq = NearestDriversReq
     driverPositionInfoExpiry :: Maybe Seconds,
     isRental :: Bool,
     isInterCity :: Bool,
+    prepaidSubscriptionThreshold :: Maybe HighPrecMoney,
+    rideFare :: Maybe HighPrecMoney,
     isValueAddNP :: Bool,
     onlinePayment :: Bool,
     now :: UTCTime
@@ -80,7 +86,7 @@ getNearestDrivers NearestDriversReq {..} = do
   let allowedCityServiceTiers = filter (\cvst -> cvst.serviceTierType `elem` serviceTiers) cityServiceTiers
       allowedVehicleVariant = DL.nub (concatMap (.allowedVehicleVariant) allowedCityServiceTiers)
   driverLocs <- Int.getDriverLocsWithCond merchantId driverPositionInfoExpiry fromLocLatLong nearestRadius (bool (Just allowedVehicleVariant) Nothing (null allowedVehicleVariant))
-  driverInfos <- Int.getDriverInfosWithCond (driverLocs <&> (.driverId)) True False isRental isInterCity
+  driverInfos <- Int.getDriverInfosWithCond (driverLocs <&> (.driverId)) True False isRental isInterCity prepaidSubscriptionThreshold rideFare
   vehicle <- Int.getVehicles driverInfos
   drivers <- Int.getDrivers vehicle
   -- driverStats <- QDriverStats.findAllByDriverIds drivers
@@ -157,6 +163,7 @@ getNearestDrivers NearestDriversReq {..} = do
                 clientSdkVersion = person.clientSdkVersion,
                 clientBundleVersion = person.clientBundleVersion,
                 clientConfigVersion = person.clientConfigVersion,
+                reactBundleVersion = person.reactBundleVersion,
                 clientDevice = person.clientDevice,
                 vehicleAge = getVehicleAge vehicle.mYManufacturing now,
                 backendConfigVersion = person.backendConfigVersion,
@@ -164,5 +171,8 @@ getNearestDrivers NearestDriversReq {..} = do
                 latestScheduledBooking = info.latestScheduledBooking,
                 latestScheduledPickup = info.latestScheduledPickup,
                 driverTags = Yudhishthira.convertTags $ LYT.TagNameValueExpiry "NormalDriver#true" : (map LYT.TagNameValueExpiry (fromMaybe [] vehicle.vehicleTags) ++ fromMaybe [] person.driverTag),
-                score = Nothing
+                score = Nothing,
+                tripDistanceMinThreshold = info.tripDistanceMinThreshold,
+                tripDistanceMaxThreshold = info.tripDistanceMaxThreshold,
+                maxPickupDistance = info.maxPickupRadius
               }

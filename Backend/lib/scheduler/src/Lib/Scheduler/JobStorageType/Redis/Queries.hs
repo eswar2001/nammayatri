@@ -143,9 +143,9 @@ getReadyTask ::
     HasField "block" r Integer,
     HasField "readCount" r Integer
   ) =>
+  Text ->
   m [(AnyJob t, BS.ByteString)]
-getReadyTask = do
-  key <- asks (.streamName)
+getReadyTask key = do
   groupName <- asks (.groupName)
   consumerId <- asks (.consumerId)
   -- let lastEntryId :: Text = "$"
@@ -158,7 +158,7 @@ getReadyTask = do
   -- isGroupExist <- Hedis.withNonCriticalCrossAppRedis $ Hedis.xInfoGroups key -- TODO: Enable after fixing these hedis stream operations for cluster redis.
   -- unless isGroupExist $ do
   --   Hedis.withNonCriticalCrossAppRedis $ Hedis.xGroupCreate key groupName lastEntryId
-  result' <- Hedis.withNonCriticalCrossAppRedis $ Hedis.xReadGroupOpts groupName consumerName [(key, nextId)] (Just block) (Just readCount)
+  result' <- Hedis.withMasterRedis $ Hedis.xReadGroupOpts groupName consumerName [(key, nextId)] (Just block) (Just readCount)
   let result = maybe [] (concatMap (Hedis.extractKeyValuePairs . records)) result'
   let recordIds = maybe [] (concatMap (Hedis.extractRecordIds . records)) result'
   let textJob = map snd result

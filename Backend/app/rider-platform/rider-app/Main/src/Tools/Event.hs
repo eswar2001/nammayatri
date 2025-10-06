@@ -16,12 +16,14 @@
 module Tools.Event where
 
 import qualified Domain.Types.Booking as DBooking
+import qualified Domain.Types.BookingStatus as DBooking
 import qualified Domain.Types.Estimate as ES
 import Domain.Types.Merchant
 import Domain.Types.MerchantOperatingCity
 import Domain.Types.Person
 import qualified Domain.Types.Quote as DQuote
 import qualified Domain.Types.Ride as DRide
+import qualified Domain.Types.RideStatus as DRide
 import qualified Domain.Types.SearchRequest as DSearchRequest
 import Domain.Types.VehicleVariant (VehicleVariant)
 import qualified Domain.Types.VehicleVariant as DV
@@ -100,8 +102,23 @@ data Payload
         utmMedium :: Maybe Text,
         utmSource :: Maybe Text,
         utmTerm :: Maybe Text,
+        appName :: Maybe Text,
+        userType :: Maybe UserType,
         merchantId :: Id Merchant,
         merchantOperatingCityId :: Id MerchantOperatingCity,
+        createdAt :: UTCTime,
+        updatedAt :: UTCTime
+      }
+  | MarketingParamsPreLogin
+      { gclId :: Maybe Text,
+        utmCampaign :: Maybe Text,
+        utmContent :: Maybe Text,
+        utmCreativeFormat :: Maybe Text,
+        utmMedium :: Maybe Text,
+        utmSource :: Maybe Text,
+        utmTerm :: Maybe Text,
+        appName :: Maybe Text,
+        userType :: Maybe UserType,
         createdAt :: UTCTime,
         updatedAt :: UTCTime
       }
@@ -175,6 +192,21 @@ data RouteDataEvent = RouteDataEvent
   }
   deriving (Show, Eq, Generic, FromJSON)
 
+data MarketingParamsEventPreLoginData = MarketingParamsEventPreLoginData
+  { gclId :: Maybe Text,
+    utmCampaign :: Maybe Text,
+    utmContent :: Maybe Text,
+    utmCreativeFormat :: Maybe Text,
+    utmMedium :: Maybe Text,
+    utmSource :: Maybe Text,
+    utmTerm :: Maybe Text,
+    appName :: Maybe Text,
+    userType :: Maybe UserType,
+    createdAt :: UTCTime,
+    updatedAt :: UTCTime
+  }
+  deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
 data MarketingParamsEventData = MarketingParamsEventData
   { personId :: Id Person,
     gclId :: Maybe Text,
@@ -184,12 +216,16 @@ data MarketingParamsEventData = MarketingParamsEventData
     utmMedium :: Maybe Text,
     utmSource :: Maybe Text,
     utmTerm :: Maybe Text,
+    appName :: Maybe Text,
     merchantId :: Id Merchant,
     merchantOperatingCityId :: Id MerchantOperatingCity,
+    userType :: Maybe UserType,
     createdAt :: UTCTime,
     updatedAt :: UTCTime
   }
   deriving (Show, Eq, Generic, FromJSON, ToJSON)
+
+data UserType = OLD | NEW deriving (Show, Eq, Generic, FromJSON, ToJSON, ToSchema)
 
 newtype SearchEventData = SearchEventData
   { searchRequest :: DSearchRequest.SearchRequest
@@ -334,4 +370,14 @@ triggerMarketingParamEvent ::
 triggerMarketingParamEvent MarketingParamsEventData {..} = do
   let marketingParamsPayload = MarketingParams {..}
   event <- createEvent (Just $ getId marketingParamsPayload.personId) (getId marketingParamsPayload.merchantId) MarketingParamsData RIDER_APP System (Just marketingParamsPayload) Nothing Nothing
+  triggerEvent event
+
+triggerMarketingParamEventPreLogin ::
+  ( EventStreamFlow m r
+  ) =>
+  MarketingParamsEventPreLoginData ->
+  m ()
+triggerMarketingParamEventPreLogin MarketingParamsEventPreLoginData {..} = do
+  let marketingParamsPayload = MarketingParamsEventPreLoginData {..}
+  event <- createEvent (Just $ "") (fromMaybe "" appName) MarketingParamsPreLoginData RIDER_APP System (Just marketingParamsPayload) Nothing Nothing
   triggerEvent event

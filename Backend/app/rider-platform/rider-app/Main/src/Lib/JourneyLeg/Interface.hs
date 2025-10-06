@@ -1,5 +1,6 @@
 module Lib.JourneyLeg.Interface where
 
+import API.Types.UI.FRFSTicketService
 import API.Types.UI.MultimodalConfirm
 import Control.Applicative ((<|>))
 import Domain.Types.FRFSRouteDetails
@@ -10,6 +11,7 @@ import qualified Domain.Types.Trip as DTrip
 import qualified Kernel.External.MultiModal.Interface as EMInterface
 import Kernel.Prelude
 import Kernel.Storage.Esqueleto.Config (EsqDBReplicaFlow)
+import Kernel.Tools.Metrics.CoreMetrics.Types
 import Kernel.Types.Error
 import Kernel.Types.Id
 import Kernel.Utils.Common
@@ -24,6 +26,7 @@ import Lib.JourneyLeg.Types.Taxi
 import Lib.JourneyLeg.Types.Walk
 import Lib.JourneyLeg.Walk ()
 import qualified Lib.JourneyModule.Types as JL
+import qualified Lib.JourneyModule.Utils as JMU
 import qualified Storage.CachedQueries.Merchant as QMerchant
 import qualified Storage.CachedQueries.Merchant.MerchantOperatingCity as CQMOC
 
@@ -33,10 +36,12 @@ getFare ::
   Id DP.Person ->
   Id DM.Merchant ->
   Id DMOC.MerchantOperatingCity ->
+  Maybe JMU.VehicleLiveRouteInfo ->
   EMInterface.MultiModalLeg ->
   DTrip.MultimodalTravelMode ->
+  Maybe Text ->
   m (Bool, Maybe JL.GetFareResponse)
-getFare fromArrivalTime riderId merchantId merchantOperatingCityId leg = \case
+getFare fromArrivalTime riderId merchantId merchantOperatingCityId mbRouteLiveInfo leg mode searchReqId = case mode of
   DTrip.Taxi -> do
     getFareReq :: TaxiLegRequest <- mkTaxiGetFareReq
     JL.getFare getFareReq
@@ -85,6 +90,7 @@ getFare fromArrivalTime riderId merchantId merchantOperatingCityId leg = \case
                   { startLocation = leg.startLocation.latLng,
                     endLocation = leg.endLocation.latLng,
                     agencyGtfsId = leg.agency >>= (.gtfsId),
+                    serviceType = mbRouteLiveInfo <&> (.serviceType),
                     ..
                   }
 
@@ -125,6 +131,7 @@ getFare fromArrivalTime riderId merchantId merchantOperatingCityId leg = \case
                   { startLocation = leg.startLocation.latLng,
                     endLocation = leg.endLocation.latLng,
                     agencyGtfsId = leg.agency >>= (.gtfsId),
+                    searchReqId = searchReqId,
                     ..
                   }
 
@@ -143,8 +150,8 @@ getFare fromArrivalTime riderId merchantId merchantOperatingCityId leg = \case
               Just $ FRFSRouteDetails {routeCode = Just routeCode, ..}
             _ -> Nothing
 
-confirm :: JL.ConfirmFlow m r c => Bool -> Maybe Int -> Maybe Int -> JL.LegInfo -> Maybe CrisSdkResponse -> m ()
-confirm forcedBooked ticketQuantity childTicketQuantity JL.LegInfo {..} crisSdkResponse =
+confirm :: JL.ConfirmFlow m r c => Bool -> Maybe Int -> Maybe Int -> Bool -> JL.LegInfo -> Maybe CrisSdkResponse -> Maybe [FRFSCategorySelectionReq] -> Maybe Bool -> m ()
+confirm forcedBooked ticketQuantity childTicketQuantity bookLater JL.LegInfo {..} crisSdkResponse categorySelectionReq isSingleMode =
   case travelMode of
     DTrip.Taxi -> do
       confirmReq :: TaxiLegRequest <- mkTaxiLegConfirmReq
@@ -156,6 +163,9 @@ confirm forcedBooked ticketQuantity childTicketQuantity JL.LegInfo {..} crisSdkR
       confirmReq :: MetroLegRequest <- mkMetroLegConfirmReq
       JL.confirm confirmReq
     DTrip.Subway -> do
+      case crisSdkResponse >>= (.latency) of
+        Just latency -> fork "Push UTS SDK Latencies" $ addGenericLatency "Uts_Sdk_Request_Booking_Latency" (Milliseconds latency)
+        Nothing -> pure ()
       confirmReq :: SubwayLegRequest <- mkSubwayLegConfirmReq
       JL.confirm confirmReq
     DTrip.Walk -> do
@@ -167,7 +177,7 @@ confirm forcedBooked ticketQuantity childTicketQuantity JL.LegInfo {..} crisSdkR
       return $
         TaxiLegRequestConfirm $
           TaxiLegRequestConfirmData
-            { skipBooking = skipBooking,
+            { bookLater = bookLater,
               forcedBooked,
               searchId,
               estimateId = Id <$> pricingId,
@@ -180,7 +190,7 @@ confirm forcedBooked ticketQuantity childTicketQuantity JL.LegInfo {..} crisSdkR
       return $
         MetroLegRequestConfirm $
           MetroLegRequestConfirmData
-            { skipBooking,
+            { bookLater,
               bookingAllowed,
               searchId = Id searchId,
               quoteId = Id <$> pricingId,
@@ -188,14 +198,15 @@ confirm forcedBooked ticketQuantity childTicketQuantity JL.LegInfo {..} crisSdkR
               merchantId,
               merchantOperatingCityId,
               quantity = ticketQuantity,
-              childTicketQuantity
+              childTicketQuantity,
+              isSingleMode
             }
     mkSubwayLegConfirmReq :: JL.ConfirmFlow m r c => m SubwayLegRequest
     mkSubwayLegConfirmReq = do
       return $
         SubwayLegRequestConfirm $
           SubwayLegRequestConfirmData
-            { skipBooking,
+            { bookLater,
               searchId = Id searchId,
               bookingAllowed,
               quoteId = Id <$> pricingId,
@@ -204,14 +215,15 @@ confirm forcedBooked ticketQuantity childTicketQuantity JL.LegInfo {..} crisSdkR
               merchantOperatingCityId,
               crisSdkResponse,
               quantity = ticketQuantity,
-              childTicketQuantity
+              childTicketQuantity,
+              isSingleMode
             }
     mkBusLegConfirmReq :: JL.ConfirmFlow m r c => m BusLegRequest
     mkBusLegConfirmReq = do
       return $
         BusLegRequestConfirm $
           BusLegRequestConfirmData
-            { skipBooking,
+            { bookLater,
               bookingAllowed,
               searchId = Id searchId,
               quoteId = Id <$> pricingId,
@@ -219,5 +231,7 @@ confirm forcedBooked ticketQuantity childTicketQuantity JL.LegInfo {..} crisSdkR
               merchantId,
               merchantOperatingCityId,
               quantity = ticketQuantity,
-              childTicketQuantity
+              childTicketQuantity,
+              categorySelectionReq,
+              isSingleMode
             }

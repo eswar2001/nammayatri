@@ -11,6 +11,7 @@
 
  the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 -}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Lib.Scheduler.Environment where
 
@@ -47,6 +48,7 @@ data SchedulerConfig = SchedulerConfig
   { loggerConfig :: LoggerConfig,
     metricsPort :: Int,
     esqDBCfg :: EsqDBConfig,
+    esqDBReplicaCfg :: EsqDBConfig,
     hedisCfg :: HedisCfg,
     hedisClusterCfg :: HedisCfg,
     hedisNonCriticalCfg :: HedisCfg,
@@ -70,12 +72,14 @@ data SchedulerConfig = SchedulerConfig
     enableRedisLatencyLogging :: Bool,
     enablePrometheusMetricLogging :: Bool,
     cacConfig :: CacConfig,
-    kafkaProducerCfg :: KafkaProducerCfg
+    kafkaProducerCfg :: KafkaProducerCfg,
+    inMemConfig :: InMemConfig
   }
   deriving (Generic, FromDhall)
 
 data SchedulerEnv = SchedulerEnv
   { esqDBEnv :: EsqDBEnv,
+    esqDBReplicaEnv :: EsqDBEnv,
     hedisEnv :: HedisEnv,
     hedisNonCriticalEnv :: HedisEnv,
     hedisNonCriticalClusterEnv :: HedisEnv,
@@ -112,7 +116,9 @@ data SchedulerEnv = SchedulerEnv
     requestId :: Maybe Text,
     shouldLogRequestId :: Bool,
     cacConfig :: CacConfig,
-    kafkaProducerForART :: Maybe KafkaProducerTools
+    kafkaProducerForART :: Maybe KafkaProducerTools,
+    inMemEnv :: InMemEnv,
+    url :: Maybe Text
   }
   deriving (Generic)
 
@@ -147,7 +153,7 @@ runSchedulerM schedulerConfig env action = do
       ( ( prepareConnectionDriver
             ConnectionConfigDriver
               { esqDBCfg = schedulerConfig.esqDBCfg,
-                esqDBReplicaCfg = schedulerConfig.esqDBCfg,
+                esqDBReplicaCfg = schedulerConfig.esqDBReplicaCfg,
                 hedisClusterCfg = schedulerConfig.hedisClusterCfg
               }
             env.kvConfigUpdateFrequency

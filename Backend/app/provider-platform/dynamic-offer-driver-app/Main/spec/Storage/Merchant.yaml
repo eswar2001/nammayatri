@@ -15,6 +15,7 @@ imports:
   Value: Data.Aeson
   Seconds: Kernel.Types.Common
   Integer: Kernel.Prelude
+  Version: Kernel.Types.Version
   AadhaarVerificationService: Kernel.External.AadhaarVerification.Types
   CallService: Kernel.External.Call
   MapsService: Kernel.External.Maps.Types
@@ -92,6 +93,7 @@ Merchant:
     fleetOwnerEnabledCheck: Maybe Bool
     overwriteAssociation: Maybe Bool
     mediaFileDocumentLinkExpires: Seconds
+    enforceSufficientDriverBalance: Maybe Bool
   sqlType:
     destinationRestriction: text[]
     originRestriction: text[]
@@ -538,6 +540,8 @@ MerchantServiceUsageConfig:
     faceVerificationService: VerificationService
     panVerificationService: Maybe VerificationService
     gstVerificationService: Maybe VerificationService
+    dashboardPanVerificationService: Maybe VerificationService
+    dashboardGstVerificationService: Maybe VerificationService
     issueTicketService: IssueTicketService
     rectifyDistantPointsFailure: MapsService
     getExophone: CallService
@@ -591,6 +595,8 @@ MerchantServiceUsageConfig:
     faceVerificationService: character varying(30)
     panVerificationService: character varying(30)
     gstVerificationService: character varying(30)
+    dashboardPanVerificationService: character varying(30)
+    dashboardGstVerificationService: character varying(30)
     issueTicketService: character varying(30)
     getExophone: character varying(255)
     snapToRoadProvidersList: "text[]"
@@ -750,6 +756,18 @@ DriverIntelligentPoolConfig:
 TransporterConfig:
   derives: Generic,Show,'UsageSafety,Eq
   types:
+    CancellationRateSlab:
+      cancellationPercentageThreshold: Int
+      suspensionTimeInHours: Int
+      derive': Generic, Show, ToJSON, FromJSON, ToSchema,Eq
+    SlabType:
+      minBookingsRange : "[Int]"
+      penalityForCancellation : CancellationRateSlab
+      derive': Generic, Show, ToJSON, FromJSON, ToSchema,Eq
+    CancellationRateSlabConfig:
+      dailySlabs: "[SlabType]"
+      weeklySlabs: "[SlabType]"
+      derive': Generic, Show, ToJSON, FromJSON, ToSchema,Eq
     CancellationRateBasedNudgingAndBlockingConfig:
       cancellationRateThresholdDaily: Int
       cancellationRateThresholdWeekly: Int
@@ -761,6 +779,7 @@ TransporterConfig:
       weeklyOffenceSuspensionTimeHours: Int
       dailyConditionCooldownTimeHours: Int
       weeklyConditionCooldownTimeHours: Int
+      cancellationRateSlabConfig : Maybe CancellationRateSlabConfig
       derive': Generic, Show, ToJSON, FromJSON, ToSchema,Eq
     DemandHotspotsConfig:
       enableDemandHotspots: Bool
@@ -791,6 +810,7 @@ TransporterConfig:
       deliveryLightGoodsVehicle: Kilometers
       busAc: Kilometers
       busNonAc: Kilometers
+      boat: Kilometers
       derive': Generic, Show, ToJSON, FromJSON, Read,Eq
     DashboardMediaSendingLimit:
       sms: Int
@@ -817,12 +837,15 @@ TransporterConfig:
       deliveryLightGoodsVehicle: Maybe Seconds
       busNonAc: Maybe Seconds
       busAc: Maybe Seconds
+      boat: Maybe Seconds
       derive': Generic, Show, ToJSON, FromJSON, Read,Eq
     DistanceRecomputeConfigs:
       estimatedDistanceUpper: Meters
       minThresholdPercentage: Int
       minThresholdDistance: Meters
       derive': Generic, Show, ToJSON, FromJSON, Read,Eq
+    CallingOption:
+      enum: "AnonymousCall, DirectCall, DualCall"
   beamInstance:
     - MakeTableInstancesWithTModifier [("automaticRCActivationCutOff", "automatic_r_c_activation_cut_off")]
     - Custom Domain.Types.UtilsTH.mkCacParseInstance
@@ -846,6 +869,7 @@ TransporterConfig:
     minRidesToUnlist: Maybe Int
     mediaFileUrlPattern: Text
     mediaFileSizeUpperLimit: Int
+    isMLBasedDynamicPricingEnabled: Bool
     referralLinkPassword: Text
     dpWhiteListedGeohash: Maybe [Text]
     dpBlackListedGeohash: Maybe [Text]
@@ -873,6 +897,7 @@ TransporterConfig:
     driverFeeMandateNotificationBatchSize: Int
     driverFeeMandateExecutionBatchSize: Int
     mandateNotificationRescheduleInterval: NominalDiffTime
+    prepaidSubscriptionThreshold: Maybe HighPrecMoney
     mandateExecutionRescheduleInterval: NominalDiffTime
     driverFeeCalculationTime: Maybe NominalDiffTime
     driverFeeCalculatorBatchSize: Maybe Int
@@ -1044,6 +1069,19 @@ TransporterConfig:
     allowDuplicatePan : Maybe Bool
     allowDuplicateGst: Maybe Bool
     allowDuplicateAadhaar : Maybe Bool
+    allowCacheDriverFlowStatus : Maybe Bool
+    cancellationRateSlabConfig: Maybe CancellationRateSlabConfig
+    enableDriverWallet: Maybe Bool
+    enableWalletPayout: Maybe Bool
+    enableWalletTopup: Maybe Bool
+    maxWalletPayoutsPerDay: Maybe Int
+    minimumWalletPayoutAmount: Maybe HighPrecMoney
+    payoutCutOffDays: Maybe Int
+    gstPercentage: Maybe Double
+    maxOnlineDurationDays : Maybe Int
+    distanceWeightage: Maybe Int
+    driverCallingOption: "Maybe CallingOption"
+    onlineDurationCalculateFrom: Maybe UTCTime # set null to switch off calculation, current UTC timestamp to switch on
 
   beamType:
     currency: Maybe Currency
@@ -1105,6 +1143,8 @@ TransporterConfig:
     weekStartMode : Maybe Int
     earningsWindowSize : Maybe Int
     aaEnabledClientSdkVersion: Maybe Text
+    isMLBasedDynamicPricingEnabled: Maybe Bool
+    cancellationRateSlabConfig: Maybe Value
   beamFields:
     fcmConfig:
       fcmUrl: Text
@@ -1174,6 +1214,9 @@ TransporterConfig:
     weekStartMode : Just weekStartMode|E
     earningsWindowSize : Just earningsWindowSize|E
     aaEnabledClientSdkVersion: Just aaEnabledClientSdkVersion| E
+    cancellationRateSlabConfig: Data.Aeson.toJSON <$> cancellationRateSlabConfig|E
+    isMLBasedDynamicPricingEnabled: Just isMLBasedDynamicPricingEnabled|E
+
   intermediateTransformers:
     fromTType:
       - fcmUrl': Kernel.Prelude.parseBaseUrl fcmUrl|EM
@@ -1235,7 +1278,7 @@ TransporterConfig:
     meterRideBulkLocUpdateBatchSize: fromMaybe 4 meterRideBulkLocUpdateBatchSize|E
     dynamicReferralCodeValidForMinutes: fromMaybe 60 dynamicReferralCodeValidForMinutes|E
     dynamicReferralCodeEnabled: fromMaybe False dynamicReferralCodeEnabled|E
-    aaEnabledClientSdkVersion: fromMaybe "99999999999" aaEnabledClientSdkVersion| E
+    aaEnabledClientSdkVersion: fromMaybe Storage.Queries.Transformers.TransporterConfig.fallBackVersionInText aaEnabledClientSdkVersion|E
     issueBreachConfig: |-
       (\val -> case Data.Aeson.fromJSON val of Data.Aeson.Success x -> Just x; Data.Aeson.Error _ -> Nothing) =<< issueBreachConfig|E
     recentScheduledBookingsSafeLimit: fromMaybe 50 recentScheduledBookingsSafeLimit|E
@@ -1249,6 +1292,9 @@ TransporterConfig:
     enableExistingVehicleInBulkUpload: fromMaybe False enableExistingVehicleInBulkUpload|E
     weekStartMode : fromMaybe 3 weekStartMode|E
     earningsWindowSize : fromMaybe 7 earningsWindowSize|E
+    cancellationRateSlabConfig: (\val -> case Data.Aeson.fromJSON val of Data.Aeson.Success x -> Just x; Data.Aeson.Error _ -> Nothing) =<< cancellationRateSlabConfig|E
+    isMLBasedDynamicPricingEnabled: fromMaybe False isMLBasedDynamicPricingEnabled|E
+
   constraints:
     merchantOperatingCityId: PrimaryKey
 
@@ -1308,6 +1354,8 @@ TransporterConfig:
     allowedReferralEntities: "text[]"
     weekStartMode : int
     earningsWindowSize : int
+    cancellationRateSlabConfig: json
+    driverCallingOption: text
   default:
     mediaFileUrlPattern: |-
       'http://localhost:8016/ui/<DOMAIN>/media?filePath=<FILE_PATH>'
@@ -1452,6 +1500,10 @@ TransporterConfig:
     aaEnabledClientSdkVersion : "'999.999.999'"
     isAAEnabledForRecurring : "false"
     disableDriverWhenUnlinkingVehicle : "true"
+    allowCacheDriverFlowStatus : "false"
+    maxOnlineDurationDays : "10"
+    distanceWeightage: "20"
+    driverCallingOption: "'AnonymousCall'"
   excludedDefaultQueries:
     - findByPrimaryKey
     - updateByPrimaryKey
@@ -1590,7 +1642,7 @@ RideRelatedNotificationConfig:
     timeDiffEvent: TimeDiffEvent
     notificationType: NotificationType
     notificationKey: Text
-    onBookingStatus: BookingStatus
+    onBookingStatus: BookingStatus|NoRelation
     onScheduledBooking: Bool
     onlyIfOffline: Bool
     eventTime: EventTime

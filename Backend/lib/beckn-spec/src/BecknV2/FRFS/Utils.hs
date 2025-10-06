@@ -33,6 +33,16 @@ parseMoney :: Spec.Price -> Maybe HighPrecMoney
 parseMoney price =
   price.priceValue >>= (readMaybe . T.unpack)
 
+parseOfferPrice :: Spec.Price -> Maybe Price
+parseOfferPrice specPrice = do
+  currency <- parseCurrency specPrice
+  offerMoney <- parseOfferMoney specPrice
+  Just $ mkPrice (Just currency) offerMoney
+
+parseOfferMoney :: Spec.Price -> Maybe HighPrecMoney
+parseOfferMoney price =
+  price.priceOfferedValue >>= (readMaybe . T.unpack)
+
 -- TODO check what we receive from bpp
 parseCurrency :: Spec.Price -> Maybe Currency
 parseCurrency price =
@@ -166,15 +176,10 @@ becknVehicleCategoryToFrfsVehicleCategory = \case
   _ -> Spec.METRO
 
 getAndValidateCancellationParams :: [Spec.QuotationBreakupInner] -> Spec.OrderStatus -> Either Text (HighPrecMoney, Maybe HighPrecMoney, Maybe HighPrecMoney)
-getAndValidateCancellationParams quoteBreakup orderStatus = do
+getAndValidateCancellationParams quoteBreakup _ = do
   baseFare <- findCancellationParams Spec.BASE_FARE & maybe (Left "CancellationParams baseFare not found") Right
   let refundAmount = findCancellationParams Spec.REFUND
       cancellationCharges = findCancellationParams Spec.CANCELLATION_CHARGES
-  when
-    ( (isNothing refundAmount || isNothing cancellationCharges)
-        && (orderStatus == Spec.CANCELLED || orderStatus == Spec.SOFT_CANCELLED)
-    )
-    $ Left "Missing cancellation params refundAmount or cancellationChargs"
   Right (baseFare, refundAmount, cancellationCharges)
   where
     findCancellationParams :: Spec.CancellationParams -> Maybe HighPrecMoney
@@ -182,3 +187,10 @@ getAndValidateCancellationParams quoteBreakup orderStatus = do
       case find (\qb -> qb.quotationBreakupInnerTitle == Just (show titleToFind)) quoteBreakup of
         Just qb -> qb.quotationBreakupInnerPrice >>= parseMoney
         Nothing -> Nothing
+
+-- use below with care with care
+defaultBusBoardingRelationshitCfg :: Spec.ServiceTierType -> [Spec.ServiceTierType]
+defaultBusBoardingRelationshitCfg Spec.ORDINARY = [Spec.ORDINARY]
+defaultBusBoardingRelationshitCfg Spec.EXECUTIVE = [Spec.ORDINARY, Spec.EXECUTIVE]
+defaultBusBoardingRelationshitCfg Spec.AC = [Spec.ORDINARY, Spec.EXECUTIVE, Spec.AC]
+defaultBusBoardingRelationshitCfg a = [a]

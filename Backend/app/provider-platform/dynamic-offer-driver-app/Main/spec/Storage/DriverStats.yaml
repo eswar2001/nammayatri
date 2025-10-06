@@ -5,6 +5,7 @@ imports:
   Currency: Kernel.Types.Common
   DistanceUnit: Kernel.Types.Common
   Centesimal: Kernel.Types.Common
+  DriverCoinsFunctionType: Lib.DriverCoins.Types
 
 DriverStats:
   tableName: driver_stats
@@ -42,6 +43,8 @@ DriverStats:
     validCancellationTagsStatsStartDate: Maybe UTCTime
     safetyPlusRideCount : Int
     safetyPlusEarnings : HighPrecMoney
+    onlineDuration : Seconds
+    blacklistCoinEvents: Maybe [DriverCoinsFunctionType]
 
   beamFields:
     totalEarnings:
@@ -75,6 +78,7 @@ DriverStats:
     validCustomerCancellationTagCount: Maybe Int
     safetyPlusRideCount: Maybe Int
     safetyPlusEarnings:  Maybe HighPrecMoney
+    onlineDuration: Maybe Seconds
 
   fromTType:
     totalEarnings: Kernel.Types.Common.mkAmountWithDefault totalEarningsAmount totalEarnings|E
@@ -93,8 +97,9 @@ DriverStats:
     validCustomerCancellationTagCount: Kernel.Prelude.fromMaybe 0|I
     numDriversOnboarded: Kernel.Prelude.fromMaybe 0|I
     numFleetsOnboarded: Kernel.Prelude.fromMaybe 0|I
-    safetyPlusRideCount:  Kernel.Prelude.fromMaybe 0|I
-    safetyPlusEarnings:  Kernel.Prelude.fromMaybe 0|I
+    safetyPlusRideCount: Kernel.Prelude.fromMaybe 0|I
+    safetyPlusEarnings: Kernel.Prelude.fromMaybe 0|I
+    onlineDuration: Kernel.Prelude.fromMaybe 0|I
 
   toTType:
     totalDistance: getTotalDistance
@@ -117,7 +122,8 @@ DriverStats:
     numDriversOnboarded: Kernel.Prelude.Just|I
     numFleetsOnboarded: Kernel.Prelude.Just|I
     safetyPlusRideCount: Kernel.Prelude.Just|I
-    safetyPlusEarnings:  Kernel.Prelude.Just|I
+    safetyPlusEarnings: Kernel.Prelude.Just|I
+    onlineDuration: Kernel.Prelude.Just|I
 
   constraints:
     driverId: PrimaryKey
@@ -169,6 +175,11 @@ DriverStats:
       params: [numFleetsOnboarded]
       where: driverId
 
+    updateOnlineDuration:
+      kvFunction: updateOneWithKV
+      params: [onlineDuration]
+      where: driverId
+
     # setMissedEarnings: -- beam Field checkUp DSL Fix needed
     #   kvFunction: updateOneWithKV
     #   params: [earningsMissedAmount,earningsMissed]
@@ -178,6 +189,7 @@ DriverStats:
     earningsMissed: double precision
     totalDistance: double precision
     bonusEarned: double precision
+    blacklistCoinEvents: text[]
 
 
   default:
@@ -194,6 +206,8 @@ DriverStats:
     favRiderCount: "0"
     validDriverCancellationTagCount: "0"
     validCustomerCancellationTagCount: "0"
+    onlineDuration: "0"
+    blacklistCoinEvents: "'{}'"
 
   extraOperations:
     - EXTRA_QUERY_FILE

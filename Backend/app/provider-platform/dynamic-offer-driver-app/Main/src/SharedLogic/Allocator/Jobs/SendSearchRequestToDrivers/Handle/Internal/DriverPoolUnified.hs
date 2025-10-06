@@ -208,6 +208,8 @@ prepareDriverPoolBatch cityServiceTiers merchant driverPoolCfg searchReq searchT
                     isRental = isRentalTrip searchTry.tripCategory,
                     isInterCity = isInterCityTrip searchTry.tripCategory,
                     onlinePayment = merchant.onlinePayment,
+                    rideFare = Just searchTry.baseFare, -- TODO: add walletBalance check
+                    enforceSufficientDriverBalance = fromMaybe False merchant.enforceSufficientDriverBalance,
                     ..
                   }
           calculateDriverPoolWithActualDist driverPoolReq poolType currentSearchInfo batchNum
@@ -334,6 +336,8 @@ prepareDriverPoolBatch cityServiceTiers merchant driverPoolCfg searchReq searchT
                         isRental = isRentalTrip searchTry.tripCategory,
                         isInterCity = isInterCityTrip searchTry.tripCategory,
                         onlinePayment = merchant.onlinePayment,
+                        rideFare = Just searchTry.baseFare,
+                        enforceSufficientDriverBalance = fromMaybe False merchant.enforceSufficientDriverBalance,
                         ..
                       }
               calculateDriverCurrentlyOnRideWithActualDist driverPoolReq poolType (toInteger batchNum') currentSearchInfo
@@ -481,6 +485,8 @@ assignDriverGoHomeTags pool searchReq searchTry tripQuoteDetails driverPoolCfg m
                   isInterCity = isInterCityTrip searchTry.tripCategory,
                   onlinePayment = merchant.onlinePayment,
                   configsInExperimentVersions = searchReq.configInExperimentVersions,
+                  rideFare = Just searchTry.baseFare,
+                  enforceSufficientDriverBalance = fromMaybe False merchant.enforceSufficientDriverBalance,
                   ..
                 }
         filterOutGoHomeDriversAccordingToHomeLocation (map (convertDriverPoolWithActualDistResultToNearestGoHomeDriversResult False True) pool) goHomeReq merchantOpCityId

@@ -3,10 +3,11 @@
 
 module Storage.Queries.JourneyLegExtra where
 
+import Control.Monad.Extra (mapMaybeM)
 import Domain.Types.FRFSRouteDetails
 import qualified Domain.Types.Journey as Journey
-import Domain.Types.JourneyLeg
 import qualified Domain.Types.JourneyLeg as JL
+import qualified Domain.Types.JourneyLegMapping as DJLM
 import qualified Domain.Types.RouteDetails as RouteDetails
 import Kernel.Beam.Functions
 import Kernel.External.Encryption
@@ -18,73 +19,90 @@ import qualified Kernel.Types.Id
 import Kernel.Utils.Common (CacheFlow, EsqDBFlow, MonadFlow, fromMaybeM, getCurrentTime)
 import qualified Sequelize as Se
 import qualified Storage.Beam.JourneyLeg as Beam
+import qualified Storage.Queries.JourneyLegMapping as QJourneyLegMapping
 import Storage.Queries.OrphanInstances.JourneyLeg
 import qualified Storage.Queries.RouteDetails as RD
 
 -- Extra code goes here --
-create' :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Domain.Types.JourneyLeg.JourneyLeg -> m ())
+create' :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (JL.JourneyLeg -> m ())
 create' = createWithKV
 
-create :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Domain.Types.JourneyLeg.JourneyLeg -> m ())
+create :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (JL.JourneyLeg -> m ())
 create journeyLeg = do
   forM_ (JL.routeDetails journeyLeg) $ \routeDetail -> do
-    _now <- getCurrentTime
-    newId <- Common.generateGUID
-    let fromStopDetails' = fromMaybe (MultiModalStopDetails Nothing Nothing Nothing Nothing) (routeDetail.fromStopDetails)
-        toStopDetails' = fromMaybe (MultiModalStopDetails Nothing Nothing Nothing Nothing) (routeDetail.toStopDetails)
-    let routeDetails =
-          RouteDetails.RouteDetails
-            { routeGtfsId = routeDetail.gtfsId <&> gtfsIdtoDomainCode,
-              id = newId,
-              routeLongName = routeDetail.longName,
-              routeShortName = routeDetail.shortName,
-              routeColorName = routeDetail.shortName,
-              routeColorCode = routeDetail.color,
-              frequency = Nothing,
-              alternateShortNames = Just routeDetail.alternateShortNames,
-              journeyLegId = journeyLeg.id,
-              agencyGtfsId = routeDetail.gtfsId <&> gtfsIdtoDomainCode,
-              agencyName = routeDetail.longName,
-              subLegOrder = Just routeDetail.subLegOrder,
-              --fromStopDetails:
-              fromStopCode = fromStopDetails'.stopCode,
-              fromStopName = fromStopDetails'.name,
-              fromStopGtfsId = fromStopDetails'.gtfsId <&> gtfsIdtoDomainCode,
-              fromStopPlatformCode = fromStopDetails'.platformCode,
-              --toStopDetails:
-              toStopCode = toStopDetails'.stopCode,
-              toStopName = toStopDetails'.name,
-              toStopGtfsId = toStopDetails'.gtfsId <&> gtfsIdtoDomainCode,
-              toStopPlatformCode = toStopDetails'.platformCode,
-              --Times --
-              fromArrivalTime = routeDetail.fromArrivalTime,
-              fromDepartureTime = routeDetail.fromDepartureTime,
-              toArrivalTime = routeDetail.toArrivalTime,
-              toDepartureTime = routeDetail.toDepartureTime,
-              --startLocation:
-              startLocationLat = Just routeDetail.startLocation.latLng.latitude,
-              startLocationLon = Just routeDetail.startLocation.latLng.longitude,
-              --endLocation:
-              endLocationLat = Just routeDetail.endLocation.latLng.latitude,
-              endLocationLon = Just routeDetail.endLocation.latLng.longitude,
-              merchantId = journeyLeg.merchantId,
-              merchantOperatingCityId = journeyLeg.merchantOperatingCityId,
-              createdAt = _now,
-              updatedAt = _now
-            }
-    RD.create routeDetails
-
+    RD.create routeDetail
   create' journeyLeg
+  journeyLegMapping <- mkJourneyLegMapping
+  QJourneyLegMapping.create journeyLegMapping
+  where
+    mkJourneyLegMapping = do
+      journeyLegMappingId <- Common.generateGUID
+      return $
+        DJLM.JourneyLegMapping
+          { id = journeyLegMappingId,
+            journeyLegId = journeyLeg.id,
+            journeyId = journeyLeg.journeyId,
+            sequenceNumber = journeyLeg.sequenceNumber,
+            isDeleted = fromMaybe False journeyLeg.isDeleted,
+            merchantId = journeyLeg.merchantId,
+            merchantOperatingCityId = journeyLeg.merchantOperatingCityId,
+            createdAt = journeyLeg.createdAt,
+            updatedAt = journeyLeg.updatedAt
+          }
 
-getJourneyLegs :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => Kernel.Types.Id.Id Journey.Journey -> m [Domain.Types.JourneyLeg.JourneyLeg]
+findByGroupCode :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Prelude.Maybe Kernel.Prelude.Text -> m [JL.JourneyLeg])
+findByGroupCode groupCode = do
+  if isNothing groupCode
+    then return []
+    else findAllWithKV [Se.Is Beam.groupCode $ Se.Eq groupCode]
+
+-- TODO :: Remove Nothing, Post Release and Adoption
+getJourneyLegs :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => Kernel.Types.Id.Id Journey.Journey -> m [JL.JourneyLeg]
 getJourneyLegs journeyId = do
-  findAllWithOptionsKV
-    [ Se.And
-        [ Se.Is Beam.journeyId $ Se.Eq (Kernel.Types.Id.getId journeyId),
-          Se.Or
-            [Se.Is Beam.isDeleted $ Se.Eq (Just False), Se.Is Beam.isDeleted $ Se.Eq Nothing]
+  journeyLegMappings <- QJourneyLegMapping.findAllLegsMappingByJourneyId Nothing Nothing journeyId False
+  if not (null journeyLegMappings)
+    then do
+      mapMaybeM
+        ( \journeyLegMapping -> do
+            findOneWithKV [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId journeyLegMapping.journeyLegId)]
+              >>= \case
+                Just leg -> return $ Just leg
+                Nothing -> return Nothing
+        )
+        journeyLegMappings
+    else do
+      findAllWithOptionsKV
+        [ Se.And
+            [ Se.Is Beam.journeyId $ Se.Eq (Just $ Kernel.Types.Id.getId journeyId),
+              Se.Or
+                [Se.Is Beam.isDeleted $ Se.Eq (Just False), Se.Is Beam.isDeleted $ Se.Eq Nothing]
+            ]
         ]
-    ]
-    (Se.Asc Beam.sequenceNumber)
-    Nothing
-    Nothing
+        (Se.Asc Beam.sequenceNumber)
+        Nothing
+        Nothing
+
+getJourneyLeg ::
+  (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
+  Kernel.Types.Id.Id Journey.Journey ->
+  Kernel.Prelude.Int ->
+  m JL.JourneyLeg
+getJourneyLeg journeyId sequenceNumber = do
+  findByJourneyIdAndSequenceNumber journeyId sequenceNumber >>= fromMaybeM (InvalidRequest $ "Journey Leg not found with journeyId: " <> show journeyId <> " and sequenceNumber: " <> show sequenceNumber)
+
+findByJourneyIdAndSequenceNumber ::
+  (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
+  (Kernel.Types.Id.Id Journey.Journey -> Kernel.Prelude.Int -> m (Maybe JL.JourneyLeg))
+findByJourneyIdAndSequenceNumber journeyId sequenceNumber = do
+  mbJourneyLegMapping <- QJourneyLegMapping.findByJourneyIdAndSequenceNumber journeyId sequenceNumber False
+  case mbJourneyLegMapping of
+    Just journeyLegMapping -> findOneWithKV [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId journeyLegMapping.journeyLegId)]
+    Nothing ->
+      findOneWithKV
+        [ Se.And
+            [ Se.Is Beam.journeyId $ Se.Eq (Just $ Kernel.Types.Id.getId journeyId),
+              Se.Is Beam.sequenceNumber $ Se.Eq (Just sequenceNumber),
+              Se.Or
+                [Se.Is Beam.isDeleted $ Se.Eq (Just False), Se.Is Beam.isDeleted $ Se.Eq Nothing]
+            ]
+        ]

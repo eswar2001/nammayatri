@@ -22,6 +22,7 @@ import qualified Domain.Types as DTC
 import qualified Domain.Types.Booking as SRB
 import qualified Domain.Types.BookingCancellationReason as SBCR
 import qualified Domain.Types.ConditionalCharges as DCC
+import qualified Domain.Types.Estimate as DEst
 import qualified Domain.Types.FarePolicy as DFP
 import qualified Domain.Types.Merchant as DMerc
 import qualified Domain.Types.Person as DP
@@ -42,6 +43,7 @@ import SharedLogic.Allocator.Jobs.SendSearchRequestToDrivers (sendSearchRequestT
 import SharedLogic.Booking
 import qualified SharedLogic.CallBAP as BP
 import SharedLogic.CallBAPInternal
+import qualified SharedLogic.CallInternalMLPricing as ML
 import SharedLogic.DriverPool
 import qualified SharedLogic.DriverPool as DP
 import qualified SharedLogic.DriverPool.Types as SDT
@@ -91,7 +93,8 @@ reAllocateBookingIfPossible ::
     HasKafkaProducer r,
     HasField "enableAPILatencyLogging" r Bool,
     HasField "enableAPIPrometheusMetricLogging" r Bool,
-    HasFlowEnv m r '["appBackendBapInternal" ::: AppBackendBapInternal]
+    HasFlowEnv m r '["appBackendBapInternal" ::: AppBackendBapInternal],
+    HasFlowEnv m r '["mlPricingInternal" ::: ML.MLPricingInternal]
   ) =>
   Bool ->
   Bool ->
@@ -110,6 +113,7 @@ reAllocateBookingIfPossible isValueAddNP userReallocationEnabled merchant bookin
     DTC.Rental DTC.OnDemandStaticOffer -> reallocateStaticOffer
     DTC.InterCity DTC.OneWayOnDemandStaticOffer _ -> reallocateStaticOffer
     DTC.Delivery DTC.OneWayOnDemandDynamicOffer -> reallocateDynamicOffer
+    DTC.OneWay DTC.OneWayOnDemandStaticOffer -> reallocateStaticOffer
     _ -> cancelRideTransactionForNonReallocation Nothing Nothing
   where
     reallocateDynamicOffer = do
@@ -186,6 +190,19 @@ reAllocateBookingIfPossible isValueAddNP userReallocationEnabled merchant bookin
             else cancelRideTransactionForNonReallocation Nothing (Just estimateId)
         Left _ -> cancelRideTransactionForNonReallocation Nothing (Just estimateId)
 
+    createTripQuoteDetails ::
+      ( MonadFlow m,
+        CacheFlow m r,
+        EsqDBFlow m r,
+        EsqDBReplicaFlow m r,
+        HasFlowEnv m r '["mlPricingInternal" ::: ML.MLPricingInternal],
+        HasFlowEnv m r '["internalEndPointHashMap" ::: HM.HashMap BaseUrl BaseUrl]
+      ) =>
+      DSR.SearchRequest ->
+      DST.SearchTry ->
+      Id DEst.Estimate ->
+      [DCC.ConditionalCharges] ->
+      m [SDT.TripQuoteDetail]
     createTripQuoteDetails searchReq searchTry estimateId conditionalCharges = do
       if length searchTry.estimateIds > 1
         then traverse (createQuoteDetails searchReq searchTry conditionalCharges) searchTry.estimateIds
@@ -208,7 +225,9 @@ reAllocateBookingIfPossible isValueAddNP userReallocationEnabled merchant bookin
       ( MonadFlow m,
         CacheFlow m r,
         EsqDBFlow m r,
-        EsqDBReplicaFlow m r
+        EsqDBReplicaFlow m r,
+        HasFlowEnv m r '["mlPricingInternal" ::: ML.MLPricingInternal],
+        HasFlowEnv m r '["internalEndPointHashMap" ::: HM.HashMap BaseUrl BaseUrl]
       ) =>
       DSR.SearchRequest ->
       DST.SearchTry ->
@@ -217,7 +236,7 @@ reAllocateBookingIfPossible isValueAddNP userReallocationEnabled merchant bookin
       m SDT.TripQuoteDetail
     createQuoteDetails searchReq searchTry conditionalCharges estimateId = do
       estimate <- QEst.findById (Id estimateId) >>= fromMaybeM (EstimateNotFound estimateId)
-      let mbDriverExtraFeeBounds = ((,) <$> estimate.estimatedDistance <*> (join $ (.driverExtraFeeBounds) <$> estimate.farePolicy)) <&> \(dist, driverExtraFeeBounds) -> DFP.findDriverExtraFeeBoundsByDistance dist driverExtraFeeBounds
+      let mbDriverExtraFeeBounds = if isJust estimate.driverExtraFeeBounds then estimate.driverExtraFeeBounds else ((,) <$> estimate.estimatedDistance <*> (join $ (.driverExtraFeeBounds) <$> estimate.farePolicy)) <&> \(dist, driverExtraFeeBounds) -> DFP.findDriverExtraFeeBoundsByDistance dist driverExtraFeeBounds
           driverPickUpCharge = join $ USRD.extractDriverPickupCharges <$> ((.farePolicyDetails) <$> estimate.farePolicy)
           driverParkingCharge = join $ (.parkingCharge) <$> estimate.farePolicy
       buildTripQuoteDetail searchReq estimate.tripCategory estimate.vehicleServiceTier estimate.vehicleServiceTierName (estimate.minFare + fromMaybe 0 searchTry.customerExtraFee + fromMaybe 0 searchTry.petCharges) (Just booking.isDashboardRequest) (mbDriverExtraFeeBounds <&> (.minFee)) (mbDriverExtraFeeBounds <&> (.maxFee)) (mbDriverExtraFeeBounds <&> (.stepFee)) (mbDriverExtraFeeBounds <&> (.defaultStepFee)) driverPickUpCharge driverParkingCharge estimate.id.getId conditionalCharges False ((.congestionCharge) =<< estimate.fareParams) searchTry.petCharges (estimate.fareParams >>= (.priorityCharges))
@@ -271,3 +290,6 @@ reAllocateBookingIfPossible isValueAddNP userReallocationEnabled merchant bookin
             merchantOperatingCityId = Just newBooking.merchantOperatingCityId,
             ..
           }
+
+mkCancelSearchInitLockKey :: Text -> Text
+mkCancelSearchInitLockKey transactionId = "cancelSearchInit:" <> transactionId

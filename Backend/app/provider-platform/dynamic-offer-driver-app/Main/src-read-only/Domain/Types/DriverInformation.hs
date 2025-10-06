@@ -5,6 +5,7 @@ module Domain.Types.DriverInformation where
 
 import Data.Aeson
 import qualified Domain.Types.Common
+import qualified Domain.Types.DriverFlowStatus
 import qualified Domain.Types.Extra.Plan
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.MerchantOperatingCity
@@ -47,6 +48,7 @@ data DriverInformationE e = DriverInformation
     dailyCancellationRateBlockingCooldown :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     dlNumber :: Kernel.Prelude.Maybe (Kernel.External.Encryption.EncryptedHashedField e Kernel.Prelude.Text),
     driverDob :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
+    driverFlowStatus :: Kernel.Prelude.Maybe Domain.Types.DriverFlowStatus.DriverFlowStatus,
     driverId :: Kernel.Types.Id.Id Domain.Types.Person.Person,
     driverTripEndLocation :: Kernel.Prelude.Maybe Kernel.External.Maps.LatLong,
     drunkAndDriveViolationCount :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
@@ -59,17 +61,21 @@ data DriverInformationE e = DriverInformation
     isBlockedForReferralPayout :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     isInteroperable :: Kernel.Prelude.Bool,
     isPetModeEnabled :: Kernel.Prelude.Bool,
+    isSilentModeEnabled :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     isSpecialLocWarrior :: Kernel.Prelude.Bool,
+    isTTSEnabled :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     issueBreachCooldownTimes :: Kernel.Prelude.Maybe [SharedLogic.BehaviourManagement.IssueBreach.IssueBreachCooldownTime],
     lastACStatusCheckedAt :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     lastEnabledOn :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     latestScheduledBooking :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     latestScheduledPickup :: Kernel.Prelude.Maybe Kernel.External.Maps.LatLong,
+    maxPickupRadius :: Kernel.Prelude.Maybe Kernel.Types.Common.Meters,
     mode :: Kernel.Prelude.Maybe Domain.Types.Common.DriverMode,
     numOfLocks :: Kernel.Prelude.Int,
     onRide :: Kernel.Prelude.Bool,
     onRideTripCategory :: Kernel.Prelude.Maybe Domain.Types.Common.TripCategory,
     onboardingVehicleCategory :: Kernel.Prelude.Maybe Domain.Types.VehicleCategory.VehicleCategory,
+    onlineDurationRefreshedAt :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     panNumber :: Kernel.Prelude.Maybe (Kernel.External.Encryption.EncryptedHashedField e Kernel.Prelude.Text),
     payerVpa :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     paymentPending :: Kernel.Prelude.Bool,
@@ -78,12 +84,15 @@ data DriverInformationE e = DriverInformation
     payoutVpa :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     payoutVpaBankAccount :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     payoutVpaStatus :: Kernel.Prelude.Maybe Domain.Types.DriverInformation.PayoutVpaStatus,
+    planExpiryDate :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     preferredPrimarySpecialLocId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Lib.Types.SpecialLocation.SpecialLocation),
-    preferredSecondarySpecialLocIds :: [Kernel.Types.Id.Id Lib.Types.SpecialLocation.SpecialLocation],
+    preferredSecondarySpecialLocIds :: [(Kernel.Types.Id.Id Lib.Types.SpecialLocation.SpecialLocation)],
+    prepaidSubscriptionBalance :: Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney,
     referralCode :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     referredByDriverId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person),
     referredByFleetOwnerId :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     referredByOperatorId :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
+    rideRequestVolume :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     servicesEnabledForSubscription :: [Domain.Types.Extra.Plan.ServiceNames],
     softBlockExpiryTime :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     softBlockReasonFlag :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
@@ -92,7 +101,10 @@ data DriverInformationE e = DriverInformation
     subscribed :: Kernel.Prelude.Bool,
     tollRelatedIssueCount :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     totalReferred :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
+    tripDistanceMaxThreshold :: Kernel.Prelude.Maybe Kernel.Types.Common.Meters,
+    tripDistanceMinThreshold :: Kernel.Prelude.Maybe Kernel.Types.Common.Meters,
     verified :: Kernel.Prelude.Bool,
+    walletBalance :: Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney,
     weeklyCancellationRateBlockingCooldown :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     merchantId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Merchant.Merchant),
     merchantOperatingCityId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity),
@@ -101,9 +113,9 @@ data DriverInformationE e = DriverInformation
   }
   deriving (Generic)
 
-type DriverInformation = DriverInformationE 'AsEncrypted
+type DriverInformation = DriverInformationE ('AsEncrypted)
 
-type DecryptedDriverInformation = DriverInformationE 'AsUnencrypted
+type DecryptedDriverInformation = DriverInformationE ('AsUnencrypted)
 
 instance EncryptedItem DriverInformation where
   type Unencrypted DriverInformation = (DecryptedDriverInformation, HashSalt)
@@ -137,6 +149,7 @@ instance EncryptedItem DriverInformation where
           dailyCancellationRateBlockingCooldown = dailyCancellationRateBlockingCooldown entity,
           dlNumber = dlNumber_,
           driverDob = driverDob entity,
+          driverFlowStatus = driverFlowStatus entity,
           driverId = driverId entity,
           driverTripEndLocation = driverTripEndLocation entity,
           drunkAndDriveViolationCount = drunkAndDriveViolationCount entity,
@@ -149,17 +162,21 @@ instance EncryptedItem DriverInformation where
           isBlockedForReferralPayout = isBlockedForReferralPayout entity,
           isInteroperable = isInteroperable entity,
           isPetModeEnabled = isPetModeEnabled entity,
+          isSilentModeEnabled = isSilentModeEnabled entity,
           isSpecialLocWarrior = isSpecialLocWarrior entity,
+          isTTSEnabled = isTTSEnabled entity,
           issueBreachCooldownTimes = issueBreachCooldownTimes entity,
           lastACStatusCheckedAt = lastACStatusCheckedAt entity,
           lastEnabledOn = lastEnabledOn entity,
           latestScheduledBooking = latestScheduledBooking entity,
           latestScheduledPickup = latestScheduledPickup entity,
+          maxPickupRadius = maxPickupRadius entity,
           mode = mode entity,
           numOfLocks = numOfLocks entity,
           onRide = onRide entity,
           onRideTripCategory = onRideTripCategory entity,
           onboardingVehicleCategory = onboardingVehicleCategory entity,
+          onlineDurationRefreshedAt = onlineDurationRefreshedAt entity,
           panNumber = panNumber_,
           payerVpa = payerVpa entity,
           paymentPending = paymentPending entity,
@@ -168,12 +185,15 @@ instance EncryptedItem DriverInformation where
           payoutVpa = payoutVpa entity,
           payoutVpaBankAccount = payoutVpaBankAccount entity,
           payoutVpaStatus = payoutVpaStatus entity,
+          planExpiryDate = planExpiryDate entity,
           preferredPrimarySpecialLocId = preferredPrimarySpecialLocId entity,
           preferredSecondarySpecialLocIds = preferredSecondarySpecialLocIds entity,
+          prepaidSubscriptionBalance = prepaidSubscriptionBalance entity,
           referralCode = referralCode entity,
           referredByDriverId = referredByDriverId entity,
           referredByFleetOwnerId = referredByFleetOwnerId entity,
           referredByOperatorId = referredByOperatorId entity,
+          rideRequestVolume = rideRequestVolume entity,
           servicesEnabledForSubscription = servicesEnabledForSubscription entity,
           softBlockExpiryTime = softBlockExpiryTime entity,
           softBlockReasonFlag = softBlockReasonFlag entity,
@@ -182,7 +202,10 @@ instance EncryptedItem DriverInformation where
           subscribed = subscribed entity,
           tollRelatedIssueCount = tollRelatedIssueCount entity,
           totalReferred = totalReferred entity,
+          tripDistanceMaxThreshold = tripDistanceMaxThreshold entity,
+          tripDistanceMinThreshold = tripDistanceMinThreshold entity,
           verified = verified entity,
+          walletBalance = walletBalance entity,
           weeklyCancellationRateBlockingCooldown = weeklyCancellationRateBlockingCooldown entity,
           merchantId = merchantId entity,
           merchantOperatingCityId = merchantOperatingCityId entity,
@@ -219,6 +242,7 @@ instance EncryptedItem DriverInformation where
             dailyCancellationRateBlockingCooldown = dailyCancellationRateBlockingCooldown entity,
             dlNumber = dlNumber_,
             driverDob = driverDob entity,
+            driverFlowStatus = driverFlowStatus entity,
             driverId = driverId entity,
             driverTripEndLocation = driverTripEndLocation entity,
             drunkAndDriveViolationCount = drunkAndDriveViolationCount entity,
@@ -231,17 +255,21 @@ instance EncryptedItem DriverInformation where
             isBlockedForReferralPayout = isBlockedForReferralPayout entity,
             isInteroperable = isInteroperable entity,
             isPetModeEnabled = isPetModeEnabled entity,
+            isSilentModeEnabled = isSilentModeEnabled entity,
             isSpecialLocWarrior = isSpecialLocWarrior entity,
+            isTTSEnabled = isTTSEnabled entity,
             issueBreachCooldownTimes = issueBreachCooldownTimes entity,
             lastACStatusCheckedAt = lastACStatusCheckedAt entity,
             lastEnabledOn = lastEnabledOn entity,
             latestScheduledBooking = latestScheduledBooking entity,
             latestScheduledPickup = latestScheduledPickup entity,
+            maxPickupRadius = maxPickupRadius entity,
             mode = mode entity,
             numOfLocks = numOfLocks entity,
             onRide = onRide entity,
             onRideTripCategory = onRideTripCategory entity,
             onboardingVehicleCategory = onboardingVehicleCategory entity,
+            onlineDurationRefreshedAt = onlineDurationRefreshedAt entity,
             panNumber = panNumber_,
             payerVpa = payerVpa entity,
             paymentPending = paymentPending entity,
@@ -250,12 +278,15 @@ instance EncryptedItem DriverInformation where
             payoutVpa = payoutVpa entity,
             payoutVpaBankAccount = payoutVpaBankAccount entity,
             payoutVpaStatus = payoutVpaStatus entity,
+            planExpiryDate = planExpiryDate entity,
             preferredPrimarySpecialLocId = preferredPrimarySpecialLocId entity,
             preferredSecondarySpecialLocIds = preferredSecondarySpecialLocIds entity,
+            prepaidSubscriptionBalance = prepaidSubscriptionBalance entity,
             referralCode = referralCode entity,
             referredByDriverId = referredByDriverId entity,
             referredByFleetOwnerId = referredByFleetOwnerId entity,
             referredByOperatorId = referredByOperatorId entity,
+            rideRequestVolume = rideRequestVolume entity,
             servicesEnabledForSubscription = servicesEnabledForSubscription entity,
             softBlockExpiryTime = softBlockExpiryTime entity,
             softBlockReasonFlag = softBlockReasonFlag entity,
@@ -264,7 +295,10 @@ instance EncryptedItem DriverInformation where
             subscribed = subscribed entity,
             tollRelatedIssueCount = tollRelatedIssueCount entity,
             totalReferred = totalReferred entity,
+            tripDistanceMaxThreshold = tripDistanceMaxThreshold entity,
+            tripDistanceMinThreshold = tripDistanceMinThreshold entity,
             verified = verified entity,
+            walletBalance = walletBalance entity,
             weeklyCancellationRateBlockingCooldown = weeklyCancellationRateBlockingCooldown entity,
             merchantId = merchantId entity,
             merchantOperatingCityId = merchantOperatingCityId entity,
@@ -317,10 +351,10 @@ data DriverSummary = DriverSummary
 
 data PayoutVpaStatus = VIA_WEBHOOK | MANUALLY_ADDED | VERIFIED_BY_USER deriving (Eq, Ord, Show, Read, Generic, ToJSON, FromJSON, ToSchema)
 
-$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''AirConditionedRestrictionType)
+$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList (''AirConditionedRestrictionType))
 
-$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''DriverAutoPayStatus)
+$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList (''DriverAutoPayStatus))
 
-$(mkHttpInstancesForEnum ''DriverAutoPayStatus)
+$(mkHttpInstancesForEnum (''DriverAutoPayStatus))
 
-$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''PayoutVpaStatus)
+$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList (''PayoutVpaStatus))

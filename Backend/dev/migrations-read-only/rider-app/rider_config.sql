@@ -340,3 +340,110 @@ ALTER TABLE atlas_app.rider_config ADD COLUMN filter_walk_and_unspecified_transi
 ------- SQL updates -------
 
 ALTER TABLE atlas_app.rider_config ADD COLUMN ny_regular_master_job_next_run_offset_seconds integer ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN enable_igm_issue_flow boolean  default false;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN refund_buffer_ttl_sec integer ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN refund_status_update_retries integer ;
+ALTER TABLE atlas_app.rider_config ADD COLUMN refund_status_update_interval integer ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN boost_search_pre_selection_service_tier_config json ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN bus_booking_allowed boolean ;
+ALTER TABLE atlas_app.rider_config ADD COLUMN domain_route_calculation_enabled_modes text []  default '{Bus, Subway}';
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN upcoming_bus_threshold_sec integer  default 3600;
+ALTER TABLE atlas_app.rider_config ADD COLUMN bus_tier_sorting_config json ;
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN source_of_service_tier text default 'NANDI';
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN track_vehicle_key_expiry integer  default 900;
+ALTER TABLE atlas_app.rider_config ADD COLUMN distance_to_nearest_stop_threshold integer  default 200;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN bus_scan_route_calculation_enabled_modes boolean  default true;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN validate_set_onboarding_vehicle_request boolean  default false;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN service_tier_relationship_cfg json ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN subway_transit_types text []  default '{FIRST_CLASS,SECOND_CLASS}';
+ALTER TABLE atlas_app.rider_config ADD COLUMN bus_transit_types text []  default '{ORDINARY,NON_AC,SPECIAL,EXECUTIVE,EXPRESS,AC}';
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN journey_options_sorting_type text ;
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN update_ticket_validity_in_seconds_post_set_onboarding integer ;
+ALTER TABLE atlas_app.rider_config ADD COLUMN domain_public_transport_data_version integer ;
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN enable_ride_end_offers boolean ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.rider_config ADD COLUMN metrics_blacklist_patterns text [] ;

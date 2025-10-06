@@ -112,7 +112,7 @@ data FleetRegisterReq = FleetRegisterReq
   }
   deriving (Generic, ToJSON, FromJSON, ToSchema)
 
-data FleetType = RENTAL_FLEET | NORMAL_FLEET | BUSINESS_FLEET
+data FleetType = RENTAL_FLEET | NORMAL_FLEET | BUSINESS_FLEET | BOAT_FLEET
   deriving (Generic, ToJSON, FromJSON, ToSchema)
 
 login ::
@@ -149,6 +149,9 @@ login LoginReq {..} = do
               defaultCityPresent = elem merchant.defaultOperatingCity merchantWithCityList
               city' = if defaultCityPresent then merchant.defaultOperatingCity else head merchantWithCityList
           pure (merchant, city')
+  -- Remove existing registration token from cache and DB if found
+  Auth.cleanCachedTokensByMerchantIdAndCity person.id merchant'.id city'
+  QR.deleteAllByPersonIdAndMerchantIdAndCity person.id merchant'.id city'
   generateLoginRes person merchant' otp city'
 
 makeEmailHitsCountKey :: Maybe Text -> Text
@@ -322,12 +325,14 @@ registerFleetOwner ::
   Id DP.Person ->
   m APISuccess
 registerFleetOwner req personId = do
-  runRequestValidation validateFleetOwner req
-  unlessM (isNothing <$> QP.findByMobileNumber req.mobileNumber req.mobileCountryCode) $ throwError (InvalidRequest "Phone already registered")
-  fleetOwnerRole <- QRole.findByDashboardAccessType (getFleetRole req.fleetType) >>= fromMaybeM (RoleDoesNotExist (show $ getFleetRole req.fleetType))
   merchant <-
     QMerchant.findByShortId req.merchantId
       >>= fromMaybeM (MerchantDoesNotExist req.merchantId.getShortId)
+  let validateFn = if fromMaybe True merchant.isStrongNameCheckRequired then validateFleetOwner else weakValidateFleetOwner
+  runRequestValidation validateFn req
+  unlessM (isNothing <$> QP.findByMobileNumber req.mobileNumber req.mobileCountryCode) $ throwError (InvalidRequest "Phone already registered")
+  fleetOwnerRole <- QRole.findByDashboardAccessType (getFleetRole req.fleetType) >>= fromMaybeM (RoleDoesNotExist (show $ getFleetRole req.fleetType))
+
   merchantServerAccessCheck merchant
   createFleetOwnerDashboardOnly fleetOwnerRole merchant req personId
   return Success
@@ -336,6 +341,7 @@ registerFleetOwner req personId = do
       Just RENTAL_FLEET -> RENTAL_FLEET_OWNER
       Just NORMAL_FLEET -> FLEET_OWNER
       Just BUSINESS_FLEET -> FLEET_OWNER
+      Just BOAT_FLEET -> FLEET_OWNER
       Nothing -> FLEET_OWNER
 
 buildFleetOwner :: (EncFlow m r) => FleetRegisterReq -> Id DP.Person -> Id DRole.Role -> DRole.DashboardAccessType -> m PT.Person
@@ -361,7 +367,9 @@ buildFleetOwner req pid roleId dashboardAccessType = do
         rejectionReason = Nothing,
         rejectedAt = Nothing,
         dashboardType = DEFAULT_DASHBOARD,
-        passwordUpdatedAt = Just now
+        passwordUpdatedAt = Just now,
+        approvedBy = Nothing,
+        rejectedBy = Nothing
       }
 
 validateFleetOwner :: Validate FleetRegisterReq
@@ -369,6 +377,14 @@ validateFleetOwner FleetRegisterReq {..} =
   sequenceA_
     [ validateField "firstName" firstName $ MinLength 3 `And` P.name,
       validateField "lastName" lastName $ NotEmpty `And` P.name,
+      validateField "mobileNumber" mobileNumber P.mobileNumber,
+      validateField "mobileCountryCode" mobileCountryCode P.mobileCountryCode
+    ]
+
+weakValidateFleetOwner :: Validate FleetRegisterReq
+weakValidateFleetOwner FleetRegisterReq {..} =
+  sequenceA_
+    [ validateField "firstName" firstName $ MinLength 3 `And` P.nameWithNumber,
       validateField "mobileNumber" mobileNumber P.mobileNumber,
       validateField "mobileCountryCode" mobileCountryCode P.mobileCountryCode
     ]

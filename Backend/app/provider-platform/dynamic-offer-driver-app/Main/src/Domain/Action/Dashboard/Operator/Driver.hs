@@ -20,6 +20,7 @@ import qualified Domain.Action.Dashboard.Fleet.Driver as DFDriver
 import Domain.Action.Dashboard.Fleet.Onboarding (castStatusRes)
 import Domain.Action.Dashboard.RideBooking.Driver
 import qualified Domain.Action.Dashboard.RideBooking.DriverRegistration as DRBReg
+import qualified Domain.Action.Internal.DriverMode as DDriverMode
 import qualified Domain.Action.UI.DriverOnboarding.Referral as DOR
 import qualified Domain.Action.UI.DriverOnboarding.VehicleRegistrationCertificate as DomainRC
 import qualified Domain.Action.UI.OperationHub as Domain
@@ -142,14 +143,7 @@ postDriverOperatorRespondHubRequest merchantShortId opCity req = withLogTag ("op
       person <- runInReplica $ QPerson.findById personId >>= fromMaybeM (PersonNotFound personId.getId)
       let language = fromMaybe merchantOpCity.language person.language
       fork "enable driver after inspection" $ do
-        (driverDocuments, vehicleDocumentsUnverified) <- SStatus.fetchDriverVehicleDocuments person merchantOpCity transporterConfig language (Just True) (Just opHubReq.registrationNo)
-        vehicleDoc <-
-          find (\doc -> doc.registrationNo == opHubReq.registrationNo) vehicleDocumentsUnverified
-            & fromMaybeM (InvalidRequest $ "Vehicle doc not found for driverId " <> personId.getId <> " with registartionNo " <> opHubReq.registrationNo)
-        let makeSelfieAadhaarPanMandatory = Nothing
-        allVehicleDocsVerified <- SStatus.checkAllVehicleDocsVerified merchantOpCity.id vehicleDoc makeSelfieAadhaarPanMandatory
-        allDriverDocsVerified <- SStatus.checkAllDriverDocsVerified merchantOpCity.id driverDocuments vehicleDoc makeSelfieAadhaarPanMandatory
-        let allDriverVehicleDocsVerified = allVehicleDocsVerified && allDriverDocsVerified
+        allDriverVehicleDocsVerified <- SStatus.checkAllDriverVehicleDocsVerified person merchantOpCity transporterConfig language opHubReq.registrationNo
         when allDriverVehicleDocsVerified $ do
           QVRC.updateApproved (Just True) rc.id
           void $ postDriverEnable merchantShortId opCity $ cast @DP.Person @Common.Driver personId
@@ -157,7 +151,7 @@ postDriverOperatorRespondHubRequest merchantShortId opCity req = withLogTag ("op
         void $ SQOHR.updateStatusWithDetails reqUpdatedStatus (Just req.remarks) (Just now) (Just (Kernel.Types.Id.Id req.operatorId)) (Kernel.Types.Id.Id req.operationHubRequestId)
         mbVehicle <- QVehicle.findById personId
         when (isNothing mbVehicle && allDriverVehicleDocsVerified) $
-          void $ try @_ @SomeException (SStatus.activateRCAutomatically personId merchantOpCity vehicleDoc.registrationNo)
+          void $ try @_ @SomeException (SStatus.activateRCAutomatically personId merchantOpCity opHubReq.registrationNo)
   pure Success
 
 opsHubRequestLockKey :: Text -> Text
@@ -223,9 +217,10 @@ getDriverOperatorList ::
   Kernel.Prelude.Maybe Kernel.Prelude.Int ->
   Kernel.Prelude.Maybe Kernel.Prelude.Text ->
   Kernel.Prelude.Maybe Kernel.Prelude.Text ->
+  Kernel.Prelude.Maybe Kernel.Prelude.Bool ->
   Kernel.Prelude.Text ->
   Environment.Flow API.Types.ProviderPlatform.Operator.Driver.DriverInfoResp
-getDriverOperatorList _merchantShortId _opCity mbIsActive mbLimit mbOffset mbVehicleNo mbSearchString requestorId = do
+getDriverOperatorList _merchantShortId _opCity mbIsActive mbLimit mbOffset mbVehicleNo mbSearchString onlyMandatoryDocs requestorId = do
   requestor <- QPerson.findById (Id requestorId) >>= fromMaybeM (PersonNotFound requestorId)
   unless (requestor.role == DP.OPERATOR) $
     Kernel.Utils.Common.throwError (InvalidRequest "Requestor role is not OPERATOR")
@@ -289,9 +284,10 @@ getDriverOperatorList _merchantShortId _opCity mbIsActive mbLimit mbOffset mbVeh
       driverImages <- IQuery.findAllByPersonId transporterConfig driverId
       let driverImagesInfo = IQuery.DriverImagesInfo {driverId, merchantOperatingCity = merchantOpCity, driverImages, transporterConfig, now}
       driverInfo <- QDI.findById driverId >>= fromMaybeM DriverInfoNotFound
+      let shouldActivateRc = False
       statusRes <-
         castStatusRes
-          <$> SStatus.statusHandler' driverImagesInfo Nothing Nothing Nothing Nothing Nothing (Just True) -- FXME: Need to change
+          <$> SStatus.statusHandler' (Just person) driverImagesInfo Nothing Nothing Nothing Nothing Nothing (Just True) shouldActivateRc onlyMandatoryDocs -- FIXME: Need to change
       pure $
         API.Types.ProviderPlatform.Operator.Driver.DriverInfo
           { driverId = cast drvOpAsn.driverId,
@@ -365,13 +361,14 @@ postDriverOperatorVerifyJoiningOtp merchantShortId opCity mbAuthId requestorId r
 
   merchant <- findMerchantByShortId merchantShortId
   merchantOpCityId <- CQMOC.getMerchantOpCityId Nothing merchant (Just opCity)
+  transporterConfig <- findByMerchantOpCityId merchantOpCityId Nothing >>= fromMaybeM (TransporterConfigNotFound merchantOpCityId.getId)
   mobileNumberHash <- getDbHash req.mobileNumber
   person <- B.runInReplica $ QP.findByMobileNumberAndMerchantAndRole req.mobileCountryCode mobileNumberHash merchant.id DP.DRIVER >>= fromMaybeM (PersonNotFound req.mobileNumber)
   case mbAuthId of
     Just authId -> do
       smsCfg <- asks (.smsCfg)
 
-      SA.endDriverAssociationsIfAllowed merchant merchantOpCityId person
+      SA.endDriverAssociationsIfAllowed merchant merchantOpCityId transporterConfig person
 
       deviceToken <- fromMaybeM (DeviceTokenNotFound) $ req.deviceToken
       let regId = Id authId :: Id SR.RegistrationToken
@@ -384,11 +381,7 @@ postDriverOperatorVerifyJoiningOtp merchantShortId opCity mbAuthId requestorId r
               whatsappNotificationEnroll = Nothing
             }
 
-      checkAssocOperator <- B.runInReplica $ QDOA.findByDriverIdAndOperatorId res.person.id operator.id True
-      when (isJust checkAssocOperator) $ throwError (InvalidRequest "Driver already associated with operator")
-
-      assoc <- SA.makeDriverOperatorAssociation merchant.id merchantOpCityId res.person.id operator.id.getId (DomainRC.convertTextToUTC (Just "2099-12-12"))
-      QDOA.create assoc
+      verifyAndAssociateDriverWithOperator merchant merchantOpCityId operator res.person (transporterConfig.allowCacheDriverFlowStatus == Just True)
 
       DOR.makeDriverReferredByOperator merchantOpCityId person.id operator.id
 
@@ -406,14 +399,25 @@ postDriverOperatorVerifyJoiningOtp merchantShortId opCity mbAuthId requestorId r
       let key = makeOperatorDriverOtpKey (req.mobileCountryCode <> req.mobileNumber)
       otp <- Redis.get key >>= fromMaybeM OtpNotFound
       when (otp /= req.otp) $ throwError InvalidOtp
-      checkAssocOperator <- B.runInReplica $ QDOA.findByDriverIdAndOperatorId person.id operator.id True
-      when (isJust checkAssocOperator) $ throwError (InvalidRequest "Driver already associated with operator")
 
-      SA.endDriverAssociationsIfAllowed merchant merchantOpCityId person
+      SA.endDriverAssociationsIfAllowed merchant merchantOpCityId transporterConfig person
+
+      verifyAndAssociateDriverWithOperator merchant merchantOpCityId operator person (transporterConfig.allowCacheDriverFlowStatus == Just True)
+
+  pure Success
+  where
+    verifyAndAssociateDriverWithOperator merchant merchantOpCityId operator person allowCache = do
+      checkAssocOperator <-
+        B.runInReplica $
+          QDOA.findByDriverIdAndOperatorId person.id operator.id True
+      when (isJust checkAssocOperator) $
+        throwError (InvalidRequest "Driver already associated with operator")
 
       assoc <- SA.makeDriverOperatorAssociation merchant.id merchantOpCityId person.id operator.id.getId (DomainRC.convertTextToUTC (Just "2099-12-12"))
       QDOA.create assoc
-  pure Success
+      when allowCache $ do
+        driverInfo <- QDI.findById person.id >>= fromMaybeM (DriverNotFound person.id.getId)
+        DDriverMode.incrementFleetOperatorStatusKeyForDriver DP.OPERATOR operator.id.getId driverInfo.driverFlowStatus
 
 makeOperatorDriverOtpKey :: Text -> Text
 makeOperatorDriverOtpKey phoneNo = "Operator:Driver:PhoneNo" <> phoneNo

@@ -14,19 +14,21 @@
 
 module SharedLogic.Scheduler.Jobs.CheckMultimodalConfirmFail where
 
-import Domain.Action.UI.FRFSTicketService as FRFSTicketService
-import qualified Domain.Types.FRFSTicketBooking as DFRFSTicketBooking
+import qualified Domain.Types.FRFSTicketBookingPayment as DFRFSTicketBookingPayment
+import qualified Domain.Types.FRFSTicketBookingStatus as DFRFSTicketBooking
 import Kernel.External.Types (SchedulerFlow, ServiceFlow)
 import Kernel.Prelude
 import Kernel.Storage.Esqueleto.Config (EsqDBReplicaFlow)
 import Kernel.Types.Error
 import Kernel.Utils.Common
 import Lib.Scheduler
+import SharedLogic.FRFSUtils as FRFSUtils
 import SharedLogic.JobScheduler
 import Storage.Beam.SchedulerJob ()
 import qualified Storage.CachedQueries.Merchant.RiderConfig as QRC
 import qualified Storage.Queries.FRFSTicket as QFRFSTicket
 import qualified Storage.Queries.FRFSTicketBooking as QFRFSTicketBooking
+import qualified Storage.Queries.FRFSTicketBookingPayment as QFRFSTicketBookingPayment
 import Tools.Error
 
 checkMultimodalConfirmFailJob ::
@@ -45,14 +47,17 @@ checkMultimodalConfirmFailJob Job {id, jobInfo} = withLogTag ("JobId-" <> id.get
       bookingId = jobData.bookingId
   booking <- QFRFSTicketBooking.findById bookingId >>= fromMaybeM (InvalidRequest $ "booking not found for id: " <> show bookingId)
   frfsTickets <- QFRFSTicket.findAllByTicketBookingId bookingId
-  if (booking.status == DFRFSTicketBooking.FAILED || null frfsTickets)
+
+  paymentBooking <- QFRFSTicketBookingPayment.findNewTBPByBookingId bookingId
+
+  let isPaymentInTerminalState = case paymentBooking of
+        Just pb -> pb.status == DFRFSTicketBookingPayment.SUCCESS || pb.status == DFRFSTicketBookingPayment.REFUND_PENDING
+        Nothing -> False
+
+  if ((booking.status == DFRFSTicketBooking.FAILED || null frfsTickets) && isPaymentInTerminalState)
     then do
-      journeyId <- booking.journeyId & fromMaybeM (InvalidRequest $ "journey not found for bookingId: " <> show bookingId)
-      allJourneyFrfsBookings <- QFRFSTicketBooking.findAllByJourneyId (Just journeyId)
-      let allMarked = all ((== DFRFSTicketBooking.REFUND_INITIATED) . (.status)) allJourneyFrfsBookings
       riderConfig <- QRC.findByMerchantOperatingCityId booking.merchantOperatingCityId Nothing >>= fromMaybeM (RiderConfigDoesNotExist booking.merchantOperatingCityId.getId)
-      unless allMarked $
-        when riderConfig.enableAutoJourneyRefund $
-          FRFSTicketService.markAllRefundBookings allJourneyFrfsBookings booking.riderId (Just journeyId)
+      when riderConfig.enableAutoJourneyRefund $
+        FRFSUtils.markAllRefundBookings booking booking.riderId
       return Complete
     else return Complete

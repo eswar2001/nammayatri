@@ -5,6 +5,7 @@ import qualified Domain.Types.BookingCancellationReason as SBCR
 import qualified Domain.Types.CancellationReason as SCR
 import qualified Domain.Types.Estimate as DE
 import qualified Domain.Types.Extra.Ride as DR
+import qualified Domain.Types.Journey as DJourney
 import qualified Domain.Types.JourneyLeg as DJourneyLeg
 import qualified Domain.Types.Merchant as DM
 import qualified Domain.Types.MerchantOperatingCity as DMOC
@@ -15,18 +16,20 @@ import Kernel.External.Maps.Google.MapsClient.Types
 import Kernel.Prelude
 import Kernel.Types.Id
 import Kernel.Utils.Common
-import Lib.JourneyLeg.Types
+import qualified Lib.JourneyModule.Types as JL
 import SharedLogic.Search
 
 data TaxiLegRequestSearchData = TaxiLegRequestSearchData
-  { parentSearchReq :: DSR.SearchRequest,
+  { journey :: DJourney.Journey,
     journeyLegData :: DJourneyLeg.JourneyLeg,
     origin :: SearchReqLocation,
-    stops :: [SearchReqLocation]
+    stops :: [SearchReqLocation],
+    multimodalSearchRequestId :: Maybe Text,
+    upsertJourneyLegAction :: forall m r c. JL.SearchRequestFlow m r c => Text -> m ()
   }
 
 data TaxiLegRequestConfirmData = TaxiLegRequestConfirmData
-  { skipBooking :: Bool,
+  { bookLater :: Bool,
     forcedBooked :: Bool,
     startTime :: UTCTime,
     personId :: Id DP.Person,
@@ -58,24 +61,19 @@ data TaxiLegRequestCancelData = TaxiLegRequestCancelData
     reallocate :: Maybe Bool,
     blockOnCancellationRate :: Maybe Bool,
     cancellationSource :: SBCR.CancellationSource,
-    isSkipped :: Bool
-  }
-
-data TaxiLegRequestIsCancellableData = TaxiLegRequestIsCancellableData
-  { searchId :: Id DSR.SearchRequest
+    cancelEstimateId :: Maybe (Id DE.Estimate),
+    journeyLeg :: DJourneyLeg.JourneyLeg
   }
 
 data TaxiLegRequestGetInfoData = TaxiLegRequestGetInfoData
   { searchId :: Id DSR.SearchRequest,
-    journeyLeg :: DJourneyLeg.JourneyLeg,
-    ignoreOldSearchRequest :: Bool
+    journeyLeg :: DJourneyLeg.JourneyLeg
   }
 
 data TaxiLegRequestGetStateData = TaxiLegRequestGetStateData
   { searchId :: Id DSR.SearchRequest,
     riderLastPoints :: [ApiTypes.RiderLocationReq],
-    isLastCompleted :: Bool,
-    journeyLegStatus :: Maybe JourneyLegStatus
+    journeyLeg :: DJourneyLeg.JourneyLeg
   }
 
 data TaxiLegRequestGetFareData = TaxiLegRequestGetFareData
@@ -92,7 +90,6 @@ data TaxiLegRequest
   | TaxiLegRequestConfirm TaxiLegRequestConfirmData
   | TaxiLegRequestUpdate TaxiLegRequestUpdateData
   | TaxiLegRequestCancel TaxiLegRequestCancelData
-  | TaxiLegRequestIsCancellable TaxiLegRequestIsCancellableData
   | TaxiLegRequestGetInfo TaxiLegRequestGetInfoData
   | TaxiLegRequestGetState TaxiLegRequestGetStateData
   | TaxiLegRequestGetFare TaxiLegRequestGetFareData

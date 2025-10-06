@@ -68,3 +68,215 @@ ALTER TABLE atlas_app.frfs_ticket_booking ADD PRIMARY KEY ( id);
 
 ALTER TABLE atlas_app.frfs_ticket_booking ALTER COLUMN to_station_id TYPE text;
 ALTER TABLE atlas_app.frfs_ticket_booking ALTER COLUMN from_station_id TYPE text;
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.frfs_ticket_booking ADD COLUMN journey_leg_id character varying(36) ;
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.frfs_ticket_booking ADD COLUMN multimodal_search_request_id text ;
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.frfs_ticket_booking ADD COLUMN multimodal_search_request_id text ;
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.frfs_ticket_booking ADD COLUMN failure_reason text ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.frfs_ticket_booking ADD COLUMN is_single_mode boolean ;

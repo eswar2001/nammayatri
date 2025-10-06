@@ -1864,6 +1864,9 @@ getHi =
     , open_meter : "मीटर खोलें"
     , this_ride_includes_a_pet : "इस सवारी में एक पालतू जानवर भी शामिल है"
     , pet_rides : "पेट राइड्स"
+    , thanks_for_accepting_pet_ride : "पालतू जानवरों वाली सवारी स्वीकार करने के लिए धन्यवाद!"
+    , clean_the_vehicle_after_ride_if_needed : "यदि आवश्यक हो तो सवारी के बाद वाहन साफ करें।"
+    , the_customer_is_responsible_for_pet : "ग्राहक अपने पालतू जानवर और सवारी के दौरान होने वाले किसी भी समस्या के लिए जिम्मेदार है"
     , please_resume_ride_to_continue : "यात्रा पुनः शुरू करें"
     , you_are_too_far_from_the_stop : "आप स्टॉप से बहुत दूर हैं। अगले स्टॉप पर जाएं"
     , you_may_lose_some_coins_if_you_cancel_this_ride : "यदि आप इस सवारी को रद्द करते हैं, तो आपको कुछ कॉइंस खो सकते हैं"
@@ -1909,4 +1912,6 @@ getHi =
     , view_less : "कम देखें"
     , you_are_in_probation_period_till : (\date -> "आप " <> date <> " तक प्रयोग कर रहे हैं")
     , pass_all_eligibility_criteria_to_continue_being_a_member : "सभी योग्यता मानदंड पालन करें और एक सदस्य बनने के लिए जारी रखें"
+    , metro : "मेट्रो"
+    , gold_tier : "गोल्ड टीयर"
     }

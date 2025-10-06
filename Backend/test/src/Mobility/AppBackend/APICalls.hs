@@ -16,6 +16,7 @@ module Mobility.AppBackend.APICalls where
 
 import qualified "rider-app" API.UI.Booking as AppBooking
 import qualified "rider-app" API.UI.Cancel as CancelAPI
+import qualified "rider-app" API.UI.CancelSearch as AppCancelSearch
 import qualified "rider-app" API.UI.Confirm as ConfirmAPI
 import qualified "rider-app" API.UI.Rating as AppFeedback
 import qualified "rider-app" API.UI.Registration as Reg
@@ -24,6 +25,7 @@ import qualified "rider-app" API.UI.Serviceability as AppServ
 import qualified "rider-app" Domain.Action.UI.Cancel as CancelAPI
 import qualified "rider-app" Domain.Types.Booking as BRB
 import qualified "rider-app" Domain.Types.Booking.API as AbeBooking
+import qualified "beckn-spec" Domain.Types.BookingStatus as BRB
 import qualified "rider-app" Domain.Types.CancellationReason as AbeCRC
 import qualified "rider-app" Domain.Types.Client as DC
 import qualified "rider-app" Domain.Types.Estimate as AbeEstimate
@@ -40,13 +42,16 @@ import Kernel.Types.Version
 import Mobility.AppBackend.Fixtures
 import Servant hiding (Context)
 import Servant.Client
+import qualified "rider-app" SharedLogic.Cancel as AppSelect
 
 selectQuote2 :: RegToken -> Id AbeEstimate.Estimate -> AppSelect.DSelectReq -> ClientM AppSelect.MultimodalSelectRes
 selectList :: RegToken -> Id AbeEstimate.Estimate -> ClientM AppSelect.SelectListRes
 selectResult :: RegToken -> Id AbeEstimate.Estimate -> ClientM AppSelect.QuotesResultResponse
 cancelSearch :: RegToken -> Id AbeEstimate.Estimate -> ClientM AppSelect.CancelAPIResponse
 selectEstimate :: RegToken -> Id AbeEstimate.Estimate -> AppSelect.DSelectReq -> ClientM AppSelect.DSelectResultRes
-selectEstimate :<|> selectQuote2 :<|> selectList :<|> selectResult :<|> cancelSearch :<|> _ = client (Proxy :: Proxy AppSelect.API)
+selectEstimate :<|> selectQuote2 :<|> selectList :<|> selectResult = client (Proxy :: Proxy AppSelect.API)
+
+cancelSearch :<|> _ :<|> _ = client (Proxy :: Proxy AppCancelSearch.API)
 
 cancelRide :: Id BRB.Booking -> Text -> CancelAPI.CancelReq -> ClientM APISuccess
 cancelRide = client (Proxy :: Proxy CancelAPI.CancelAPI)

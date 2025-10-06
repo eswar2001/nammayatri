@@ -32,12 +32,14 @@ types:
     ambulances: Maybe [DocumentVerificationConfigAPIEntity]
     trucks: Maybe [DocumentVerificationConfigAPIEntity]
     bus: Maybe [DocumentVerificationConfigAPIEntity]
+    boat: Maybe [DocumentVerificationConfigAPIEntity]
   DocumentVerificationConfigAPIEntity:
     documentType: DocumentType
     documentCategory: Maybe DocumentCategory
     title: Text
     description: Maybe Text
     isMandatory: Bool
+    isMandatoryForEnabling: Bool
     isDisabled: Bool
     disableWarning: Maybe Text
     isHidden: Bool
@@ -132,6 +134,10 @@ types:
     status : Maybe Text
     callbackResponse : Maybe Text
     failureReason : Maybe Text
+  CommonDocumentReq:
+    documentType: DocumentType
+    documentData: Text  # JSON string containing all document data
+    imageId: Maybe (Id Image)  # Optional image for documents that need it
   VehiclePhotosResp:
     left: [Text]
     right: [Text]
@@ -262,5 +268,12 @@ apis:
       auth: TokenAuth PROVIDER_TYPE
       request:
         type: HVSdkCallLogReq
+      response:
+        type: APISuccess
+  - POST:
+      endpoint: /driver/register/commonDocument
+      auth: TokenAuth PROVIDER_TYPE
+      request:
+        type: CommonDocumentReq
       response:
         type: APISuccess

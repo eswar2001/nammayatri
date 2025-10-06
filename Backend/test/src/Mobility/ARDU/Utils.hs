@@ -20,6 +20,7 @@ import qualified "dynamic-offer-driver-app" API.UI.Ride as RideAPI
 import qualified "rider-app" API.UI.Search as AppSearch
 import qualified API.UI.Select as AppSelect
 import Common
+import qualified "dynamic-offer-driver-app" Domain.Action.Internal.DriverMode as DDriverMode
 import qualified "rider-app" Domain.Action.UI.Cancel as AppCancel
 import qualified "rider-app" Domain.Action.UI.Estimate as AppEstimate
 import qualified "dynamic-offer-driver-app" Domain.Action.UI.MerchantServiceConfig as TDMSC
@@ -27,6 +28,7 @@ import qualified "rider-app" Domain.Action.UI.Quote as AppQuote
 import qualified "dynamic-offer-driver-app" Domain.Action.UI.SearchRequestForDriver as DSRD
 import qualified "dynamic-offer-driver-app" Domain.Types.Booking as TRB
 import qualified "rider-app" Domain.Types.Booking as AppRB
+import qualified "beckn-spec" Domain.Types.BookingStatus as AppRB
 import qualified "dynamic-offer-driver-app" Domain.Types.CancellationReason as SCR
 import qualified "rider-app" Domain.Types.CancellationReason as AppCR
 import "dynamic-offer-driver-app" Domain.Types.Common as SearchReqInfo
@@ -39,6 +41,7 @@ import "dynamic-offer-driver-app" Domain.Types.Person as TPerson
 import qualified "rider-app" Domain.Types.Quote as AppQuote
 import qualified "dynamic-offer-driver-app" Domain.Types.Ride as TRide
 import qualified "rider-app" Domain.Types.Ride as BRide
+import qualified "beckn-spec" Domain.Types.RideStatus as BRide
 import qualified "rider-app" Domain.Types.SearchRequest as AppSearchReq
 import qualified "dynamic-offer-driver-app" Domain.Types.SearchTry as ArduSStep
 import HSpec
@@ -48,22 +51,27 @@ import Kernel.Prelude
 import Kernel.Types.APISuccess (APISuccess)
 import qualified Kernel.Types.Beckn.Context as Context
 import Kernel.Types.Common (Currency (INR), Money, PriceAPIEntity (..), toHighPrecMoney)
+import Kernel.Types.Error
 import Kernel.Types.Id
+import Kernel.Utils.Common (fromMaybeM)
 import qualified Mobility.ARDU.APICalls as API
 import Mobility.ARDU.Fixtures as Fixtures
 import Mobility.ARDU.Queries as Queries
 import Mobility.AppBackend.APICalls as BapAPI
 import Mobility.AppBackend.Fixtures
 import Servant.Client hiding (parseBaseUrl)
+import qualified "dynamic-offer-driver-app" Storage.Cac.TransporterConfig as SCTC
 import qualified "dynamic-offer-driver-app" Storage.CachedQueries.Merchant.MerchantServiceConfig as TCQMSC
 import qualified "dynamic-offer-driver-app" Storage.Queries.Booking as TQRB
 import qualified "rider-app" Storage.Queries.Booking as BQRB
+import qualified "dynamic-offer-driver-app" Storage.Queries.DriverInformation as QDI
 import qualified "dynamic-offer-driver-app" Storage.Queries.DriverInformation as QTDrInfo
 import qualified Storage.Queries.DriverQuote as TDQ
 import qualified "dynamic-offer-driver-app" Storage.Queries.Ride as TQRide
 import qualified "rider-app" Storage.Queries.Ride as BQRide
 import qualified "dynamic-offer-driver-app" Storage.Queries.SearchTry as QST
 import Test.HUnit (assertBool)
+import "dynamic-offer-driver-app" Tools.Error (DriverInformationError (..))
 import Utils
 
 -- database calls
@@ -135,7 +143,12 @@ resetDriver driver = runARDUFlow "" $ do
     TQRB.updateStatus booking.id TRB.CANCELLED
   forM_ activeQuotes $ \activeQuote ->
     TDQ.setInactiveBySTId activeQuote.searchTryId
-  QTDrInfo.updateActivity False (Just TDrInfo.OFFLINE) (cast driver.driverId)
+  let newFlowStatus = DDriverMode.getDriverFlowStatus (Just TDrInfo.OFFLINE) False
+  transporterConfig <-
+    SCTC.findByMerchantOpCityId Fixtures.nammaYatriPartnerMerchantOperatingCityId Nothing
+      >>= fromMaybeM (TransporterConfigNotFound Fixtures.nammaYatriPartnerMerchantOperatingCityId.getId)
+  driverInfo <- QDI.findById (cast driver.driverId) >>= fromMaybeM DriverInfoNotFound
+  DDriverMode.updateDriverModeAndFlowStatus (cast driver.driverId) transporterConfig False (Just TDrInfo.OFFLINE) newFlowStatus driverInfo
   QTDrInfo.updateOnRide False (cast driver.driverId)
 
 -- flow primitives
@@ -183,7 +196,7 @@ getNearbySearchRequestForDriver driver estimateId =
 
 respondQuote :: DriverTestData -> Money -> Id ArduSStep.SearchTry -> SearchReqInfo.SearchRequestForDriverResponse -> ClientsM ()
 respondQuote driver fare bppSearchRequestId response =
-  void $ callBPP $ API.ui.driver.respondQuote driver.token Nothing Nothing Nothing Nothing Nothing $ TDriver.DriverRespondReq (Just fare) (Just $ PriceAPIEntity (toHighPrecMoney fare) INR) Nothing (Just bppSearchRequestId) response Nothing Nothing Nothing
+  void $ callBPP $ API.ui.driver.respondQuote driver.token Nothing Nothing Nothing Nothing Nothing Nothing $ TDriver.DriverRespondReq (Just fare) (Just $ PriceAPIEntity (toHighPrecMoney fare) INR) Nothing (Just bppSearchRequestId) response Nothing Nothing Nothing
 
 offerQuote :: DriverTestData -> Money -> Id ArduSStep.SearchTry -> ClientsM ()
 offerQuote driver fare bppSearchRequestId =
@@ -191,7 +204,7 @@ offerQuote driver fare bppSearchRequestId =
 
 respondQuoteEither :: DriverTestData -> Money -> Id ArduSStep.SearchTry -> SearchReqInfo.SearchRequestForDriverResponse -> ClientsM (Either ClientError APISuccess)
 respondQuoteEither driver fare bppSearchRequestId response =
-  callBppEither $ API.ui.driver.respondQuote driver.token Nothing Nothing Nothing Nothing Nothing $ TDriver.DriverRespondReq (Just fare) (Just $ PriceAPIEntity (toHighPrecMoney fare) INR) Nothing (Just bppSearchRequestId) response Nothing Nothing Nothing
+  callBppEither $ API.ui.driver.respondQuote driver.token Nothing Nothing Nothing Nothing Nothing Nothing $ TDriver.DriverRespondReq (Just fare) (Just $ PriceAPIEntity (toHighPrecMoney fare) INR) Nothing (Just bppSearchRequestId) response Nothing Nothing Nothing
 
 offerQuoteEither :: DriverTestData -> Money -> Id ArduSStep.SearchTry -> ClientsM (Either ClientError APISuccess)
 offerQuoteEither driver fare bppSearchRequestId =

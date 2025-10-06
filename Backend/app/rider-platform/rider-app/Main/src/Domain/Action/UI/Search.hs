@@ -63,7 +63,6 @@ import Kernel.Types.Id
 import Kernel.Types.Version
 import Kernel.Utils.Common
 import Kernel.Utils.Version
-import qualified Lib.JourneyLeg.Types as JPT
 import qualified Lib.Queries.SpecialLocation as QSpecialLocation
 import Lib.SessionizerMetrics.Types.Event
 import Lib.Yudhishthira.Tools.Utils as Yudhishthira
@@ -71,6 +70,7 @@ import qualified Lib.Yudhishthira.Types as LYT
 import qualified SharedLogic.MerchantConfig as SMC
 import qualified SharedLogic.Referral as Referral
 import SharedLogic.Search
+import qualified SharedLogic.Search as SLS
 import qualified SharedLogic.Serviceability as Serviceability
 import Storage.Beam.Yudhishthira ()
 import qualified Storage.CachedQueries.HotSpotConfig as QHotSpotConfig
@@ -264,10 +264,10 @@ search ::
   Maybe (Id DC.Client) ->
   Maybe Text ->
   Bool ->
-  Maybe JPT.JourneySearchData ->
   Bool ->
+  Maybe Text ->
   m SearchRes
-search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion clientId device isDashboardRequest_ journeySearchData justMultimodalSearch = do
+search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion clientId device isDashboardRequest_ justMultimodalSearch multimodalSearchRequestId = do
   now <- getCurrentTime
   let SearchDetails {..} = extractSearchDetails now req
   let isReservedRideSearch = case req of
@@ -277,6 +277,8 @@ search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion
 
   let isDashboardRequest = isDashboardRequest_ || isNothing quotesUnifiedFlow -- Don't get confused with this, it is done to handle backward compatibility so that in both dashboard request or mobile app request without quotesUnifiedFlow can be consider same
   person <- QP.findById personId >>= fromMaybeM (PersonDoesNotExist personId.getId)
+  let phoneNumber = fmap encryptedHashedToText person.mobileNumber
+  logDebug $ "phoneNumber: to debug" <> fromMaybe "No Mobile Number" phoneNumber
   tag <- case person.hasDisability of
     Just True -> B.runInReplica $ fmap (.tag) <$> PD.findByPersonId personId
     _ -> return Nothing
@@ -336,7 +338,6 @@ search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion
       placeNameSource
       hasStops
       (safeInit stopLocations)
-      journeySearchData
       driverIdentifier'
       configVersionMap
       isMeterRide
@@ -346,6 +347,8 @@ search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion
       originStopCode
       vehicleCategory
       isReservedRideSearch
+      justMultimodalSearch
+      multimodalSearchRequestId
 
   Metrics.incrementSearchRequestCount merchant.name merchantOperatingCity.id.getId
 
@@ -379,7 +382,7 @@ search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion
         city = originCity,
         distance = shortestRouteDistance,
         duration = shortestRouteDuration,
-        taggings = getTags tag searchRequest reservePricingTag updatedPerson shortestRouteDistance shortestRouteDuration returnTime roundTrip ((.points) <$> shortestRouteInfo) multipleRoutes txnCity isReallocationEnabled isDashboardRequest fareParametersInRateCard isMeterRide,
+        taggings = getTags tag searchRequest reservePricingTag updatedPerson shortestRouteDistance shortestRouteDuration returnTime roundTrip ((.points) <$> shortestRouteInfo) multipleRoutes txnCity isReallocationEnabled isDashboardRequest fareParametersInRateCard isMeterRide phoneNumber,
         ..
       }
   where
@@ -396,6 +399,9 @@ search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion
     isFirstRideFor :: Person.Person -> Bool
     isFirstRideFor person = person.totalRidesCount == Just 0
 
+    personVehicleCategory :: Person.Person -> Maybe Enums.VehicleCategory
+    personVehicleCategory person = SLS.mostFrequent person.lastUsedVehicleCategories
+
     backfillCustomerNammaTags :: Person.Person -> Person.Person
     backfillCustomerNammaTags Person.Person {..} =
       if isNothing customerNammaTags
@@ -404,14 +410,11 @@ search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion
           Person.Person {customerNammaTags = Just [genderTag], ..}
         else Person.Person {..}
 
-    getTags tag searchRequest reservePricingTag person distance duration returnTime roundTrip mbPoints mbMultipleRoutes txnCity mbIsReallocationEnabled isDashboardRequest mbfareParametersInRateCard isMeterRideSearch = do
+    getTags tag searchRequest reservePricingTag person distance duration returnTime roundTrip mbPoints mbMultipleRoutes txnCity mbIsReallocationEnabled isDashboardRequest mbfareParametersInRateCard isMeterRideSearch phoneNumber = do
       let isReallocationEnabled = fromMaybe False mbIsReallocationEnabled
       let fareParametersInRateCard = fromMaybe False mbfareParametersInRateCard
-      let isMultimodalSearch = case journeySearchData of
-            Just _ -> True
-            Nothing -> False
       let reserveTag = case searchRequest.searchMode of
-            Just SearchRequest.RESERVE -> [(Beckn.RESERVED_RIDE_TAG, Just "true")]
+            Just SearchRequest.RESERVE -> [(Beckn.RESERVED_RIDE_TAG, Just "True")]
             _ -> []
       Just $
         def{Beckn.fulfillmentTags =
@@ -427,7 +430,7 @@ search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion
                      (Beckn.IS_REALLOCATION_ENABLED, Just $ show isReallocationEnabled),
                      (Beckn.FARE_PARAMETERS_IN_RATECARD, Just $ show fareParametersInRateCard),
                      (Beckn.DRIVER_IDENTITY, searchRequest.driverIdentifier <&> LT.toStrict . AT.encodeToLazyText),
-                     (Beckn.IS_MULTIMODAL_SEARCH, Just $ show isMultimodalSearch)
+                     (Beckn.IS_MULTIMODAL_SEARCH, Just $ show justMultimodalSearch)
                    ],
             Beckn.paymentTags =
               [ (Beckn.SETTLEMENT_AMOUNT, Nothing),
@@ -438,10 +441,12 @@ search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion
               ],
             Beckn.personTags =
               [ (Beckn.CUSTOMER_LANGUAGE, (Just . show) searchRequest.language),
+                (Beckn.CUSTOMER_VEHICLE_CATEGORY, maybe Nothing (Just . show) (personVehicleCategory person)),
                 (Beckn.DASHBOARD_USER, (Just . show) isDashboardRequest),
                 (Beckn.CUSTOMER_DISABILITY, (decode . encode) tag),
                 (Beckn.CUSTOMER_NAMMA_TAGS, show @Text @[Text] . fmap ((.getTagNameValue) . Yudhishthira.removeTagExpiry) <$> person.customerNammaTags)
               ]
+                ++ maybe [] (\pn -> [(Beckn.CUSTOMER_PHONE_NUMBER, Just pn)]) phoneNumber
            }
 
     lastMaybe [] = Nothing
@@ -473,7 +478,16 @@ search personId req bundleVersion clientVersion clientConfigVersion_ mbRnVersion
       InterCitySearch interCityReq -> processOneWaySearch person merchant merchantOperatingCity searchRequestId interCityReq.sessionToken interCityReq.isSourceManuallyMoved interCityReq.isDestinationManuallyMoved stopsLatLong now sourceLatLong roundTrip riderCfg isMeterRide
       RentalSearch rentalReq -> processRentalSearch person rentalReq stopsLatLong originCity
       DeliverySearch deliveryReq -> processOneWaySearch person merchant merchantOperatingCity searchRequestId deliveryReq.sessionToken deliveryReq.isSourceManuallyMoved deliveryReq.isDestinationManuallyMoved stopsLatLong now sourceLatLong roundTrip riderCfg isMeterRide
-      PTSearch _ -> processOneWaySearch person merchant merchantOperatingCity searchRequestId Nothing Nothing Nothing stopsLatLong now sourceLatLong roundTrip riderCfg isMeterRide
+      PTSearch _ -> do
+        return $
+          RouteDetails
+            { longestRouteDistance = Nothing,
+              shortestRouteDistance = Nothing,
+              shortestRouteDuration = Nothing,
+              shortestRouteStaticDuration = Nothing,
+              shortestRouteInfo = Nothing,
+              multipleRoutes = Nothing
+            }
 
     processOneWaySearch ::
       SearchRequestFlow m r =>
@@ -561,7 +575,6 @@ buildSearchRequest ::
   Maybe Text ->
   Maybe Bool ->
   [Location.Location] ->
-  Maybe JPT.JourneySearchData ->
   Maybe DRL.DriverIdentifier ->
   [LYT.ConfigVersionMap] ->
   Maybe Bool ->
@@ -571,8 +584,10 @@ buildSearchRequest ::
   Maybe Text ->
   Maybe Enums.VehicleCategory ->
   Bool ->
+  Bool ->
+  Maybe Text ->
   m SearchRequest.SearchRequest
-buildSearchRequest searchRequestId mbClientId person pickup merchantOperatingCity mbDrop mbMaxDistance mbDistance startTime returnTime roundTrip bundleVersion clientVersion clientConfigVersion clientRnVersion device disabilityTag duration staticDuration riderPreferredOption distanceUnit totalRidesCount isDashboardRequest mbPlaceNameSource hasStops stops journeySearchData mbDriverReferredInfo configVersionMap isMeterRide recentLocationId routeCode destinationStopCode originStopCode vehicleCategory isReservedRideSearch = do
+buildSearchRequest searchRequestId mbClientId person pickup merchantOperatingCity mbDrop mbMaxDistance mbDistance startTime returnTime roundTrip bundleVersion clientVersion clientConfigVersion clientRnVersion device disabilityTag duration staticDuration riderPreferredOption distanceUnit totalRidesCount isDashboardRequest mbPlaceNameSource hasStops stops mbDriverReferredInfo configVersionMap isMeterRide recentLocationId routeCode destinationStopCode originStopCode vehicleCategory isReservedRideSearch justMultimodalSearch multimodalSearchRequestId = do
   let searchMode =
         if isReservedRideSearch
           then Just SearchRequest.RESERVE
@@ -622,7 +637,6 @@ buildSearchRequest searchRequestId mbClientId person pickup merchantOperatingCit
         isDashboardRequest = Just isDashboardRequest,
         placeNameSource = mbPlaceNameSource,
         initiatedBy = Nothing,
-        journeyLegInfo = journeySearchData,
         driverIdentifier = mbDriverReferredInfo,
         hasMultimodalSearch = Just False,
         configInExperimentVersions = configVersionMap,
@@ -631,7 +645,8 @@ buildSearchRequest searchRequestId mbClientId person pickup merchantOperatingCit
         originStopCode = originStopCode,
         allJourneysLoaded = Just False,
         searchMode = searchMode,
-        isMultimodalSearch = Just $ isJust journeySearchData,
+        isMultimodalSearch = Just justMultimodalSearch,
+        onSearchFailed = Nothing,
         ..
       }
   where

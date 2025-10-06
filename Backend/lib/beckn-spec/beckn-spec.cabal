@@ -211,17 +211,26 @@ library
       BecknV2.OnDemand.Utils.Context
       BecknV2.OnDemand.Utils.Payment
       BecknV2.Utils
+      Domain.SharedLogic.Cancel
+      Domain.Tools.Error
       Domain.Types
       Domain.Types.Alert
       Domain.Types.Alert.AlertRequestData
       Domain.Types.Alert.AlertRequestStatus
       Domain.Types.Alert.AlertRequestType
       Domain.Types.Alert.DetectionData
+      Domain.Types.BookingStatus
       Domain.Types.EmptyDynamicParam
+      Domain.Types.EstimateStatus
       Domain.Types.FareProductType
       Domain.Types.FleetBadgeType
+      Domain.Types.FRFSQuoteCategorySpec
       Domain.Types.FRFSRouteDetails
+      Domain.Types.FRFSTicketBookingStatus
+      Domain.Types.FRFSTicketStatus
+      Domain.Types.ParcelType
       Domain.Types.RefereeLink
+      Domain.Types.RideStatus
       Domain.Types.ServiceTierType
       Domain.Types.StationType
       Domain.Types.Trip

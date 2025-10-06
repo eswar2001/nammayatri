@@ -1864,6 +1864,9 @@ getTe =
     , open_meter : "మీటర్ తెరవండి"
     , this_ride_includes_a_pet : "ఈ రైడ్‌లో ఒక పెంపుడు జంతువు కూడా ఉంది"
     , pet_rides : "పెట్ రైడ్స్"
+    , thanks_for_accepting_pet_ride : "పెట్ రైడ్‌ ను అంగీకరించినందుకు ధన్యవాదాలు!"
+    , clean_the_vehicle_after_ride_if_needed : "రైడ్ పూర్తయిన తర్వాత అవసరమైతే వాహనాన్ని శుభ్రం చేయండి."
+    , the_customer_is_responsible_for_pet : "ప్రయాణంలో పెట్‌కు సంభవించే ఏదైనా సమస్యకు కస్టమరే బాధ్యత వహించాలి."
     , please_resume_ride_to_continue: "ప్రయాణం తిరిగి ప్రారంభించండి"
     , you_are_too_far_from_the_stop: "మీరు స్టాప్ కి అతికించినారు. ముందుకు వెళ్ళండి"
     , you_may_lose_some_coins_if_you_cancel_this_ride: "మీరు ఈ రైడ్‌ను రద్దు చేస్తే, కೆలవೊంటు కాలి ఉండవు"
@@ -1909,4 +1912,6 @@ getTe =
     , view_less : "కాణువుల్లు కమ్పాక్కుక"
     , you_are_in_probation_period_till : (\date -> "మీరు " <> date <> " వర్షదల్లి ప్రయోగద అవధియల్లిద్దీరి")
     , pass_all_eligibility_criteria_to_continue_being_a_member : "నమ్మ కుతుమా సదస్యత్తున్నారు పాలిసి సమస్త యోగ్యతా మానదండ్ పాలిసి"
+    , metro : "మెట్రో"
+    , gold_tier : "గోల్డ్ టీర్"
     }

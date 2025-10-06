@@ -548,7 +548,9 @@ buildPerson req dashboardAccessType = do
         verified = Nothing,
         rejectionReason = Nothing,
         rejectedAt = Nothing,
-        passwordUpdatedAt = Just now
+        passwordUpdatedAt = Just now,
+        approvedBy = Nothing,
+        rejectedBy = Nothing
       }
 
 data UpdatePersonReq = UpdatePersonReq

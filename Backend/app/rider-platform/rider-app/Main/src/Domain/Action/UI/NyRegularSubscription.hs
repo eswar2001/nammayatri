@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wwarn=unused-imports #-}
-
 module Domain.Action.UI.NyRegularSubscription
   ( postNyRegularSubscriptionsCreate,
     getNyRegularSubscriptionsEstimate,
@@ -11,39 +9,28 @@ module Domain.Action.UI.NyRegularSubscription
   )
 where
 
-import qualified API.Types.UI.NyRegularSubscription -- For request/response types
+-- For request/response types
+
+import API.Types.UI.NyRegularSubscription (NyRegularSubscriptionApiEntity)
+import qualified API.Types.UI.NyRegularSubscription
 import qualified Beckn.ACL.Search as TaxiACL
-import Control.Monad (join, when)
-import Data.Aeson (encode, toJSON)
-import qualified Data.List as List
-import Data.Maybe (fromJust, fromMaybe, isJust)
-import Data.OpenApi (ToSchema)
+import Data.Aeson (encode)
+import Data.Maybe (fromJust)
 import qualified Data.Text
 import qualified Data.Text as T
 import qualified Data.Time as Time
 import qualified Domain.Action.UI.Quote as Domain.Action.UI.Quote
 import qualified Domain.Action.UI.Search as Search
-import qualified Domain.Types.Client as Client
-import qualified Domain.Types.Estimate
-import qualified Domain.Types.Location as Location
-import qualified Domain.Types.LocationAddress as LocationAddress
 import qualified Domain.Types.Merchant as Domain.Types.Merchant
-import qualified Domain.Types.Merchant as Merchant
 import qualified Domain.Types.NyRegularInstanceLog as NyRegularInstanceLog
 import qualified Domain.Types.NyRegularSubscription
 import qualified Domain.Types.NyRegularSubscription as NySub
 import qualified Domain.Types.Person as Domain.Types.Person
-import qualified Domain.Types.Person as Person
-import qualified Domain.Types.SearchRequest as Search
 import Environment (Flow)
-import qualified Environment
 import EulerHS.Prelude hiding (id)
-import Kernel.External.Encryption (EncFlow)
 import Kernel.External.Maps (LatLong (..))
 import qualified Kernel.Prelude
-import qualified Kernel.Storage.Esqueleto as Esq
 import qualified Kernel.Storage.Hedis as Hedis
-import Kernel.Types.Error (GenericError (InternalError, InvalidRequest), PersonError (..))
 import Kernel.Types.Id (Id (..))
 import qualified Kernel.Types.Id as Id
 import qualified Kernel.Types.Version as Kernel.Types.Version
@@ -52,12 +39,11 @@ import Kernel.Utils.Logging (logDebug, logInfo)
 import Kernel.Utils.Servant.Client (withShortRetry)
 import qualified Kernel.Utils.Time as KUT
 import Lib.Scheduler.JobStorageType.SchedulerType (createJobIn)
-import qualified Lib.Scheduler.Types as Scheduler
-import Servant
 import qualified SharedLogic.CallBPP as CallBPP
 import SharedLogic.CallBPPInternal
 import SharedLogic.JobScheduler (NyRegularInstanceJobData (..), RiderJobType (NyRegularInstance))
 import SharedLogic.NyRegularSubscriptionHasher (calculateSubscriptionSchedulingHash)
+import qualified SharedLogic.Search as SLS
 import qualified SharedLogic.Search as Search
 import Storage.Beam.SchedulerJob ()
 import qualified Storage.CachedQueries.Merchant.RiderConfig as QRC
@@ -67,7 +53,6 @@ import qualified Storage.Queries.NyRegularInstanceLog as QNyRegularInstanceLog
 import qualified Storage.Queries.NyRegularSubscription as QNyRegularSubscription
 import qualified Storage.Queries.NyRegularSubscriptionExtra as NyRegularSubscriptionExtra
 import qualified Storage.Queries.PersonExtra as QPerson
-import Tools.Auth
 import Tools.Error
 
 postNyRegularSubscriptionsCreate ::
@@ -90,13 +75,14 @@ postNyRegularSubscriptionsCreate (mPersonId, merchantId) mbClientId mbIsDashboar
   let merchantOperatingCityId = person.merchantOperatingCityId
   now <- getCurrentTime
   subscriptionId <- generateGUID
-
+  pickupLocation' <- SLS.buildSearchReqLoc merchantId merchantOperatingCityId req.pickupLocation
+  dropoffLocation' <- SLS.buildSearchReqLoc merchantId merchantOperatingCityId req.dropoffLocation
   let newSubscription =
         NySub.NyRegularSubscription
           { id = subscriptionId,
             userId = personId,
-            pickupLocation = req.pickupLocation,
-            dropoffLocation = req.dropoffLocation,
+            pickupLocation = pickupLocation',
+            dropoffLocation = dropoffLocation',
             vehicleServiceTier = req.vehicleServiceTier,
             startDatetime = req.startDatetime,
             recurrenceRuleDays = req.recurrenceRuleDays,
@@ -134,8 +120,9 @@ postNyRegularSubscriptionsCreate (mPersonId, merchantId) mbClientId mbIsDashboar
       (Kernel.Types.Id.Id <$> mbClientId)
       mbDevice
       (fromMaybe False mbIsDashboardRequest)
-      Nothing
       False
+      Nothing
+
   logInfo $ "New subscription created with id: " <> subscriptionId.getId
   fork "search cabs" . withShortRetry $ do
     becknTaxiReqV2 <- TaxiACL.buildSearchReqV2 searchRes
@@ -154,8 +141,8 @@ transformToSearchReq req subscriptionId =
   let details = req.oneWaySearchReqDetails
    in Search.OneWaySearch
         Search.OneWaySearchReq
-          { origin = transformLocation req.pickupLocation,
-            destination = Just $ transformLocation req.dropoffLocation,
+          { origin = req.pickupLocation,
+            destination = Just $ req.dropoffLocation,
             startTime = details.startTime,
             stops = Nothing,
             isSourceManuallyMoved = details.isSourceManuallyMoved,
@@ -174,13 +161,6 @@ transformToSearchReq req subscriptionId =
             subscriptionId = Just subscriptionId,
             verifyBeforeCancellingOldBooking = Just True
           }
-  where
-    transformLocation :: Location.Location -> Search.SearchReqLocation
-    transformLocation loc =
-      Search.SearchReqLocation
-        { gps = LatLong {lat = loc.lat, lon = loc.lon},
-          address = loc.address
-        }
 
 getNyRegularSubscriptionsEstimate ::
   ( ( Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person),
@@ -202,7 +182,7 @@ postNyRegularSubscriptionsConfirm ::
       Kernel.Types.Id.Id Domain.Types.Merchant.Merchant
     ) ->
     API.Types.UI.NyRegularSubscription.ConfirmSubscriptionReq ->
-    Environment.Flow Domain.Types.NyRegularSubscription.NyRegularSubscription
+    Environment.Flow NyRegularSubscriptionApiEntity
   )
 postNyRegularSubscriptionsConfirm (mPersonId, merchantId) req = do
   personId <- mPersonId & fromMaybeM (PersonNotFound "Person not found in token")
@@ -217,8 +197,6 @@ postNyRegularSubscriptionsConfirm (mPersonId, merchantId) req = do
     throwM (InvalidRequest "User does not own this subscription")
 
   -- Update status
-  QNyRegularSubscription.updateStatusById Domain.Types.NyRegularSubscription.ACTIVE subscriptionId
-
   merchant <- QMerchant.findById merchantId >>= fromMaybeM (MerchantNotFound merchantId.getId)
 
   -- Fetch the estimate by ID
@@ -227,7 +205,7 @@ postNyRegularSubscriptionsConfirm (mPersonId, merchantId) req = do
   estimateDetails <- getEstimateDetails merchant.driverOfferApiKey merchant.driverOfferBaseUrl estimate.bppEstimateId.getId
 
   -- Update the subscription's metadata field with the BppEstimate as JSON
-  let updatedSubscription' = subscription {Domain.Types.NyRegularSubscription.metadata = Just (toJSON estimateDetails)}
+  let updatedSubscription' = subscription {Domain.Types.NyRegularSubscription.metadata = Just (toJSON estimateDetails), Domain.Types.NyRegularSubscription.status = Domain.Types.NyRegularSubscription.ACTIVE, Domain.Types.NyRegularSubscription.vehicleServiceTier = Just estimateDetails.vehicleServiceTier}
   QNyRegularSubscription.updateByPrimaryKey updatedSubscription'
 
   -- Fetch updated subscription
@@ -297,7 +275,7 @@ postNyRegularSubscriptionsConfirm (mPersonId, merchantId) req = do
             jobData
         logInfo $ "Created NyRegularInstance job for confirmed subscription " <> updatedSubscription.id.getId <> " at " <> show jobScheduledTimeLocal
 
-  pure updatedSubscription
+  mapNySubscriptionToApiEntity updatedSubscription
 
 -- Helper to check if a UTCTime falls within a pause period [start, end)
 isTimestampInPausePeriod :: Time.UTCTime -> Maybe Time.UTCTime -> Maybe Time.UTCTime -> Bool
@@ -354,7 +332,7 @@ getNextScheduledInstanceTimes minGap localScheduledTime sub now = do
 postNyRegularSubscriptionsUpdate ::
   ( (Maybe (Id Domain.Types.Person.Person), Id Domain.Types.Merchant.Merchant) ->
     API.Types.UI.NyRegularSubscription.UpdateSubscriptionReq ->
-    Flow NySub.NyRegularSubscription
+    Flow NyRegularSubscriptionApiEntity
   )
 postNyRegularSubscriptionsUpdate (mPersonId, _) req = do
   personId <- mPersonId & fromMaybeM (PersonNotFound "Person not found in token")
@@ -473,7 +451,7 @@ postNyRegularSubscriptionsUpdate (mPersonId, _) req = do
                 jobData
             logInfo $ "Proactively created NyRegularInstance job for " <> finalUpdatedSubscription.id.getId <> " at " <> show jobScheduledTime
 
-  pure finalUpdatedSubscription
+  mapNySubscriptionToApiEntity finalUpdatedSubscription
 
 getNyRegularSubscriptions ::
   ( ( Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person),
@@ -482,7 +460,7 @@ getNyRegularSubscriptions ::
     Kernel.Prelude.Maybe (Domain.Types.NyRegularSubscription.NyRegularSubscriptionStatus) ->
     Kernel.Prelude.Maybe (Kernel.Prelude.Int) ->
     Kernel.Prelude.Maybe (Kernel.Prelude.Int) ->
-    Environment.Flow [Domain.Types.NyRegularSubscription.NyRegularSubscription]
+    Environment.Flow [NyRegularSubscriptionApiEntity]
   )
 getNyRegularSubscriptions (mPersonId, _) mmStatus mmLimit mmOffset = do
   personId <- mPersonId & fromMaybeM (PersonNotFound "Person not found in token")
@@ -491,14 +469,14 @@ getNyRegularSubscriptions (mPersonId, _) mmStatus mmLimit mmOffset = do
       finalLimit = mmLimit -- Flatten Maybe (Maybe Int) to Maybe Int
       finalOffsetRaw = mmOffset -- Flatten Maybe (Maybe Int) to Maybe Int - This was the type error source
       finalOffset = fmap fromIntegral finalOffsetRaw -- Corrected: Convert Maybe Int to Maybe Integer
-  NyRegularSubscriptionExtra.listSubscriptionsByFilters personId finalStatus finalLimit finalOffset
+  mapM (mapNySubscriptionToApiEntity) =<< NyRegularSubscriptionExtra.listSubscriptionsByFilters personId finalStatus finalLimit finalOffset
 
 getNyRegularSubscriptionDetails ::
   ( ( Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person),
       Kernel.Types.Id.Id Domain.Types.Merchant.Merchant
     ) ->
     Kernel.Types.Id.Id Domain.Types.NyRegularSubscription.NyRegularSubscription ->
-    Environment.Flow Domain.Types.NyRegularSubscription.NyRegularSubscription
+    Environment.Flow NyRegularSubscriptionApiEntity
   )
 getNyRegularSubscriptionDetails (mPersonId, _) subscriptionId = do
   personId <- mPersonId & fromMaybeM (PersonNotFound "Person not found in token")
@@ -507,14 +485,14 @@ getNyRegularSubscriptionDetails (mPersonId, _) subscriptionId = do
       >>= fromMaybeM (InvalidRequest "Subscription not found") -- Corrected error
   unless (subscription.userId == personId) $
     throwM (InvalidRequest "User does not own this subscription") -- Corrected error
-  pure subscription
+  mapNySubscriptionToApiEntity subscription
 
 postNyRegularSubscriptionsCancel ::
   ( ( Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Person.Person),
       Kernel.Types.Id.Id Domain.Types.Merchant.Merchant
     ) ->
     Kernel.Types.Id.Id Domain.Types.NyRegularSubscription.NyRegularSubscription -> -- subscriptionId from path
-    Environment.Flow Domain.Types.NyRegularSubscription.NyRegularSubscription
+    Environment.Flow NyRegularSubscriptionApiEntity
   )
 postNyRegularSubscriptionsCancel (mPersonId, _) subscriptionIdToCancel = do
   personId <- mPersonId & fromMaybeM (PersonNotFound "Person not found in token")
@@ -531,5 +509,49 @@ postNyRegularSubscriptionsCancel (mPersonId, _) subscriptionIdToCancel = do
   QNyRegularSubscription.updateStatusById Domain.Types.NyRegularSubscription.CANCELLED subscriptionIdToCancel
 
   -- Fetch and return updated subscription
-  QNyRegularSubscription.findById subscriptionIdToCancel
-    >>= fromMaybeM (InvalidRequest "Failed to fetch subscription after cancellation")
+  updatedSubs <-
+    QNyRegularSubscription.findById subscriptionIdToCancel
+      >>= fromMaybeM (InvalidRequest "Failed to fetch subscription after cancellation")
+  mapNySubscriptionToApiEntity updatedSubs
+
+mapNySubscriptionToApiEntity :: NySub.NyRegularSubscription -> Environment.Flow API.Types.UI.NyRegularSubscription.NyRegularSubscriptionApiEntity
+mapNySubscriptionToApiEntity NySub.NyRegularSubscription {..} = do
+  nextRideOccurence <- getNextRideTime (NySub.NyRegularSubscription {..})
+  return $
+    API.Types.UI.NyRegularSubscription.NyRegularSubscriptionApiEntity
+      { nextRideOccurence = nextRideOccurence,
+        metadata = show <$> metadata,
+        API.Types.UI.NyRegularSubscription.pickupLocation = SLS.SearchReqLocation (LatLong pickupLocation.lat pickupLocation.lon) pickupLocation.address,
+        API.Types.UI.NyRegularSubscription.dropoffLocation = SLS.SearchReqLocation (LatLong dropoffLocation.lat dropoffLocation.lon) dropoffLocation.address,
+        ..
+      }
+
+getNextRideTime :: NySub.NyRegularSubscription -> Environment.Flow $ Maybe Time.UTCTime
+getNextRideTime subs = do
+  -- Check if subscription is active and not expired
+  riderConfig <- do
+    case subs.merchantOperatingCityId of
+      Nothing -> throwM $ InvalidRequest "Subscription is missing merchantOperatingCityId, cannot determine local time."
+      Just opCityId ->
+        QRC.findByMerchantOperatingCityId opCityId Nothing
+          >>= fromMaybeM (RiderConfigDoesNotExist opCityId.getId)
+  -- Use UTC for reference time; the offset is only for interpreting scheduledTimeOfDay
+  currentTime <- getCurrentTime
+  let utcOffset = KUT.secondsToNominalDiffTime riderConfig.timeDiffFromUtc
+      localCurrentTime = Time.addUTCTime utcOffset currentTime
+      today = Time.utctDay localCurrentTime
+      localScheduledTime = Time.UTCTime today (Time.timeOfDayToTime subs.scheduledTimeOfDay)
+  nextScheduled <- do
+    if localScheduledTime > localCurrentTime
+      then pure $ localScheduledTime
+      else pure $ Time.UTCTime today ((Time.timeOfDayToTime subs.scheduledTimeOfDay) + (24 * 60 * 60))
+  let inPause = isTimestampInPausePeriod nextScheduled subs.pauseStartDate subs.pauseEndDate
+      reccuranceEndDay = fromMaybe today subs.recurrenceEndDate
+      isLessThanEqEndTime = today <= reccuranceEndDay
+      pauseEndDay = maybe today Time.utctDay subs.pauseEndDate
+      isPauseEndLessThanEnd = pauseEndDay < reccuranceEndDay
+  case (isLessThanEqEndTime, inPause) of
+    (True, True) -> do
+      return $ if isPauseEndLessThanEnd then Just $ Time.UTCTime pauseEndDay ((Time.timeOfDayToTime subs.scheduledTimeOfDay) + (24 * 60 * 60)) else Nothing
+    (False, _) -> return Nothing
+    (True, False) -> return $ Just nextScheduled

@@ -15,12 +15,13 @@
 module Domain.Action.Beckn.FRFS.Common where
 
 import qualified BecknV2.FRFS.Enums as Spec
-import qualified Domain.Types.FRFSTicketBooking as DFRFSTicketBooking
-import qualified Domain.Types.MerchantOperatingCity as DMOC
 import Kernel.Prelude
-import Kernel.Types.Error
 import Kernel.Utils.Common
-import qualified Storage.CachedQueries.Merchant.MerchantOperatingCity as CQMOC
+
+data DCategorySelect = DCategorySelect
+  { bppItemId :: Text,
+    quantity :: Int
+  }
 
 data DOnSelect = DOnSelect
   { providerId :: Text,
@@ -29,7 +30,8 @@ data DOnSelect = DOnSelect
     bppItemId :: Text,
     validTill :: Maybe UTCTime,
     transactionId :: Text,
-    messageId :: Text
+    messageId :: Text,
+    category :: [DCategorySelect]
   }
 
 data DFareBreakUp = DFareBreakUp
@@ -55,11 +57,12 @@ data DTicket = DTicket
   { qrData :: Text,
     vehicleNumber :: Maybe Text,
     description :: Maybe Text,
-    bppFulfillmentId :: Text,
+    bppFulfillmentId :: Maybe Text,
     ticketNumber :: Text,
     validTill :: UTCTime,
     status :: Text,
-    qrRefreshAt :: Maybe UTCTime
+    qrRefreshAt :: Maybe UTCTime,
+    commencingHours :: Maybe Int
   }
 
 data DTicketPayload = DTicketPayload
@@ -73,8 +76,3 @@ data DTicketPayload = DTicketPayload
     ticketAmount :: Money,
     refreshAt :: Maybe UTCTime
   }
-
-getMerchantOperatingCityFromBooking :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => DFRFSTicketBooking.FRFSTicketBooking -> m DMOC.MerchantOperatingCity
-getMerchantOperatingCityFromBooking tBooking = do
-  let moCityId = tBooking.merchantOperatingCityId
-  CQMOC.findById moCityId >>= fromMaybeM (MerchantOperatingCityNotFound $ "merchantOperatingCityId- " <> show moCityId)

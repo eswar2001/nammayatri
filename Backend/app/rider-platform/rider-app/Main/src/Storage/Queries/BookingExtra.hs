@@ -7,6 +7,7 @@ import Domain.Types
 import Domain.Types.Booking as Domain
 import qualified Domain.Types.Booking as DRB
 import qualified Domain.Types.BookingLocation as DBBL
+import Domain.Types.BookingStatus as Domain
 import qualified Domain.Types.FarePolicy.FareProductType as DQuote
 import qualified Domain.Types.Location as DL
 import qualified Domain.Types.LocationMapping as DLM
@@ -21,7 +22,6 @@ import Kernel.Types.Common
 import Kernel.Types.Error
 import Kernel.Types.Id
 import Kernel.Utils.Common
-import qualified Lib.JourneyLeg.Types as LJT
 import qualified Sequelize as Se
 import qualified SharedLogic.LocationMapping as SLM
 import qualified Storage.Beam.Booking as BeamB
@@ -343,35 +343,31 @@ updateMultipleById isBookingUpdated estimatedFare estimatedTotalFare mbEstimated
 findAllByTransactionId :: (MonadFlow m, CacheFlow m r, EsqDBFlow m r) => Text -> m [Booking]
 findAllByTransactionId transactionId = findAllWithKVAndConditionalDB [Se.Is BeamB.riderTransactionId $ Se.Eq transactionId] (Just (Se.Desc BeamB.createdAt))
 
-updateIsCancelled :: (MonadFlow m, EsqDBFlow m r) => Id Booking -> Maybe Bool -> m ()
-updateIsCancelled (Id reqId) isDeleted = do
-  updateOneWithKV
-    [Se.Set BeamB.isDeleted isDeleted]
-    [Se.Is BeamB.id (Se.Eq reqId)]
-
-updateisSkipped :: (MonadFlow m, EsqDBFlow m r) => Id Booking -> Maybe Bool -> m ()
-updateisSkipped (Id reqId) isSkipped = do
-  updateOneWithKV
-    [Se.Set BeamB.isSkipped isSkipped]
-    [Se.Is BeamB.id (Se.Eq reqId)]
-
-updateJourneyLegStatus :: (MonadFlow m, EsqDBFlow m r) => Maybe LJT.JourneyLegStatus -> Id Booking -> m ()
-updateJourneyLegStatus status bookingId = do
-  updateOneWithKV
-    [ Se.Set BeamB.journeyLegStatus status
-    ]
-    [Se.Is BeamB.id (Se.Eq $ getId bookingId)]
-
 findAllByRiderIdAndStatusAndMOCId :: (MonadFlow m, CacheFlow m r, EsqDBFlow m r) => Id Person -> BookingStatus -> Id DMOC.MerchantOperatingCity -> m [Booking]
 findAllByRiderIdAndStatusAndMOCId (Id personId) status (Id mocId) = do
   findAllWithOptionsKV
     [ Se.And
         [ Se.Is BeamB.riderId $ Se.Eq personId,
           Se.Is BeamB.status $ Se.Eq status,
-          Se.Is BeamB.merchantOperatingCityId $ Se.Eq (Just mocId),
-          Se.Is BeamB.journeyId $ Se.Not $ Se.Eq Nothing
+          Se.Is BeamB.merchantOperatingCityId $ Se.Eq (Just mocId)
         ]
     ]
     (Se.Desc BeamB.createdAt)
     (Just 10)
     Nothing
+
+fetchRidesCount :: (MonadFlow m, CacheFlow m r, EsqDBFlow m r) => Id Person -> m (Maybe Int)
+fetchRidesCount personId = do
+  dbConf <- getReplicaBeamConfig
+  res <- L.runDB dbConf $
+    L.findRows $
+      B.select $
+        B.aggregate_ (\_ -> B.as_ @Int B.countAll_) $
+          B.filter_'
+            ( \booking ->
+                B.sqlBool_ (booking.status `B.in_` (B.val_ <$> [Domain.COMPLETED, Domain.TRIP_ASSIGNED]))
+                  B.&&?. booking.riderId B.==?. B.val_ (getId personId)
+            )
+            do
+              B.all_ (BeamCommon.booking BeamCommon.atlasDB)
+  pure $ either (const Nothing) (\r -> if null r then Nothing else Just (head r)) res

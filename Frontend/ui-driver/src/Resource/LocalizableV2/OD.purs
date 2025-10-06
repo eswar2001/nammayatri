@@ -1864,6 +1864,9 @@ getOd =
     , open_meter : "ମିଟର୍ ଖୋଲନ୍ତୁ"
     , this_ride_includes_a_pet : "ଏହି ଯାତ୍ରାରେ ଗୋଟିଏ ପାଳିତ ପଶୁ ଅନ୍ତର୍ଭୁକ୍ତ"
     , pet_rides : "ପେଟ ରାଇଡସ"
+    , thanks_for_accepting_pet_ride : "ପୋଷା ପ୍ରାଣୀମାନଙ୍କ ସହିତ ଯାତ୍ରା ଗ୍ରହଣ କରିବା ପାଇଁ ଧନ୍ୟବାଦ!"
+    , clean_the_vehicle_after_ride_if_needed : "ଆବଶ୍ୟକ ହେଲେ ଯାତ୍ରା ପରେ ଗାଡ଼ିକୁ ପରିଷ୍କାର କରନ୍ତୁ।"
+    , the_customer_is_responsible_for_pet : "ଗ୍ରାହକ ତାଙ୍କର ପୋଷା ପ୍ରାଣୀ ଏବଂ ଯାତ୍ରା ସମୟରେ ଯେକୌଣସି ସମସ୍ୟା ପାଇଁ ଦାୟୀ ଅଟନ୍ତି।"
     , please_resume_ride_to_continue : "ଯାତ୍ରା ପୁନରାରମ୍ଭ କରନ୍ତୁ"
     , you_are_too_far_from_the_stop : "ଆପଣଙ୍କର ସ୍ଟପ୍ ମୁକଳାରେ ଅତିରିକ୍ତ ଦୂରତା ଅଛି। ଅଟନ୍ତୁ ଅଟନ୍ତୁ"
     , you_may_lose_some_coins_if_you_cancel_this_ride : "ଆପଣଙ୍କର ଯାତ୍ରା ରଦ୍ଦୁ କରିବାରୁ, କିଛି କାଲି ହୋଇପାରିବ"
@@ -1909,4 +1912,6 @@ getOd =
     , view_less : "କମ ଦେଖନ୍ତୁ"
     , you_are_in_probation_period_till : (\date -> "ଆପଣ " <> date <> " ପର୍ଯ୍ୟନ୍ତ ପ୍ରଯୋଗ ଅବଧି ଅଛି")
     , pass_all_eligibility_criteria_to_continue_being_a_member : "ନମ୍ମ କୁତୁମା ସଦସ୍ଯ ହନ ପାଇଁ ସମସ୍ତ ଯୋଗ୍ଯତା ମାନଦଣ୍ଡଗୁଡ଼ିକୁ ପାଲନ କରନ୍ତୁ"
+    , metro : "ମେଟ୍ରୋ"
+    , gold_tier : "ଗୋଲ୍ଡ ଟିୟାର"
   }

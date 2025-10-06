@@ -33,6 +33,7 @@ instance FromTType' Beam.Estimate Domain.Types.Estimate.Estimate where
         Domain.Types.Estimate.Estimate
           { backendAppVersion = backendAppVersion,
             backendConfigVersion = backendConfigVersion',
+            boostSearchPreSelectionServiceTierConfig = boostSearchPreSelectionServiceTierConfig,
             bppEstimateId = Kernel.Types.Id.Id bppEstimateId,
             clientBundleVersion = clientBundleVersion',
             clientConfigVersion = clientConfigVersion',
@@ -81,6 +82,7 @@ instance FromTType' Beam.Estimate Domain.Types.Estimate.Estimate where
             tripTerms = tripTerms',
             updatedAt = updatedAt,
             validTill = validTill,
+            vehicleCategory = vehicleCategory,
             vehicleIconUrl = vehicleIconUrl',
             vehicleServiceTierAirConditioned = vehicleServiceTierAirConditioned,
             vehicleServiceTierSeatingCapacity = vehicleServiceTierSeatingCapacity,
@@ -93,6 +95,7 @@ instance ToTType' Beam.Estimate Domain.Types.Estimate.Estimate where
     Beam.EstimateT
       { Beam.backendAppVersion = backendAppVersion,
         Beam.backendConfigVersion = fmap Kernel.Utils.Version.versionToText backendConfigVersion,
+        Beam.boostSearchPreSelectionServiceTierConfig = boostSearchPreSelectionServiceTierConfig,
         Beam.bppEstimateId = Kernel.Types.Id.getId bppEstimateId,
         Beam.clientBundleVersion = fmap Kernel.Utils.Version.versionToText clientBundleVersion,
         Beam.clientConfigVersion = fmap Kernel.Utils.Version.versionToText clientConfigVersion,
@@ -151,6 +154,7 @@ instance ToTType' Beam.Estimate Domain.Types.Estimate.Estimate where
         Beam.tripTermsId = Kernel.Types.Id.getId <$> (tripTerms <&> (.id)),
         Beam.updatedAt = updatedAt,
         Beam.validTill = validTill,
+        Beam.vehicleCategory = vehicleCategory,
         Beam.vehicleIconUrl = Kernel.Prelude.fmap showBaseUrl vehicleIconUrl,
         Beam.vehicleServiceTierAirConditioned = vehicleServiceTierAirConditioned,
         Beam.vehicleServiceTierSeatingCapacity = vehicleServiceTierSeatingCapacity,

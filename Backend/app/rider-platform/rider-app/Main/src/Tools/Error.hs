@@ -12,7 +12,7 @@
  the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 -}
 
-module Tools.Error (module Tools.Error) where
+module Tools.Error (module Tools.Error, SearchCancelErrors (..)) where
 
 import EulerHS.Prelude
 import Kernel.Types.Error as Tools.Error
@@ -428,6 +428,7 @@ data StationError
   = StationNotFound Text
   | StationDoesNotExist Text
   | StationsNotFound Text Text
+  | InvalidStationData Text -- station data issue
   deriving (Eq, Show, IsBecknAPIError)
 
 instanceExceptionWithParent 'HTTPException ''StationError
@@ -437,17 +438,20 @@ instance IsBaseError StationError where
     StationNotFound msg -> Just $ "Station Not Found:-" <> msg
     StationDoesNotExist msg -> Just $ "Station Does Not Exist:-" <> msg
     StationsNotFound start end -> Just $ "Station Not Found:-" <> start <> ", " <> end
+    InvalidStationData reason -> Just $ "Invalid station data: " <> reason
 
 instance IsHTTPError StationError where
   toErrorCode = \case
     StationNotFound _ -> "STATION_NOT_FOUND"
     StationDoesNotExist _ -> "STATION_DOES_NOT_EXIST"
     StationsNotFound _ _ -> "STATIONS_NOT_FOUND"
+    InvalidStationData _ -> "INVALID_STATION_DATA"
 
   toHttpCode = \case
     StationNotFound _ -> E500
     StationDoesNotExist _ -> E400
     StationsNotFound _ _ -> E500
+    InvalidStationData _ -> E400
 
 instance IsAPIError StationError
 
@@ -552,6 +556,7 @@ data FRFSTicketBookingError
   | FRFSTicketBookingDoesNotExist Text
   | FRFSTicketsForBookingExpired Text
   | FRFSTicketsForBookingDoesNotExist Text
+  | FRFSQuoteExpired Text
   deriving (Eq, Show, IsBecknAPIError)
 
 instanceExceptionWithParent 'HTTPException ''FRFSTicketBookingError
@@ -562,6 +567,7 @@ instance IsBaseError FRFSTicketBookingError where
     FRFSTicketBookingDoesNotExist bookingId -> Just $ "FRFS Ticket Booking with bookingId:" +|| bookingId ||+ " does not exist."
     FRFSTicketsForBookingExpired bookingId -> Just $ "FRFS Tickets for booking with bookingId:" +|| bookingId ||+ " has expired."
     FRFSTicketsForBookingDoesNotExist bookingId -> Just $ "FRFS Tickets for booking with bookingId:" +|| bookingId ||+ " does not exist."
+    FRFSQuoteExpired _ -> Just $ "Quote expired"
 
 instance IsHTTPError FRFSTicketBookingError where
   toErrorCode = \case
@@ -569,12 +575,14 @@ instance IsHTTPError FRFSTicketBookingError where
     FRFSTicketBookingDoesNotExist _ -> "FRFS_TICKET_BOOKING_DOES_NOT_EXIST"
     FRFSTicketsForBookingExpired _ -> "FRFS_TICKETS_FOR_BOOKING_EXPIRED"
     FRFSTicketsForBookingDoesNotExist _ -> "FRFS_TICKETS_FOR_BOOKING_DOES_NOT_EXIST"
+    FRFSQuoteExpired _ -> "FRFS_QUOTE_EXPIRED"
 
   toHttpCode = \case
     FRFSTicketBookingNotFound _ -> E500
     FRFSTicketBookingDoesNotExist _ -> E400
     FRFSTicketsForBookingExpired _ -> E400
     FRFSTicketsForBookingDoesNotExist _ -> E400
+    FRFSQuoteExpired _ -> E400
 
 instance IsAPIError FRFSTicketBookingError
 
@@ -775,24 +783,24 @@ instance IsHTTPError CancellationError where
 
 instance IsAPIError CancellationError
 
-data DiscountError
-  = DiscountsIneligible
+data CategoryError
+  = CategoriesIneligible
   deriving (Eq, Show, IsBecknAPIError)
 
-instanceExceptionWithParent 'HTTPException ''DiscountError
+instanceExceptionWithParent 'HTTPException ''CategoryError
 
-instance IsBaseError DiscountError where
+instance IsBaseError CategoryError where
   toMessage = \case
-    DiscountsIneligible -> Just $ "Discount not eligible"
+    CategoriesIneligible -> Just $ "Category not eligible"
 
-instance IsHTTPError DiscountError where
+instance IsHTTPError CategoryError where
   toErrorCode = \case
-    DiscountsIneligible -> "DISCOUNTS_INELIGIBLE"
+    CategoriesIneligible -> "CATEGORIES_INELIGIBLE"
 
   toHttpCode = \case
-    DiscountsIneligible -> E400
+    CategoriesIneligible -> E400
 
-instance IsAPIError DiscountError
+instance IsAPIError CategoryError
 
 data JourneyLegError
   = JourneyLegCannotBeSwitched Text
@@ -937,3 +945,92 @@ instance IsHTTPError CustomAuthError where
     IpHitsLimitExceeded -> E429
 
 instance IsAPIError CustomAuthError
+
+data SearchCancelErrors = ActiveBookingPresent Text | FailedToCancelSearch Text deriving (Eq, Show, IsBecknAPIError)
+
+instanceExceptionWithParent 'HTTPException ''SearchCancelErrors
+
+instance IsBaseError SearchCancelErrors where
+  toMessage = \case
+    ActiveBookingPresent searchId -> Just $ "Active Booking Present for searchId: " <> searchId
+    FailedToCancelSearch searchId -> Just $ "Failed To Cancel for searchId: " <> searchId
+
+instance IsHTTPError SearchCancelErrors where
+  toErrorCode = \case
+    ActiveBookingPresent _ -> "ACTIVE_BOOKING_PRESENT"
+    FailedToCancelSearch _ -> "FAILED_TO_CANCEL"
+  toHttpCode = \case
+    ActiveBookingPresent _ -> E400
+    FailedToCancelSearch _ -> E400
+
+instance IsAPIError SearchCancelErrors
+
+data MultimodalError
+  = InvalidStationChange Text Text
+  | NoValidMetroRoute Text Text -- source, destination
+  | MetroLegNotFound Text -- reason
+  | InvalidLegOrder Int -- legOrder
+  | OSRMFailure Text -- reason
+  | OTPServiceUnavailable Text -- reason
+  | UnsupportedVehicleType Text -- reason
+  | VehicleUnserviceableOnRoute Text -- reason
+  | VehicleServiceTierUnserviceable Text -- reason
+  | InvalidVehicleNumber Text -- reason
+  | FleetRouteMapMissing Text -- reason
+  | PublicTransportDataUnavailable Text -- reason
+  | StopNotFound Text
+  | StopDoesNotHaveLocation Text
+  deriving (Eq, Show, IsBecknAPIError)
+
+instanceExceptionWithParent 'HTTPException ''MultimodalError
+
+instance IsBaseError MultimodalError where
+  toMessage = \case
+    InvalidStationChange stopCode reason -> Just $ "Invalid station change for stop code " <> stopCode <> ": " <> reason
+    NoValidMetroRoute source dest -> Just $ "No valid metro route found between " <> source <> " and " <> dest
+    MetroLegNotFound reason -> Just $ "Metro leg not found: " <> reason
+    InvalidLegOrder legOrder -> Just $ "Invalid leg order: " <> show legOrder
+    OSRMFailure reason -> Just $ "OSRM service failure: " <> reason
+    OTPServiceUnavailable reason -> Just $ "OTP service unavailable: " <> reason
+    UnsupportedVehicleType reason -> Just $ "Unsupported vehicle type: " <> reason
+    VehicleUnserviceableOnRoute reason -> Just $ "Vehicle unserviceable on route: " <> reason
+    VehicleServiceTierUnserviceable reason -> Just $ "Vehicle service tier unserviceable: " <> reason
+    InvalidVehicleNumber reason -> Just $ "Invalid vehicle number: " <> reason
+    FleetRouteMapMissing reason -> Just $ "Fleet route map missing: " <> reason
+    PublicTransportDataUnavailable reason -> Just $ "Public transport data unavailable: " <> reason
+    StopNotFound reason -> Just $ "Stop not found: " <> reason
+    StopDoesNotHaveLocation reason -> Just $ "Stop does not have location: " <> reason
+
+instance IsHTTPError MultimodalError where
+  toErrorCode = \case
+    InvalidStationChange _ _ -> "INVALID_STATION_CHANGE"
+    NoValidMetroRoute _ _ -> "NO_VALID_METRO_ROUTE"
+    MetroLegNotFound _ -> "METRO_LEG_NOT_FOUND"
+    InvalidLegOrder _ -> "INVALID_LEG_ORDER"
+    OSRMFailure _ -> "OSRM_FAILURE"
+    OTPServiceUnavailable _ -> "OTP_SERVICE_UNAVAILABLE"
+    UnsupportedVehicleType _ -> "UNSUPPORTED_VEHICLE_TYPE"
+    VehicleUnserviceableOnRoute _ -> "VEHICLE_UNSERVICEABLE_ON_ROUTE"
+    VehicleServiceTierUnserviceable _ -> "VEHICLE_SERVICE_TIER_UNSERVICEABLE"
+    InvalidVehicleNumber _ -> "INVALID_VEHICLE_NUMBER"
+    FleetRouteMapMissing _ -> "FLEET_ROUTE_MAP_MISSING"
+    PublicTransportDataUnavailable _ -> "PUBLIC_TRANSPORT_DATA_UNAVAILABLE"
+    StopNotFound _ -> "STOP_NOT_FOUND"
+    StopDoesNotHaveLocation _ -> "STOP_DOES_NOT_HAVE_LOCATION"
+  toHttpCode = \case
+    InvalidStationChange _ _ -> E400
+    NoValidMetroRoute _ _ -> E400
+    MetroLegNotFound _ -> E400
+    InvalidLegOrder _ -> E400
+    OSRMFailure _ -> E500
+    OTPServiceUnavailable _ -> E503
+    UnsupportedVehicleType _ -> E400
+    VehicleUnserviceableOnRoute _ -> E400
+    VehicleServiceTierUnserviceable _ -> E400
+    InvalidVehicleNumber _ -> E400
+    FleetRouteMapMissing _ -> E400
+    PublicTransportDataUnavailable _ -> E500
+    StopNotFound _ -> E400
+    StopDoesNotHaveLocation _ -> E400
+
+instance IsAPIError MultimodalError

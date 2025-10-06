@@ -35,6 +35,8 @@ import qualified Data.Aeson as A
 import qualified Data.Text as T
 import Data.Time (UTCTime (UTCTime, utctDay), addDays)
 import qualified Domain.Types.Coins.CoinHistory as DTCC
+import qualified Domain.Types.DriverStats as DDS
+import qualified Domain.Types.FleetConfig as DFC
 import qualified Domain.Types.Merchant as DM
 import qualified Domain.Types.MerchantOperatingCity as DMOC
 import qualified Domain.Types.Person as DP
@@ -61,6 +63,9 @@ import qualified Storage.Queries.Booking as QBooking
 import qualified Storage.Queries.CallStatus as QCallStatus
 import qualified Storage.Queries.Coins.CoinHistory as CHistory
 import qualified Storage.Queries.DriverQuote as QDQ
+import qualified Storage.Queries.DriverStats as QDriverStats
+import qualified Storage.Queries.FleetConfig as QFC
+import qualified Storage.Queries.FleetDriverAssociationExtra as QFDAE
 import qualified Storage.Queries.Person as Person
 import qualified Storage.Queries.Ride as QRide
 import qualified Storage.Queries.Translations as MTQuery
@@ -108,8 +113,35 @@ driverCoinsEvent driverId merchantId merchantOpCityId eventType entityId mbVehVa
   logDebug $ "Driver Coins Event Triggered for merchantOpCityId - " <> merchantOpCityId.getId <> " and driverId - " <> driverId.getId <> "and vehicle category - " <> show vehCategory
   transporterConfig <- SCTC.findByMerchantOpCityId merchantOpCityId (Just (DriverId (cast driverId))) >>= fromMaybeM (TransporterConfigNotFound merchantOpCityId.getId)
   coinConfiguration <- CDCQ.fetchFunctionsOnEventbasis eventType merchantId merchantOpCityId vehCategory mbConfigVersionMap
-  finalCoinsValue <- sum <$> forM coinConfiguration (\cc -> calculateCoins eventType driverId merchantId merchantOpCityId cc.eventFunction cc.expirationAt cc.coins transporterConfig entityId vehCategory)
-  updateDriverCoins driverId finalCoinsValue transporterConfig.timeDiffFromUtc
+  mbDriverStats <- B.runInReplica $ QDriverStats.findByPrimaryKey driverId
+  logDebug $ "Driver stats present: " <> show (isJust mbDriverStats)
+  -- fetch driver fleet here
+  mbFleetDriverAssociation <- QFDAE.findByDriverId driverId True
+  logDebug $ "Fleet association present: " <> show (isJust mbFleetDriverAssociation)
+  -- derive fleetOwnerId and fetch fleet config if present
+  let mbFleetOwnerId = (\fda -> Id fda.fleetOwnerId) <$> mbFleetDriverAssociation
+  logDebug $ "Fleet owner id: " <> show (getId <$> mbFleetOwnerId)
+  mbFleetConfig <- traverse QFC.findByPrimaryKey mbFleetOwnerId
+  logDebug $ "Fleet config present: " <> show (maybe False isJust mbFleetConfig)
+  -- extract blacklists
+  let blacklistedEventsByFleet = case mbFleetConfig of
+        Just (Just fc) -> fromMaybe [] (DFC.blacklistCoinEvents fc)
+        _ -> []
+      blacklistedEventsByDriver = fromMaybe [] (DDS.blacklistCoinEvents =<< mbDriverStats)
+      combinedBlacklist = blacklistedEventsByDriver <> blacklistedEventsByFleet
+      filteredConfigAll = filter (\cc -> cc.eventFunction `notElem` combinedBlacklist) coinConfiguration
+  logDebug $ "Coin config count: total=" <> show (length coinConfiguration) <> ", filtered=" <> show (length filteredConfigAll)
+
+  logInfo $ "Coin events for driver " <> driverId.getId <> " - DriverBlacklist: " <> show blacklistedEventsByDriver <> ", FleetBlacklist: " <> show blacklistedEventsByFleet <> ", Total: " <> show (map (.eventFunction) coinConfiguration) <> ", Filtered: " <> show (map (.eventFunction) filteredConfigAll)
+
+  if null filteredConfigAll
+    then do
+      logInfo "All coin events blacklisted; skipping award"
+      pure ()
+    else do
+      finalCoinsValue <- sum <$> forM filteredConfigAll (\cc -> calculateCoins eventType driverId merchantId merchantOpCityId cc.eventFunction cc.expirationAt cc.coins transporterConfig entityId vehCategory)
+      logInfo $ "Awarding coins: " <> show finalCoinsValue
+      updateDriverCoins driverId finalCoinsValue transporterConfig.timeDiffFromUtc
 
 calculateCoins :: EventFlow m r => DCT.DriverCoinsEventType -> Id DP.Person -> Id DM.Merchant -> Id DMOC.MerchantOperatingCity -> DCT.DriverCoinsFunctionType -> Maybe Int -> Int -> TransporterConfig -> Maybe Text -> DTV.VehicleCategory -> m Int
 calculateCoins eventType driverId merchantId merchantOpCityId eventFunction mbexpirationTime numCoins transporterConfig entityId vehCategory = do
@@ -180,10 +212,20 @@ hEndRide driverId merchantId merchantOpCityId isDisabled coinsRewardedOnGoldTier
     DCT.MetroRideCompleted mRideType maybeCount -> do
       metroRideCount <- fromMaybe 0 <$> getMetroRideCountByDriverIdKey driverId mRideType
       logDebug $ "Metro Ride Type DB - " <> show mRideType <> "and count - " <> show maybeCount <> "Metro Ride Count from Redis - " <> show metroRideCount
-      let conditions = [pure (mRideType == metroRideType)] ++ maybe [] (\cnt -> [pure (metroRideCount == cnt)]) maybeCount
-      runActionWhenValidConditions
-        conditions
-        $ updateEventAndGetCoinsvalue driverId merchantId merchantOpCityId eventFunction mbexpirationTime numCoins entityId vehCategory
+      let conditionsForEveryRide = [pure (mRideType == metroRideType)]
+      let conditionsForXRide = maybe [pure False] (\cnt -> conditionsForEveryRide ++ [pure (metroRideCount == cnt)]) maybeCount
+      if isJust maybeCount
+        then
+          runActionWhenValidConditions
+            conditionsForXRide
+            $ updateEventAndGetCoinsvalue driverId merchantId merchantOpCityId eventFunction mbexpirationTime numCoins entityId vehCategory
+        else
+          if isNothing maybeCount
+            then
+              runActionWhenValidConditions
+                conditionsForEveryRide
+                $ updateEventAndGetCoinsvalue driverId merchantId merchantOpCityId eventFunction mbexpirationTime numCoins entityId vehCategory
+            else pure 0
     _ -> pure 0
 
 hDriverReferral :: EventFlow m r => Id DP.Person -> Id DM.Merchant -> Id DMOC.MerchantOperatingCity -> DR.Ride -> DCT.DriverCoinsFunctionType -> Maybe Int -> Int -> TransporterConfig -> Maybe Text -> DTV.VehicleCategory -> m Int

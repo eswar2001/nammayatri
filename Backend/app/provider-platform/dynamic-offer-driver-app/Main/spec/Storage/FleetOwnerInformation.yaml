@@ -30,6 +30,7 @@ FleetOwnerInformation:
     businessLicenseImageId : Maybe Text
     referredByOperatorId: Maybe Text
     registeredAt: Maybe UTCTime
+    ticketPlaceId: Maybe Text
   sqlType:
     referredByOperatorId: character varying (36)
   excludedFields: [merchantOperatingCityId]
@@ -107,6 +108,9 @@ FleetOwnerInformation:
     updateReferredByOperatorId:
       kvFunction: updateOneWithKV
       params: [referredByOperatorId]
+      where: fleetOwnerPersonId
+    deleteByFleetOwnerPersonId:
+      kvFunction: deleteWithKV
       where: fleetOwnerPersonId
 
   excludedDefaultQueries:

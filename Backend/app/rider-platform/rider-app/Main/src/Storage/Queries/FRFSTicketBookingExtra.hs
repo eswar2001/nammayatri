@@ -56,30 +56,6 @@ findAllByRiderId limit offset riderId mbVehicleCategory = do
     limit
     offset
 
-updateIsCancelled :: (MonadFlow m, EsqDBFlow m r) => Id FRFSTicketBooking -> Maybe Bool -> m ()
-updateIsCancelled (Id reqId) isDeleted = do
-  updateOneWithKV
-    [Se.Set Beam.isDeleted isDeleted]
-    [Se.Is Beam.id (Se.Eq reqId)]
-
-updateIsSkipped :: (MonadFlow m, EsqDBFlow m r) => Id FRFSTicketBooking -> Maybe Bool -> m ()
-updateIsSkipped (Id reqId) isSkipped = do
-  updateOneWithKV
-    [Se.Set Beam.isSkipped isSkipped]
-    [Se.Is Beam.id (Se.Eq reqId)]
-
-findAllByJourneyIdAndRiderId :: (MonadFlow m, CacheFlow m r, EsqDBFlow m r) => Id Person -> Text -> Int -> m [FRFSTicketBooking]
-findAllByJourneyIdAndRiderId riderId journeyId limit = do
-  findAllWithOptionsKV
-    [ Se.And
-        [ Se.Is Beam.riderId $ Se.Eq (getId riderId),
-          Se.Is Beam.journeyId $ Se.Eq (Just journeyId)
-        ]
-    ]
-    (Se.Desc Beam.createdAt)
-    (Just limit)
-    Nothing
-
 updateTicketAndChildTicketQuantityById :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => Id FRFSTicketBooking -> Maybe Int -> Maybe Int -> m ()
 updateTicketAndChildTicketQuantityById id quantity childTicketQuantity = do
   _now <- getCurrentTime

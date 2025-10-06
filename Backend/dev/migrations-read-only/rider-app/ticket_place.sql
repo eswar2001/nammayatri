@@ -68,3 +68,35 @@ ALTER TABLE atlas_app.ticket_place ADD COLUMN rules json ;
 ------- SQL updates -------
 
 ALTER TABLE atlas_app.ticket_place ADD COLUMN recommend boolean ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.ticket_place ADD COLUMN pricing_onwards integer ;
+ALTER TABLE atlas_app.ticket_place ADD COLUMN platform_fee text ;
+ALTER TABLE atlas_app.ticket_place ADD COLUMN metadata json ;
+ALTER TABLE atlas_app.ticket_place ADD COLUMN is_recurring boolean  default true;
+ALTER TABLE atlas_app.ticket_place ADD COLUMN faqs json ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.ticket_place ADD COLUMN platform_fee_vendor text ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.ticket_place ADD COLUMN venue text ;
+ALTER TABLE atlas_app.ticket_place ADD COLUMN start_date date ;
+ALTER TABLE atlas_app.ticket_place ADD COLUMN is_closed boolean  default false;
+ALTER TABLE atlas_app.ticket_place ADD COLUMN end_date date ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.ticket_place ADD COLUMN assign_ticket_to_bpp boolean  default false;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.ticket_place ADD COLUMN enforced_as_sub_place boolean  default false;

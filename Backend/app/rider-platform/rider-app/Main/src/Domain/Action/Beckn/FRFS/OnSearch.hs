@@ -23,14 +23,19 @@ import qualified Data.Text as T
 import Domain.Types.Extra.FRFSCachedQuote as CachedQuote
 import qualified Domain.Types.FRFSFarePolicy as FRFSFarePolicy
 import qualified Domain.Types.FRFSQuote as Quote
+import qualified Domain.Types.FRFSQuoteCategory as DFRFSQuoteCategory
+import qualified Domain.Types.FRFSQuoteCategorySpec as DFRFSQuoteCategory
 import qualified Domain.Types.FRFSRouteFareProduct as FRFSRouteFareProduct
 import qualified Domain.Types.FRFSSearch as Search
+import qualified Domain.Types.FRFSTicketCategoryMetadataConfig as DFRFSTicketCategoryMetadataConfig
 import qualified Domain.Types.FRFSVehicleServiceTier as FRFSVehicleServiceTier
 import qualified Domain.Types.IntegratedBPPConfig as DIBC
+import qualified Domain.Types.JourneyLeg as DJourneyLeg
 import Domain.Types.Merchant
 import Domain.Types.MerchantOperatingCity
 import qualified Domain.Types.StationType as Station
 import qualified Domain.Types.StopFare as StopFare
+import qualified Domain.Types.Trip as DTripTypes
 import EulerHS.Prelude (comparing, toStrict)
 import Kernel.Beam.Functions
 import Kernel.External.Maps.Types
@@ -40,18 +45,23 @@ import Kernel.Types.Error
 import Kernel.Types.Id
 import qualified Kernel.Types.TimeBound as DTB
 import Kernel.Utils.Common
-import qualified Lib.JourneyLeg.Types as JourneyLegTypes
 import qualified Lib.JourneyModule.Types as JourneyTypes
+import qualified Lib.JourneyModule.Utils as JourneyUtils
 import qualified SharedLogic.CreateFareForMultiModal as SLCF
 import qualified SharedLogic.FRFSUtils as SFU
 import qualified SharedLogic.IntegratedBPPConfig as SIBC
 import qualified Storage.CachedQueries.FRFSConfig as CQFRFSConfig
+import qualified Storage.CachedQueries.FRFSVehicleServiceTier as CQVSR
 import qualified Storage.CachedQueries.Merchant as QMerch
+import qualified Storage.CachedQueries.Merchant.RiderConfig as QRC
 import qualified Storage.CachedQueries.OTPRest.OTPRest as OTPRest
 import qualified Storage.Queries.FRFSFarePolicy as QFFP
 import qualified Storage.Queries.FRFSQuote as QQuote
+-- import qualified Storage.Queries.FRFSQuoteBreakup as QFRFSQuoteBreakup
+import qualified Storage.Queries.FRFSQuoteCategory as QFRFSQuoteCategory
 import qualified Storage.Queries.FRFSRouteFareProduct as QFRFP
 import qualified Storage.Queries.FRFSSearch as QSearch
+import qualified Storage.Queries.FRFSTicketCategoryMetadataConfig as QFRFSTicketCategoryMetadataConfig
 import qualified Storage.Queries.FRFSVehicleServiceTier as QVSR
 import qualified Storage.Queries.JourneyLeg as QJourneyLeg
 import qualified Storage.Queries.PersonStats as QPStats
@@ -70,14 +80,17 @@ data DOnSearch = DOnSearch
     messageId :: Text,
     bppDelayedInterest :: Maybe Text
   }
+  deriving (Show)
 
 data DVehicleServiceTier = DVehicleServiceTier
   { serviceTierType :: Spec.ServiceTierType,
     serviceTierProviderCode :: Text,
     serviceTierShortName :: Text,
     serviceTierDescription :: Text,
-    serviceTierLongName :: Text
+    serviceTierLongName :: Text,
+    isAirConditioned :: Bool
   }
+  deriving (Show)
 
 data DQuote = DQuote
   { bppItemId :: Text,
@@ -87,19 +100,23 @@ data DQuote = DQuote
     vehicleType :: Spec.VehicleCategory,
     routeStations :: [DRouteStation],
     stations :: [DStation],
-    discounts :: [DDiscount],
+    categories :: [DCategory],
     fareDetails :: Maybe Quote.FRFSFareDetails,
     _type :: Quote.FRFSQuoteType
   }
+  deriving (Show)
 
-data DDiscount = DDiscount
+data DCategory = DCategory
   { code :: Text,
     title :: Text,
     description :: Text,
     tnc :: Text,
     price :: Price,
-    eligibility :: Bool
+    offeredPrice :: Price,
+    eligibility :: Bool,
+    bppItemId :: Text
   }
+  deriving (Show)
 
 data DRouteStation = DRouteStation
   { routeCode :: Text,
@@ -115,6 +132,7 @@ data DRouteStation = DRouteStation
     routeColor :: Maybe Text,
     routeFarePolicyId :: Maybe (Id FRFSFarePolicy.FRFSFarePolicy)
   }
+  deriving (Show)
 
 data DStation = DStation
   { stationCode :: Text,
@@ -125,6 +143,7 @@ data DStation = DStation
     stopSequence :: Maybe Int,
     towards :: Maybe Text
   }
+  deriving (Show)
 
 data ValidatedDOnSearch = ValidatedDOnSearch
   { merchant :: Merchant,
@@ -134,6 +153,7 @@ data ValidatedDOnSearch = ValidatedDOnSearch
     mbFreeTicketInterval :: Maybe Int,
     mbMaxFreeTicketCashback :: Maybe Int
   }
+  deriving (Show)
 
 validateRequest :: (EsqDBFlow m r, EsqDBReplicaFlow m r, CacheFlow m r) => DOnSearch -> m ValidatedDOnSearch
 validateRequest DOnSearch {..} = do
@@ -175,15 +195,8 @@ onSearch onSearchReq validatedReq = do
 onSearchHelper :: (EsqDBFlow m r, EsqDBReplicaFlow m r, CacheFlow m r, HasShortDurationRetryCfg r c) => DOnSearch -> ValidatedDOnSearch -> DIBC.IntegratedBPPConfig -> m ()
 onSearchHelper onSearchReq validatedReq integratedBPPConfig = do
   quotesCreatedByCache <- QQuote.findAllBySearchId (Id onSearchReq.transactionId)
-  filteredQuotes <-
-    if validatedReq.search.vehicleType /= Spec.BUS
-      then pure onSearchReq.quotes
-      else do
-        routeCodes <- mapM (\routeCode -> OTPRest.getRouteByRouteId integratedBPPConfig routeCode >>= fromMaybeM (RouteNotFound routeCode)) (catMaybes ((map (.routeCode) validatedReq.search.journeyRouteDetails) <> [validatedReq.search.routeCode]))
-        pure $ case routeCodes of
-          [] -> onSearchReq.quotes
-          routesCodes' -> filter (\quote -> quote.routeCode `elem` map (.code) routesCodes') onSearchReq.quotes
-  quotes <- traverse (mkQuotes onSearchReq validatedReq) filteredQuotes
+  mbJourneyLeg <- QJourneyLeg.findByLegSearchId (Just onSearchReq.transactionId)
+  quotes <- traverse (mkQuotes onSearchReq validatedReq) onSearchReq.quotes
   traverse_ cacheQuote quotes
   if null quotesCreatedByCache
     then QQuote.createMany quotes
@@ -192,52 +205,52 @@ onSearchHelper onSearchReq validatedReq integratedBPPConfig = do
       let updatedQuotes = map updateQuotes zippedQuotes
       for_ updatedQuotes \quote -> QQuote.updateCachedQuoteByPrimaryKey quote
   let search = validatedReq.search
-  mbRequiredQuote <- filterQuotes quotes search.journeyLegInfo
+  mbRequiredQuote <- filterQuotes integratedBPPConfig quotes mbJourneyLeg
   case mbRequiredQuote of
     Just requiredQuote -> do
-      void $ SLCF.createFares search.id.getId search.journeyLegInfo (QSearch.updatePricingId validatedReq.search.id (Just requiredQuote.id.getId))
-      whenJust search.journeyLegInfo $ \journeyLegInfo -> do
-        QJourneyLeg.updateEstimatedFaresByJourneyIdAndSequenceNumber (Just requiredQuote.price.amount) (Just requiredQuote.price.amount) (Id journeyLegInfo.journeyId) journeyLegInfo.journeyLegOrder
+      void $ SLCF.createFares search.id.getId requiredQuote.id.getId
+      QJourneyLeg.updateEstimatedFaresBySearchId (Just requiredQuote.price.amount) (Just requiredQuote.price.amount) (Just validatedReq.search.id.getId)
     Nothing -> do
-      whenJust validatedReq.search.journeyLegInfo $ \_journeyLegInfo -> do
-        QSearch.updateOnSearchFailed validatedReq.search.id (Just True)
+      QSearch.updateOnSearchFailed validatedReq.search.id (Just True)
   QSearch.updateIsOnSearchReceivedById (Just True) validatedReq.search.id
   fork "Updating Route Stop Fare" $ do
     forM_ onSearchReq.quotes $ \quote -> do
-      -- This `null quote.routeStation` check is to ensure that we only update the fare for the route stations if they are present in the quote.
-      dStartStation <- getStartStation quote.stations & fromMaybeM (InternalError "Start station not found")
-      dEndStation <- getEndStation quote.stations & fromMaybeM (InternalError "End station not found")
-      if null quote.routeStations
-        then do
-          if quote.vehicleType == Spec.METRO
-            then do
-              QRSF.findAllByStartStopAndIntegratedBPPConfigId dStartStation.stationCode dEndStation.stationCode integratedBPPConfig.id >>= \case
-                routeStopFares@(_ : _) -> do
-                  let farePolicyIds = map (.farePolicyId) routeStopFares
-                  traverse_ (\fp -> QRSF.updateFareByStopCodes quote.price.amount fp dStartStation.stationCode dEndStation.stationCode) farePolicyIds
-                [] -> do
-                  QFRFP.findAllByIntegratedBPPConfigId integratedBPPConfig.id >>= \case
-                    fareProducts@(_ : _) -> do
-                      let farePolicyIds = map (.farePolicyId) fareProducts
-                      traverse_ (\farePolicyId -> createStopFare farePolicyId dStartStation.stationCode dEndStation.stationCode quote search.merchantId search.merchantOperatingCityId integratedBPPConfig.id) farePolicyIds
-                    [] -> do
-                      createEntriesInFareTables search.merchantId search.merchantOperatingCityId quote integratedBPPConfig.id
-            else do
-              QFRFP.findByRouteCode quote.routeCode integratedBPPConfig.id >>= \case
-                fareProducts@(_ : _) -> do
-                  let farePolicyIds = map (.farePolicyId) fareProducts
-                  farePolicies <- QFFP.findAllByIds farePolicyIds
-                  let filteredFarePolicies = filter (\fp -> fp._type == FRFSFarePolicy.MatrixBased) farePolicies
-                  traverse_ (\fp -> QRSF.updateFareByStopCodes quote.price.amount fp.id dStartStation.stationCode dEndStation.stationCode) filteredFarePolicies
-                [] -> do
-                  createEntriesInFareTables search.merchantId search.merchantOperatingCityId quote integratedBPPConfig.id
-        else do
-          forM_ quote.routeStations $ \routeStation -> do
-            let price = routeStation.routePrice.amount
-                mbStartStopCode = find (\station -> station.stationType == Station.START) routeStation.routeStations <&> (.stationCode)
-                mbEndStopCode = find (\station -> station.stationType == Station.END) routeStation.routeStations <&> (.stationCode)
-            whenJust ((,,) <$> routeStation.routeFarePolicyId <*> mbStartStopCode <*> mbEndStopCode) $ \(farePolicyId, startStopCode, endStopCode) ->
-              QRSF.updateFareByStopCodes price farePolicyId startStopCode endStopCode
+      -- Only cache Single Journey tickets, ignore Return Journey tickets
+      when (quote._type == Quote.SingleJourney) $ do
+        -- This `null quote.routeStation` check is to ensure that we only update the fare for the route stations if they are present in the quote.
+        dStartStation <- getStartStation quote.stations & fromMaybeM (InternalError "Start station not found")
+        dEndStation <- getEndStation quote.stations & fromMaybeM (InternalError "End station not found")
+        if null quote.routeStations
+          then do
+            if quote.vehicleType == Spec.METRO
+              then do
+                QRSF.findAllByStartStopAndIntegratedBPPConfigId dStartStation.stationCode dEndStation.stationCode integratedBPPConfig.id >>= \case
+                  routeStopFares@(_ : _) -> do
+                    let farePolicyIds = map (.farePolicyId) routeStopFares
+                    traverse_ (\fp -> QRSF.updateFareByStopCodes quote.price.amount fp dStartStation.stationCode dEndStation.stationCode) farePolicyIds
+                  [] -> do
+                    QFRFP.findAllByIntegratedBPPConfigId integratedBPPConfig.id >>= \case
+                      fareProducts@(_ : _) -> do
+                        let farePolicyIds = map (.farePolicyId) fareProducts
+                        traverse_ (\farePolicyId -> createStopFare farePolicyId dStartStation.stationCode dEndStation.stationCode quote search.merchantId search.merchantOperatingCityId integratedBPPConfig.id) farePolicyIds
+                      [] -> do
+                        createEntriesInFareTables search.merchantId search.merchantOperatingCityId quote integratedBPPConfig.id
+              else do
+                QFRFP.findByRouteCode quote.routeCode integratedBPPConfig.id >>= \case
+                  fareProducts@(_ : _) -> do
+                    let farePolicyIds = map (.farePolicyId) fareProducts
+                    farePolicies <- QFFP.findAllByIds farePolicyIds
+                    let filteredFarePolicies = filter (\fp -> fp._type == FRFSFarePolicy.MatrixBased) farePolicies
+                    traverse_ (\fp -> QRSF.updateFareByStopCodes quote.price.amount fp.id dStartStation.stationCode dEndStation.stationCode) filteredFarePolicies
+                  [] -> do
+                    createEntriesInFareTables search.merchantId search.merchantOperatingCityId quote integratedBPPConfig.id
+          else do
+            forM_ quote.routeStations $ \routeStation -> do
+              let price = routeStation.routePrice.amount
+                  mbStartStopCode = find (\station -> station.stationType == Station.START) routeStation.routeStations <&> (.stationCode)
+                  mbEndStopCode = find (\station -> station.stationType == Station.END) routeStation.routeStations <&> (.stationCode)
+              whenJust ((,,) <$> routeStation.routeFarePolicyId <*> mbStartStopCode <*> mbEndStopCode) $ \(farePolicyId, startStopCode, endStopCode) ->
+                QRSF.updateFareByStopCodes price farePolicyId startStopCode endStopCode
   return ()
   where
     cacheQuote quote = do
@@ -266,16 +279,47 @@ onSearchHelper onSearchReq validatedReq integratedBPPConfig = do
               }
       QRSF.create stopFare
 
-filterQuotes :: (EsqDBFlow m r, EsqDBReplicaFlow m r, CacheFlow m r) => [Quote.FRFSQuote] -> Maybe JourneyLegTypes.JourneySearchData -> m (Maybe Quote.FRFSQuote)
-filterQuotes [] _ = return Nothing
-filterQuotes quotes (Just journeySearchData) = do
-  mbJourneyLeg <- QJourneyLeg.findByJourneyIdAndSequenceNumber (Id journeySearchData.journeyId) journeySearchData.journeyLegOrder
-  filteredQuotes <- case mbJourneyLeg >>= (.serviceTypes) of
+filterQuotes :: (EsqDBFlow m r, EsqDBReplicaFlow m r, CacheFlow m r) => DIBC.IntegratedBPPConfig -> [Quote.FRFSQuote] -> Maybe DJourneyLeg.JourneyLeg -> m (Maybe Quote.FRFSQuote)
+filterQuotes _ [] _ = return Nothing
+filterQuotes integratedBPPConfig quotes (Just journeyLeg) = do
+  filteredQuotes <- case journeyLeg.serviceTypes of
     Just serviceTypes -> do
-      return $ quotes & filter (maybe False (\serviceTier -> serviceTier.serviceTierType `elem` serviceTypes) . JourneyTypes.getServiceTierFromQuote)
+      return $
+        quotes
+          & filter
+            ( \quote ->
+                maybe False (\serviceTier -> serviceTier.serviceTierType `elem` serviceTypes) (JourneyTypes.getServiceTierFromQuote quote)
+                  &&
+                  -- TODO :: Can be used across all, but as we don't want to break others we are doing this only for ONDC
+                  case integratedBPPConfig.providerConfig of
+                    DIBC.ONDC config ->
+                      (config.routeBasedQuoteSelection /= Just True)
+                        || maybe
+                          True
+                          ( \(routeStationsJson :: [API.FRFSRouteStationsAPI], firstRouteDetail) ->
+                              any (\route -> Just route.code == firstRouteDetail.routeCode) routeStationsJson
+                          )
+                          ((,) <$> (decodeFromText =<< quote.routeStationsJson) <*> (listToMaybe journeyLeg.routeDetails))
+                    _ -> True
+            )
     Nothing -> return quotes
-  return $ Just $ minimumBy (\quote1 quote2 -> compare quote1.price.amount.getHighPrecMoney quote2.price.amount.getHighPrecMoney) (if null filteredQuotes then quotes else filteredQuotes)
-filterQuotes _ Nothing = return Nothing
+  let finalQuotes = if null filteredQuotes then quotes else filteredQuotes
+  case journeyLeg.mode of
+    DTripTypes.Bus -> do
+      mbRiderConfig <- QRC.findByMerchantOperatingCityId journeyLeg.merchantOperatingCityId Nothing
+      let cfgMap = maybe (JourneyUtils.toCfgMap JourneyUtils.defaultBusTierSortingConfig) JourneyUtils.toCfgMap (mbRiderConfig >>= (.busTierSortingConfig))
+      let serviceTierTypeFromQuote quote = JourneyTypes.getServiceTierFromQuote quote <&> (.serviceTierType)
+      return $
+        Just $
+          minimumBy
+            ( \quote1 quote2 ->
+                compare
+                  (maybe maxBound (JourneyUtils.tierRank cfgMap) (serviceTierTypeFromQuote quote1))
+                  (maybe maxBound (JourneyUtils.tierRank cfgMap) (serviceTierTypeFromQuote quote2))
+            )
+            finalQuotes
+    _ -> return $ Just $ minimumBy (\quote1 quote2 -> compare quote1.price.amount.getHighPrecMoney quote2.price.amount.getHighPrecMoney) finalQuotes
+filterQuotes _ _ Nothing = return Nothing
 
 mkQuotes :: (EsqDBFlow m r, EsqDBReplicaFlow m r, CacheFlow m r, HasShortDurationRetryCfg r c) => DOnSearch -> ValidatedDOnSearch -> DQuote -> m Quote.FRFSQuote
 mkQuotes dOnSearch ValidatedDOnSearch {..} DQuote {..} = do
@@ -286,46 +330,86 @@ mkQuotes dOnSearch ValidatedDOnSearch {..} DQuote {..} = do
   endStation <- OTPRest.getStationByGtfsIdAndStopCode dEndStation.stationCode integratedBPPConfig >>= fromMaybeM (InternalError $ "Station not found for stationCode: " <> dEndStation.stationCode <> " and integratedBPPConfigId: " <> integratedBPPConfig.id.getId)
   let stationsJSON = stations & map (castStationToAPI integratedBPPConfig.id) & encodeToText
   let routeStationsJSON = routeStations & map (castRouteStationToAPI integratedBPPConfig.id) & encodeToText
-  let discountsJSON = discounts & map castDiscountToAPI & encodeToText
+  let categoriesJSON = categories & map castCategoryToAPI & encodeToText
   uid <- generateGUID
   now <- getCurrentTime
   let (discountedTickets, eventDiscountAmount) = SFU.getDiscountInfo isEventOngoing mbFreeTicketInterval mbMaxFreeTicketCashback price search.quantity ticketsBookedInEvent
   let validTill = fromMaybe (addUTCTime (intToNominalDiffTime 900) now) dOnSearch.validTill -- If validTill is not present, set it to 15 minutes from now
-  return
-    Quote.FRFSQuote
-      { Quote._type = _type,
-        Quote.bppItemId,
-        Quote.bppSubscriberId = dOnSearch.bppSubscriberId,
-        Quote.bppSubscriberUrl = dOnSearch.bppSubscriberUrl,
-        Quote.fromStationCode = startStation.code,
-        Quote.toStationCode = endStation.code,
-        Quote.id = uid,
-        Quote.price,
-        Quote.childPrice,
-        Quote.estimatedPrice = Just price,
-        Quote.providerDescription = dOnSearch.providerDescription,
-        Quote.providerId = dOnSearch.providerId,
-        Quote.providerName = dOnSearch.providerName,
-        Quote.quantity = search.quantity,
-        Quote.riderId = search.riderId,
-        Quote.searchId = search.id,
-        Quote.stationsJson = stationsJSON,
-        Quote.routeStationsJson = Just routeStationsJSON,
-        Quote.discountsJson = Just discountsJSON,
-        Quote.validTill,
-        Quote.vehicleType,
-        Quote.merchantId = search.merchantId,
-        Quote.merchantOperatingCityId = search.merchantOperatingCityId,
-        Quote.partnerOrgId = search.partnerOrgId,
-        Quote.partnerOrgTransactionId = search.partnerOrgTransactionId,
-        Quote.createdAt = now,
-        Quote.updatedAt = now,
-        Quote.integratedBppConfigId = search.integratedBppConfigId,
-        Quote.childTicketQuantity = Nothing,
-        bppDelayedInterest = readMaybe . T.unpack =<< dOnSearch.bppDelayedInterest,
-        oldCacheDump = Nothing,
-        ..
-      }
+  let frfsQuote =
+        Quote.FRFSQuote
+          { Quote._type = _type,
+            Quote.bppItemId,
+            Quote.bppSubscriberId = dOnSearch.bppSubscriberId,
+            Quote.bppSubscriberUrl = dOnSearch.bppSubscriberUrl,
+            Quote.fromStationCode = startStation.code,
+            Quote.toStationCode = endStation.code,
+            Quote.id = uid,
+            Quote.price,
+            Quote.childPrice,
+            Quote.estimatedPrice = Just price,
+            Quote.providerDescription = dOnSearch.providerDescription,
+            Quote.providerId = dOnSearch.providerId,
+            Quote.providerName = dOnSearch.providerName,
+            Quote.quantity = search.quantity,
+            Quote.riderId = search.riderId,
+            Quote.searchId = search.id,
+            Quote.stationsJson = stationsJSON,
+            Quote.routeStationsJson = Just routeStationsJSON,
+            Quote.discountsJson = Just categoriesJSON,
+            Quote.validTill,
+            Quote.vehicleType,
+            Quote.merchantId = search.merchantId,
+            Quote.merchantOperatingCityId = search.merchantOperatingCityId,
+            Quote.partnerOrgId = search.partnerOrgId,
+            Quote.partnerOrgTransactionId = search.partnerOrgTransactionId,
+            Quote.createdAt = now,
+            Quote.updatedAt = now,
+            Quote.integratedBppConfigId = search.integratedBppConfigId,
+            Quote.childTicketQuantity = Nothing,
+            Quote.multimodalSearchRequestId = search.multimodalSearchRequestId,
+            bppDelayedInterest = readMaybe . T.unpack =<< dOnSearch.bppDelayedInterest,
+            oldCacheDump = Nothing,
+            ..
+          }
+
+  forM_ categories $ \category -> do
+    quoteCategoryIdForDiscount <- generateGUID
+    ticketCategoryMetadataConfig' <- QFRFSTicketCategoryMetadataConfig.findByCategoryVehicleAndCity (getQuoteCategoryType category.code) vehicleType search.merchantOperatingCityId >>= fromMaybeM (InternalError $ "Ticket category metadata config not found for city and category: " <> category.code <> " " <> show vehicleType <> " " <> search.merchantOperatingCityId.getId)
+
+    let quoteCategoryForDiscount =
+          DFRFSQuoteCategory.FRFSQuoteCategory
+            { id = quoteCategoryIdForDiscount,
+              quoteId = uid,
+              bppItemId = category.bppItemId,
+              price = category.price,
+              offeredPrice = category.offeredPrice,
+              maxTicketAllowed = Nothing,
+              merchantId = search.merchantId,
+              merchantOperatingCityId = search.merchantOperatingCityId,
+              ticketCategoryMetadataConfig = ticketCategoryMetadataConfig',
+              selectedQuantity = Nothing,
+              createdAt = now,
+              updatedAt = now
+            }
+
+    -- quoteBreakupDiscountsId <- generateGUID
+    -- let quoteBreakupDiscounts =
+    --       DFRFSQuoteBreakup.FRFSQuoteBreakup
+    --         { id = quoteBreakupDiscountsId,
+    --           quoteId = uid,
+    --           quoteCategoryId = quoteCategoryIdForDiscount,
+    --           tag = getCategoryPriceTags category.code,
+    --           value = show category.offeredPrice.amount,
+    --           merchantId = search.merchantId,
+    --           merchantOperatingCityId = search.merchantOperatingCityId,
+    --           createdAt = now,
+    --           updatedAt = now
+    --         }
+
+    QFRFSQuoteCategory.create quoteCategoryForDiscount
+  -- QFRFSQuoteBreakup.create quoteBreakupDiscounts
+
+  return frfsQuote
 
 getStartStation :: [DStation] -> Maybe DStation
 getStartStation = find (\station -> station.stationType == Station.START)
@@ -338,6 +422,7 @@ castStationToAPI integratedBppConfigId DStation {..} =
   API.FRFSStationAPI
     { API.address = Nothing,
       API.code = stationCode,
+      API.parentStopCode = Nothing,
       API.routeCodes = Nothing,
       API.color = Nothing,
       API.lat = stationLat,
@@ -374,11 +459,12 @@ castVehicleServiceTierAPI DVehicleServiceTier {..} =
       providerCode = serviceTierProviderCode,
       description = serviceTierDescription,
       longName = serviceTierLongName,
-      shortName = serviceTierShortName
+      shortName = serviceTierShortName,
+      isAirConditioned = isAirConditioned
     }
 
-castDiscountToAPI :: DDiscount -> API.FRFSDiscountRes
-castDiscountToAPI DDiscount {..} =
+castCategoryToAPI :: DCategory -> API.FRFSDiscountRes
+castCategoryToAPI DCategory {..} =
   API.FRFSDiscountRes
     { API.code = code,
       API.price = mkPriceAPIEntity price,
@@ -432,7 +518,8 @@ updateQuotes (quotesFromCache, quotesFromOnSearch) = do
       Quote.eventDiscountAmount = quotesFromOnSearch.eventDiscountAmount,
       Quote.integratedBppConfigId = quotesFromOnSearch.integratedBppConfigId,
       Quote.discountedTickets = quotesFromOnSearch.discountedTickets,
-      Quote.childTicketQuantity = quotesFromOnSearch.childTicketQuantity
+      Quote.childTicketQuantity = quotesFromOnSearch.childTicketQuantity,
+      Quote.multimodalSearchRequestId = quotesFromOnSearch.multimodalSearchRequestId
     }
   where
     toJsonText :: FRFSCachedQuote -> Text
@@ -495,7 +582,7 @@ createEntriesInFareTables merchantId merchantOperatingCityId quote integratedBpp
             updatedAt = now
           }
   (vehicleServiceTierId, vehicleServiceTier) <- do
-    QVSR.findByServiceTierAndMerchantOperatingCityId Spec.ORDINARY merchantOperatingCityId >>= \case
+    CQVSR.findByServiceTierAndMerchantOperatingCityIdAndIntegratedBPPConfigId Spec.ORDINARY merchantOperatingCityId integratedBppConfigId >>= \case
       Just vsc -> return (vsc.id, Nothing)
       Nothing -> do
         id <- generateGUID
@@ -509,6 +596,8 @@ createEntriesInFareTables merchantId merchantOperatingCityId quote integratedBpp
                   description = "ORDINARY",
                   shortName = show quote.vehicleType,
                   longName = show quote.vehicleType,
+                  isAirConditioned = False,
+                  integratedBppConfigId,
                   merchantId,
                   merchantOperatingCityId,
                   createdAt = now,
@@ -535,3 +624,21 @@ createEntriesInFareTables merchantId merchantOperatingCityId quote integratedBpp
   QFRFP.create frfsRouteFareProduct
   QFFP.create farePolicy
   QRSF.create routeStopFare
+
+-- Helper function to get category tag based on discount code
+getCategoryPriceTags :: Text -> DFRFSQuoteCategory.FRFSCategoryTag
+getCategoryPriceTags code =
+  case code of
+    "ADULT" -> DFRFSQuoteCategory.ADULT_PRICE
+    "FEMALE" -> DFRFSQuoteCategory.FEMALE_PRICE
+    "MALE" -> DFRFSQuoteCategory.MALE_PRICE
+    "CHILD" -> DFRFSQuoteCategory.CHILD_PRICE
+    "SENIOR_CITIZEN" -> DFRFSQuoteCategory.SENIOR_CITIZEN_PRICE
+    "STUDENT" -> DFRFSQuoteCategory.STUDENT_PRICE
+    _ -> DFRFSQuoteCategory.ADULT_PRICE
+
+getQuoteCategoryType :: Text -> DFRFSTicketCategoryMetadataConfig.FRFSQuoteCategoryType
+getQuoteCategoryType code =
+  case fromJSON (String code) of
+    Success categoryType -> categoryType
+    Data.Aeson.Error _ -> DFRFSTicketCategoryMetadataConfig.ADULT

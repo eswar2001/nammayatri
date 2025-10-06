@@ -18,6 +18,7 @@ module API.UI
   )
 where
 
+import qualified API.Action.UI.AttractionRecommend as AttractionRecommend
 import qualified API.Action.UI.BBPS as BBPS
 import qualified API.Action.UI.CRIS as CRIS
 import qualified API.Action.UI.Cac as Cac
@@ -51,6 +52,7 @@ import qualified API.UI.Booking as Booking
 import qualified API.UI.Call as Call
 import qualified API.UI.CallEvent as CallEvent
 import qualified API.UI.Cancel as Cancel
+import qualified API.UI.CancelSearch as CancelSearch
 import qualified API.UI.CancellationReason as CancellationReason
 import qualified API.UI.Confirm as Confirm
 import qualified API.UI.Disability as Disability
@@ -94,6 +96,7 @@ type API =
            :<|> Confirm.API
            :<|> Booking.API
            :<|> Cancel.API
+           :<|> CancelSearch.API
            :<|> Ride.API
            :<|> Call.API
            :<|> Support.API
@@ -143,6 +146,7 @@ type API =
            :<|> Insurance.API
            :<|> PickupInstructions.API
            :<|> NYRegular.API
+           :<|> AttractionRecommend.API
        )
 
 handler :: FlowServer API
@@ -158,6 +162,7 @@ handler =
     :<|> Confirm.handler
     :<|> Booking.handler
     :<|> Cancel.handler
+    :<|> CancelSearch.handler
     :<|> Ride.handler
     :<|> Call.handler
     :<|> Support.handler
@@ -207,3 +212,4 @@ handler =
     :<|> Insurance.handler
     :<|> PickupInstructions.handler
     :<|> NYRegular.handler
+    :<|> AttractionRecommend.handler

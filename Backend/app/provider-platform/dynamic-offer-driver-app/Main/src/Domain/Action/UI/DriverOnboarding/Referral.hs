@@ -20,6 +20,7 @@ import qualified Data.Aeson as A
 import Data.Aeson.Types (parseFail, typeMismatch)
 import qualified Data.Text as T
 import Data.Time hiding (getCurrentTime)
+import qualified Domain.Action.Internal.DriverMode as DDriverMode
 import qualified Domain.Types.DailyStats as DDS
 import qualified Domain.Types.DriverReferral as DR
 import qualified Domain.Types.Merchant as DM
@@ -126,6 +127,8 @@ addReferral (personId, merchantId, merchantOpCityId) req = do
           DriverInformation.updateReferredByOperatorId (Just dr.driverId.getId) personId
           driverOperatorAssData <- SA.makeDriverOperatorAssociation merchantId merchantOpCityId personId dr.driverId.getId (DomainRC.convertTextToUTC (Just "2099-12-12"))
           void $ QDOA.create driverOperatorAssData
+          when (transporterConfig.allowCacheDriverFlowStatus == Just True) $
+            DDriverMode.incrementFleetOperatorStatusKeyForDriver Person.OPERATOR dr.driverId.getId di.driverFlowStatus
           incrementOnboardedCount DriverReferral dr.driverId transporterConfig
           return Success
         _ -> throwError (InvalidRequest "Invalid referral role")
@@ -270,7 +273,8 @@ incrementOnboardedCount refType referredEntityId transporterConfig = do
                 numDriversOnboarded = driverCount,
                 numFleetsOnboarded = fleetCount,
                 merchantId = Just transporterConfig.merchantId,
-                merchantOperatingCityId = Just transporterConfig.merchantOperatingCityId
+                merchantOperatingCityId = Just transporterConfig.merchantOperatingCityId,
+                onlineDuration = Nothing
               }
       QDailyStats.create dailyStatsOfDriver'
       let logTagPrefix = if refType == DriverReferral then "DRIVER" else "FLEET"

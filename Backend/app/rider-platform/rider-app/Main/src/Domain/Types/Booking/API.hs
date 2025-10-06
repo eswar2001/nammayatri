@@ -23,6 +23,7 @@ import qualified Domain.Action.UI.Location as SLoc
 import Domain.Types
 import Domain.Types.Booking
 import Domain.Types.BookingCancellationReason
+import Domain.Types.BookingStatus
 import qualified Domain.Types.BppDetails as DBppDetails
 import Domain.Types.CancellationReason
 import qualified Domain.Types.Exophone as DExophone
@@ -30,9 +31,10 @@ import Domain.Types.Extra.Ride (RideAPIEntity (..))
 import Domain.Types.FareBreakup as DFareBreakup
 import qualified Domain.Types.Journey as DJourney
 import Domain.Types.Location (Location, LocationAPIEntity)
-import Domain.Types.ParcelDetails as DParcel
+import Domain.Types.ParcelType as DParcel
 import qualified Domain.Types.Person as Person
 import qualified Domain.Types.Ride as DRide
+import qualified Domain.Types.RideStatus as DRide
 import qualified Domain.Types.ServiceTierType as DVST
 import Domain.Types.Sos as DSos
 import qualified Domain.Types.StopInformation as DSI
@@ -56,6 +58,7 @@ import qualified Storage.CachedQueries.Sos as CQSos
 import qualified Storage.CachedQueries.ValueAddNP as CQVAN
 import qualified Storage.Queries.BookingCancellationReason as QBCR
 import qualified Storage.Queries.BookingPartiesLink as QBPL
+import qualified Storage.Queries.JourneyLeg as QJL
 import qualified Storage.Queries.Person as QP
 import qualified Storage.Queries.QueriesExtra.RideLite as QRideLite
 import qualified Storage.Queries.Ride as QRide
@@ -269,6 +272,7 @@ makeBookingAPIEntity requesterId booking activeRide allRides estimatedFareBreaku
   bookingDetails <- mkBookingAPIDetails booking requesterId
   rides <- mapM buildRideAPIEntity allRides
   let providerNum = fromMaybe "+91" bppDetails.supportNumber
+  mbJourneyLeg <- QJL.findByLegSearchId (Just booking.transactionId)
   return $
     BookingAPIEntity
       { id = booking.id,
@@ -327,7 +331,7 @@ makeBookingAPIEntity requesterId booking activeRide allRides estimatedFareBreaku
         isSafetyPlus = fromMaybe False $ activeRide <&> (.isSafetyPlus),
         isInsured = Just booking.isInsured,
         insuredAmount = booking.insuredAmount,
-        mbJourneyId = booking.journeyId
+        mbJourneyId = mbJourneyLeg <&> (.journeyId)
       }
   where
     getRideDuration :: Maybe DRide.Ride -> Maybe Seconds

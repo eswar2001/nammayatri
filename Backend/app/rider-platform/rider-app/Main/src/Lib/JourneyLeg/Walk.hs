@@ -3,53 +3,15 @@
 module Lib.JourneyLeg.Walk where
 
 import Domain.Types.Trip as DTrip
-import qualified Domain.Types.WalkLegMultimodal as DWalkLeg
 import Kernel.Prelude
 import Kernel.Types.Error
 import Kernel.Utils.Common
-import qualified Lib.JourneyLeg.Types as JLT
 import Lib.JourneyLeg.Types.Walk
-import Lib.JourneyModule.Location
+import qualified Lib.JourneyModule.State.Types as JMStateTypes
+import qualified Lib.JourneyModule.State.Utils as JMStateUtils
 import qualified Lib.JourneyModule.Types as JT
-import SharedLogic.Search
-import qualified Storage.Queries.JourneyLeg as QJourneyLeg
-import qualified Storage.Queries.WalkLegMultimodal as QWalkLeg
 
 instance JT.JourneyLeg WalkLegRequest m where
-  search (WalkLegRequestSearch WalkLegRequestSearchData {..}) = do
-    fromLocation <- buildSearchReqLoc parentSearchReq.merchantId parentSearchReq.merchantOperatingCityId origin
-    toLocation <- buildSearchReqLoc parentSearchReq.merchantId parentSearchReq.merchantOperatingCityId destination
-    now <- getCurrentTime
-    id <- generateGUID
-    let journeySearchData =
-          JLT.JourneySearchData
-            { journeyId = journeyLegData.journeyId.getId,
-              journeyLegOrder = journeyLegData.sequenceNumber,
-              agency = journeyLegData.agency <&> (.name),
-              skipBooking = False,
-              convenienceCost = 0,
-              pricingId = Nothing,
-              isDeleted = Just False,
-              onSearchFailed = Nothing
-            }
-    let walkLeg =
-          DWalkLeg.WalkLegMultimodal
-            { id,
-              estimatedDistance = journeyLegData.distance,
-              estimatedDuration = journeyLegData.duration,
-              fromLocation = fromLocation,
-              toLocation = Just toLocation,
-              journeyLegInfo = Just journeySearchData,
-              riderId = parentSearchReq.riderId,
-              startTime = fromMaybe now journeyLegData.fromArrivalTime,
-              merchantId = parentSearchReq.merchantId,
-              status = DWalkLeg.InPlan,
-              merchantOperatingCityId = parentSearchReq.merchantOperatingCityId,
-              createdAt = now,
-              updatedAt = now
-            }
-    QWalkLeg.createWalkLeg walkLeg
-    return $ JT.SearchResponse {id = id.getId}
   search _ = throwError (InternalError "Not supported")
 
   confirm (WalkLegRequestConfirm _) = return ()
@@ -58,47 +20,30 @@ instance JT.JourneyLeg WalkLegRequest m where
   update (WalkLegRequestUpdate _) = return ()
   update _ = throwError (InternalError "Not supported")
 
-  cancel (WalkLegRequestCancel legData) = do
-    QWalkLeg.updateIsCancelled legData.walkLegId (Just True)
-    QJourneyLeg.updateIsDeleted (Just True) (Just legData.walkLegId.getId)
+  cancel (WalkLegRequestCancel _) = return ()
   cancel _ = throwError (InternalError "Not supported")
 
-  isCancellable ((WalkLegRequestIsCancellable legData)) = do
-    walkLeg <- QWalkLeg.findById legData.walkLegId >>= fromMaybeM (InvalidRequest "WalkLeg Data not found")
-    case walkLeg.status of
-      DWalkLeg.InPlan -> return $ JT.IsCancellableResponse {canCancel = True}
-      DWalkLeg.Ongoing -> return $ JT.IsCancellableResponse {canCancel = True}
-      _ -> return $ JT.IsCancellableResponse {canCancel = False}
-  isCancellable _ = throwError (InternalError "Not Supported")
-
   getState (WalkLegRequestGetState req) = do
-    legData <- QWalkLeg.findById req.walkLegId >>= fromMaybeM (InvalidRequest "WalkLeg Data not found")
-    journeyLegInfo <- legData.journeyLegInfo & fromMaybeM (InvalidRequest "WalkLeg journey legInfo data missing")
-    toLocation <- legData.toLocation & fromMaybeM (InvalidRequest "ToLocation of walkleg journey data is missing")
-    let status = JT.getWalkLegStatusFromWalkLeg legData journeyLegInfo
-    let (statusChanged, newStatus) = updateJourneyLegStatus DTrip.Walk req.riderLastPoints (locationToLatLng toLocation) status req.isLastCompleted
-    when statusChanged $ do
-      let walkLegStatus = JT.castWalkLegStatusFromLegStatus newStatus
-      QWalkLeg.updateStatus walkLegStatus req.walkLegId
+    let (oldStatus, trackingStatus, trackingStatusLastUpdatedAt) = JMStateUtils.getWalkAllStatuses req.journeyLeg
+    now <- getCurrentTime
     return $
       JT.Single $
         JT.JourneyLegStateData
-          { status = newStatus,
+          { status = oldStatus,
+            bookingStatus = JMStateTypes.Initial JMStateTypes.BOOKING_PENDING,
+            trackingStatus = trackingStatus,
+            trackingStatusLastUpdatedAt = fromMaybe now trackingStatusLastUpdatedAt,
             userPosition = (.latLong) <$> listToMaybe req.riderLastPoints,
             vehiclePositions = [],
-            legOrder = journeyLegInfo.journeyLegOrder,
+            legOrder = req.journeyLeg.sequenceNumber,
             subLegOrder = 1,
-            statusChanged,
-            mode = DTrip.Walk
+            mode = DTrip.Walk,
+            fleetNo = Nothing
           }
   getState _ = throwError (InternalError "Not supported")
 
   getInfo (WalkLegRequestGetInfo req) = do
-    if req.ignoreOldSearchRequest
-      then return Nothing
-      else do
-        legData <- QWalkLeg.findById req.walkLegId >>= fromMaybeM (InvalidRequest "WalkLeg Data not found")
-        Just <$> JT.mkWalkLegInfoFromWalkLegData legData req.journeyLeg.entrance req.journeyLeg.exit
+    Just <$> JT.mkWalkLegInfoFromWalkLegData req.personId req.journeyLeg
   getInfo _ = throwError (InternalError "Not supported")
 
   getFare (WalkLegRequestGetFare _) = do
@@ -108,7 +53,8 @@ instance JT.JourneyLeg WalkLegRequest m where
           JT.GetFareResponse
             { estimatedMinFare = HighPrecMoney {getHighPrecMoney = 0},
               estimatedMaxFare = HighPrecMoney {getHighPrecMoney = 0},
-              serviceTypes = Nothing
+              serviceTypes = Nothing,
+              possibleRoutes = Nothing
             }
       )
   getFare _ = throwError (InternalError "Not supported")

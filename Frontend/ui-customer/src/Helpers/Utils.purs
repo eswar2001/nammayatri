@@ -599,7 +599,29 @@ emitTerminateApp screen exitApp = do
   , trip_id : Nothing
   , screen : screen
   , exit_app : exitApp
+  , delete_account_req : Nothing
+  , call_support_req : Nothing
   }
+}
+
+defaultTerminatePayload :: InnerPayload
+defaultTerminatePayload = {
+    action : "terminate"
+  , trip_amount : Nothing
+  , ride_status : Nothing
+  , trip_id : Nothing
+  , screen : Nothing
+  , exit_app : true
+  , delete_account_req : Nothing
+  , call_support_req : Nothing
+  }
+
+terminateWithPayload :: InnerPayload -> Unit
+terminateWithPayload payload = do
+  let _ = releaseBackpress unit
+  runFn3 emitJOSEvent "java" "onEvent" $ encode $  EventPayload {
+    event : "process_result"
+  , payload : Just payload
 }
 
 nudgeRNApp :: String -> Maybe String -> String -> Unit
@@ -612,6 +634,8 @@ nudgeRNApp bookingId screen action = runFn3 emitJOSEvent "java" "onEvent" $ enco
   , trip_id : Just bookingId
   , screen: screen
   , exit_app : true
+  , delete_account_req : Nothing
+  , call_support_req : Nothing
   }
 }
 
@@ -703,6 +727,8 @@ triggerRideStatusEvent status amount bookingId screen = do
     , trip_id : bookingId
     , screen : Just screen
     , exit_app : false
+    , delete_account_req : Nothing
+    , call_support_req : Nothing
     }
   pure $ runFn3 emitJOSEvent "java" "onEvent" $ encode $ EventPayload {
     event : "process_result"

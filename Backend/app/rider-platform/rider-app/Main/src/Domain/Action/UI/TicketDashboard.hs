@@ -2,10 +2,12 @@ module Domain.Action.UI.TicketDashboard where
 
 import qualified API.Types.Dashboard.AppManagement.Tickets as Tickets
 import qualified AWS.S3 as S3
+import Control.Applicative ((<|>))
 import Control.Monad.Extra (concatMapM)
 import Data.List (nubBy)
 import qualified Data.Map as Map
 import qualified Data.Text as T
+import qualified Domain.Action.UI.TicketService as TicketService
 import qualified Domain.Types.BusinessHour as DBusinessHour
 import qualified Domain.Types.Merchant as Merchant
 import qualified Domain.Types.MerchantOnboarding as MO
@@ -16,10 +18,12 @@ import qualified Domain.Types.SpecialOccasion as DSpecialOccasion
 import Domain.Types.TicketDashboard
 import qualified Domain.Types.TicketPlace as DTicketPlace
 import qualified Domain.Types.TicketService as DTicketService
+import qualified Domain.Types.TicketSubPlace as DTicketSubPlace
 import Environment
 import qualified IssueManagement.Storage.Queries.MediaFile as MFQuery
 import Kernel.External.Encryption
 import Kernel.Prelude
+import qualified Kernel.Types.APISuccess
 import Kernel.Types.Error
 import Kernel.Types.Id
 import Kernel.Utils.Common
@@ -32,6 +36,7 @@ import qualified Storage.Queries.SpecialOccasion as QSpecialOccasion
 import qualified Storage.Queries.TicketMerchantDetails as QTMD
 import qualified Storage.Queries.TicketPlace as QTicketPlace
 import qualified Storage.Queries.TicketService as QTicketService
+import qualified Storage.Queries.TicketSubPlace as QTicketSubPlace
 import Tools.Error
 
 getTicketDashboardUserInfo :: Text -> MO.RequestorRole -> Environment.Flow Tickets.TicketDashboardUserInfo
@@ -89,11 +94,8 @@ getTicketDashboardFile fileId = do
       }
 
 getTicketPlaceDashboardDetails :: Id DTicketPlace.TicketPlace -> Maybe Text -> Maybe MO.RequestorRole -> Environment.Flow TicketPlaceDashboardDetails
-getTicketPlaceDashboardDetails placeId requestorId requestorRole = do
+getTicketPlaceDashboardDetails placeId _requestorId _requestorRole = do
   ticketPlace <- QTicketPlace.findById placeId >>= fromMaybeM (InvalidRequest $ "Ticket place not found: " <> getId placeId)
-
-  when (isNothing ticketPlace.ticketMerchantId && requestorRole /= Just MO.TICKET_DASHBOARD_ADMIN) $ throwError $ InvalidRequest "Don't have access"
-  when (isJust ticketPlace.ticketMerchantId && (ticketPlace.ticketMerchantId /= requestorId && requestorRole /= Just MO.TICKET_DASHBOARD_ADMIN)) $ throwError $ InvalidRequest "Don't have access"
 
   services <- QTicketService.getTicketServicesByPlaceId placeId.getId
 
@@ -157,7 +159,22 @@ getTicketPlaceDashboardDetails placeId requestorId requestorRole = do
         businessHours = businessHourDetails,
         serviceCategories = serviceCategoryDetails,
         servicePeopleCategories = servicePeopleCategoryDetails,
-        specialOccasions = specialOccasionDetails
+        specialOccasions = specialOccasionDetails,
+        faqs = ticketPlace.faqs,
+        isRecurring = Just ticketPlace.isRecurring,
+        metadata = ticketPlace.metadata,
+        platformFee = ticketPlace.platformFee,
+        platformFeeVendor = ticketPlace.platformFeeVendor,
+        pricingOnwards = ticketPlace.pricingOnwards,
+        startDate = ticketPlace.startDate,
+        endDate = ticketPlace.endDate,
+        venue = ticketPlace.venue,
+        rules = ticketPlace.rules,
+        assignTicketToBpp = Just ticketPlace.assignTicketToBpp,
+        customTabs = ticketPlace.customTabs,
+        recommend = Just ticketPlace.recommend,
+        enforcedAsSubPlace = Just ticketPlace.enforcedAsSubPlace,
+        merchantOperatingCityId = Just ticketPlace.merchantOperatingCityId.getId
       }
   where
     toTicketServiceDetails :: DTicketService.TicketService -> TicketServiceDetails
@@ -172,7 +189,11 @@ getTicketPlaceDashboardDetails placeId requestorId requestorRole = do
           allowFutureBooking = svc.allowFutureBooking,
           allowCancellation = svc.allowCancellation,
           expiry = svc.expiry,
-          businessHours = svc.businessHours
+          businessHours = svc.businessHours,
+          rules = svc.rules,
+          serviceDetails = svc.serviceDetails,
+          subPlaceId = svc.subPlaceId,
+          maxSelection = svc.maxSelection
         }
 
     toBusinessHourDetails :: DBusinessHour.BusinessHour -> BusinessHourDetails
@@ -193,7 +214,10 @@ getTicketPlaceDashboardDetails placeId requestorId requestorRole = do
           description = sc.description,
           allowedSeats = sc.allowedSeats,
           availableSeats = sc.availableSeats,
-          peopleCategory = sc.peopleCategory
+          peopleCategory = sc.peopleCategory,
+          inclusionPoints = sc.inclusionPoints,
+          rules = sc.rules,
+          maxSelection = sc.maxSelection
         }
 
     toServicePeopleCategoryDetails :: DServicePeopleCategory.ServicePeopleCategory -> ServicePeopleCategoryDetails
@@ -206,7 +230,9 @@ getTicketPlaceDashboardDetails placeId requestorId requestorRole = do
           priceAmount = spc.pricePerUnit.amount,
           priceCurrency = spc.pricePerUnit.currency,
           timeBounds = spc.timeBounds,
-          vendorSplitDetails = spc.vendorSplitDetails
+          vendorSplitDetails = spc.vendorSplitDetails,
+          rules = spc.rules,
+          iconUrl = spc.iconUrl
         }
 
     toSpecialOccasionDetails :: DSpecialOccasion.SpecialOccasion -> SpecialOccasionDetails
@@ -243,7 +269,20 @@ updateTicketPlace existingPlace placeDetails = do
       DTicketPlace.termsAndConditionsUrl = placeDetails.termsAndConditionsUrl,
       DTicketPlace.openTimings = placeDetails.openTimings,
       DTicketPlace.closeTimings = placeDetails.closeTimings,
-      DTicketPlace.rules = existingPlace.rules
+      DTicketPlace.rules = placeDetails.rules,
+      DTicketPlace.startDate = placeDetails.startDate,
+      DTicketPlace.endDate = placeDetails.endDate,
+      DTicketPlace.venue = placeDetails.venue,
+      DTicketPlace.assignTicketToBpp = fromMaybe existingPlace.assignTicketToBpp placeDetails.assignTicketToBpp,
+      DTicketPlace.faqs = placeDetails.faqs,
+      DTicketPlace.metadata = placeDetails.metadata,
+      DTicketPlace.isRecurring = fromMaybe True placeDetails.isRecurring,
+      DTicketPlace.platformFee = placeDetails.platformFee,
+      DTicketPlace.platformFeeVendor = placeDetails.platformFeeVendor,
+      DTicketPlace.pricingOnwards = placeDetails.pricingOnwards,
+      DTicketPlace.customTabs = placeDetails.customTabs <|> existingPlace.customTabs,
+      DTicketPlace.recommend = fromMaybe existingPlace.recommend placeDetails.recommend,
+      DTicketPlace.enforcedAsSubPlace = fromMaybe existingPlace.enforcedAsSubPlace placeDetails.enforcedAsSubPlace
     }
 
 createTicketPlace :: TicketPlaceDashboardDetails -> Maybe Text -> Id Merchant.Merchant -> Id MOCity.MerchantOperatingCity -> Environment.Flow DTicketPlace.TicketPlace
@@ -275,7 +314,19 @@ createTicketPlace placeDetails creatorId merchantId merchantOpCityId = do
         DTicketPlace.createdAt = now,
         DTicketPlace.updatedAt = now,
         DTicketPlace.rules = Nothing,
-        DTicketPlace.recommend = False
+        DTicketPlace.recommend = False,
+        DTicketPlace.faqs = placeDetails.faqs,
+        DTicketPlace.isRecurring = fromMaybe True placeDetails.isRecurring,
+        DTicketPlace.metadata = placeDetails.metadata,
+        DTicketPlace.platformFee = placeDetails.platformFee,
+        DTicketPlace.platformFeeVendor = placeDetails.platformFeeVendor,
+        DTicketPlace.pricingOnwards = placeDetails.pricingOnwards,
+        DTicketPlace.endDate = placeDetails.endDate,
+        DTicketPlace.isClosed = False,
+        DTicketPlace.startDate = placeDetails.startDate,
+        DTicketPlace.venue = placeDetails.venue,
+        DTicketPlace.assignTicketToBpp = fromMaybe False placeDetails.assignTicketToBpp,
+        DTicketPlace.enforcedAsSubPlace = False
       }
 
 updateTicketService :: DTicketService.TicketService -> TicketServiceDetails -> DTicketService.TicketService
@@ -290,7 +341,9 @@ updateTicketService existingService serviceDetails = do
       DTicketService.expiry = serviceDetails.expiry,
       DTicketService.allowCancellation = serviceDetails.allowCancellation,
       DTicketService.businessHours = serviceDetails.businessHours,
-      DTicketService.rules = existingService.rules
+      DTicketService.rules = serviceDetails.rules,
+      DTicketService.serviceDetails = serviceDetails.serviceDetails,
+      DTicketService.maxSelection = serviceDetails.maxSelection
     }
 
 createTicketService :: (Id Merchant.Merchant, Id MOCity.MerchantOperatingCity) -> TicketServiceDetails -> Id DTicketPlace.TicketPlace -> Flow DTicketService.TicketService
@@ -301,6 +354,7 @@ createTicketService (merchantId, merchantOpCityId) serviceDetails placeId = do
       { DTicketService.id = serviceDetails.id,
         DTicketService.service = serviceDetails.service,
         DTicketService.shortDesc = serviceDetails.shortDesc,
+        DTicketService.subPlaceId = serviceDetails.subPlaceId,
         DTicketService.operationalDays = serviceDetails.operationalDays,
         DTicketService.operationalDate = serviceDetails.operationalDate,
         DTicketService.maxVerification = serviceDetails.maxVerification,
@@ -314,7 +368,9 @@ createTicketService (merchantId, merchantOpCityId) serviceDetails placeId = do
         DTicketService.createdAt = now,
         DTicketService.updatedAt = now,
         DTicketService.rules = Nothing,
-        DTicketService.isClosed = False
+        DTicketService.isClosed = False,
+        DTicketService.serviceDetails = serviceDetails.serviceDetails,
+        DTicketService.maxSelection = serviceDetails.maxSelection
       }
 
 updateBusinessHour :: DBusinessHour.BusinessHour -> BusinessHourDetails -> DBusinessHour.BusinessHour
@@ -353,7 +409,9 @@ updateServiceCategory existingSC scDetails = do
       DServiceCategory.availableSeats = scDetails.availableSeats,
       DServiceCategory.allowedSeats = scDetails.allowedSeats,
       DServiceCategory.peopleCategory = scDetails.peopleCategory,
-      DServiceCategory.rules = existingSC.rules
+      DServiceCategory.rules = scDetails.rules,
+      DServiceCategory.inclusionPoints = scDetails.inclusionPoints,
+      DServiceCategory.maxSelection = scDetails.maxSelection
     }
 
 createServiceCategory :: (Id Merchant.Merchant, Id MOCity.MerchantOperatingCity) -> ServiceCategoryDetails -> Id DTicketPlace.TicketPlace -> Environment.Flow DServiceCategory.ServiceCategory
@@ -374,7 +432,9 @@ createServiceCategory (merchantId, merchantOpCityId) scDetails placeId = do
         DServiceCategory.updatedAt = now,
         DServiceCategory.rules = Nothing,
         DServiceCategory.isClosed = False,
-        DServiceCategory.remainingActions = Nothing
+        DServiceCategory.remainingActions = Nothing,
+        DServiceCategory.inclusionPoints = scDetails.inclusionPoints,
+        DServiceCategory.maxSelection = scDetails.maxSelection
       }
 
 updateServicePeopleCategory :: DServicePeopleCategory.ServicePeopleCategory -> ServicePeopleCategoryDetails -> DServicePeopleCategory.ServicePeopleCategory
@@ -386,7 +446,8 @@ updateServicePeopleCategory existingSPC spcDetails = do
       DServicePeopleCategory.pricePerUnit = mkPrice (pure spcDetails.priceCurrency) spcDetails.priceAmount,
       DServicePeopleCategory.timeBounds = spcDetails.timeBounds,
       DServicePeopleCategory.vendorSplitDetails = spcDetails.vendorSplitDetails,
-      DServicePeopleCategory.rules = existingSPC.rules
+      DServicePeopleCategory.rules = spcDetails.rules,
+      DServicePeopleCategory.iconUrl = spcDetails.iconUrl
     }
 
 createServicePeopleCategory :: (Id Merchant.Merchant, Id MOCity.MerchantOperatingCity) -> ServicePeopleCategoryDetails -> Id DTicketPlace.TicketPlace -> Environment.Flow DServicePeopleCategory.ServicePeopleCategory
@@ -408,7 +469,8 @@ createServicePeopleCategory (merchantId, merchantOpCityId) spcDetails placeId = 
         DServicePeopleCategory.updatedAt = now,
         DServicePeopleCategory.cancellationCharges = Nothing,
         DServicePeopleCategory.rules = Nothing,
-        DServicePeopleCategory.isClosed = False
+        DServicePeopleCategory.isClosed = False,
+        DServicePeopleCategory.iconUrl = Nothing
       }
 
 updateSpecialOccasion :: DSpecialOccasion.SpecialOccasion -> SpecialOccasionDetails -> DSpecialOccasion.SpecialOccasion
@@ -453,15 +515,15 @@ postUpsertTicketPlaceDashboardDetails (merchantId, merchantOpCityId) placeDetail
   -- Update or create the ticket place
   ticketPlace <- case mbExistingPlace of
     Just existingPlace -> do
-      when (isNothing existingPlace.ticketMerchantId && requestorRole /= Just MO.TICKET_DASHBOARD_ADMIN) $ throwError $ InvalidRequest "Don't have access"
-      when (isJust existingPlace.ticketMerchantId && (existingPlace.ticketMerchantId /= requestorId && requestorRole /= Just MO.TICKET_DASHBOARD_ADMIN)) $ throwError $ InvalidRequest "Don't have access"
       let updatedPlace = updateTicketPlace existingPlace placeDetails
       QTicketPlace.updateByPrimaryKey updatedPlace
+      -- Invalidate cache when ticket place is updated
+      TicketService.invalidateCacheForTicketPlace updatedPlace.id
       return updatedPlace
     Nothing -> do
       -- Create new place
       let creatorId = if requestorRole == Just MO.TICKET_DASHBOARD_ADMIN then Nothing else requestorId
-      newPlace <- createTicketPlace placeDetails creatorId merchantId merchantOpCityId
+      newPlace <- createTicketPlace placeDetails creatorId merchantId (maybe merchantOpCityId Id placeDetails.merchantOperatingCityId)
       QTicketPlace.create newPlace
       return newPlace
 
@@ -549,10 +611,20 @@ postUpsertTicketPlaceDashboardDetails (merchantId, merchantOpCityId) placeDetail
         newSO <- createSpecialOccasion (merchantId, merchantOpCityId) soDetails ticketPlace.id
         QSpecialOccasion.create newSO
 
-getTicketPlaceDashboardList :: Text -> Text -> MO.RequestorRole -> Environment.Flow [DTicketPlace.TicketPlace]
-getTicketPlaceDashboardList status requestorId requestorRole = do
+getTicketPlaceDashboardList :: Text -> Maybe Text -> Maybe MO.RequestorRole -> Environment.Flow [DTicketPlace.TicketPlace]
+getTicketPlaceDashboardList status _requestorId _requestorRole = do
   placeStatus <- fromMaybeM (InvalidRequest "Invalid status query param") $ readMaybe (T.unpack status)
-  case requestorRole of
-    MO.TICKET_DASHBOARD_ADMIN -> QTicketPlace.getAllTicketPlaces placeStatus
-    MO.TICKET_DASHBOARD_MERCHANT -> QTicketPlace.findAllByTicketMerchantIdAndStatus (Just requestorId) placeStatus
-    _ -> throwError $ InvalidRequest "Operation not permitted"
+  QTicketPlace.getAllTicketPlaces placeStatus
+
+getTicketPlaceDashboardSubPlaces :: Id DTicketPlace.TicketPlace -> Environment.Flow [DTicketSubPlace.TicketSubPlace]
+getTicketPlaceDashboardSubPlaces placeId = do
+  QTicketSubPlace.findAllByTicketPlaceId placeId
+
+postUpsertTicketPlaceDashboardSubPlaces :: Id DTicketPlace.TicketPlace -> [DTicketSubPlace.TicketSubPlace] -> Environment.Flow Kernel.Types.APISuccess.APISuccess
+postUpsertTicketPlaceDashboardSubPlaces _ subPlaces = do
+  forM_ subPlaces $ \subPlace -> do
+    mbExistingSubPlace <- QTicketSubPlace.findById subPlace.id
+    case mbExistingSubPlace of
+      Just _ -> QTicketSubPlace.updateByPrimaryKey subPlace
+      Nothing -> QTicketSubPlace.create subPlace
+  return Kernel.Types.APISuccess.Success

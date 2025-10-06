@@ -193,6 +193,13 @@ let appBackendBapInternal =
       , internalKey = sec.internalKey
       }
 
+let mlPricingInternal =
+      { name = "PRICING"
+      , url = "http://localhost:8013/"
+      , apiKey = sec.mlPricingApiKey
+      , internalKey = sec.internalKey
+      }
+
 let registryMap =
       [ { mapKey = "localhost/beckn/cab/v1/da4e23a5-3ce6-4c37-8b9b-41377c3c1a51"
         , mapValue = "http://localhost:8020/"
@@ -329,6 +336,8 @@ let modelNamesMap =
 
 let tsServiceConfig = { url = "http://0.0.0.0:3001/" }
 
+let inMemConfig = { enableInMem = True, maxInMemSize = +100000000 }
+
 in  { esqDBCfg
     , esqDBReplicaCfg
     , kafkaClickhouseCfg
@@ -366,6 +375,7 @@ in  { esqDBCfg
     , googleTranslateUrl = common.googleTranslateUrl
     , googleTranslateKey = common.googleTranslateKey
     , appBackendBapInternal
+    , mlPricingInternal
     , graceTerminationPeriod = +90
     , encTools
     , authTokenCacheExpiry = +600
@@ -430,4 +440,5 @@ in  { esqDBCfg
     , meterRideReferralLink =
         "https://nammayatri.in/refer?referrer=utm_source%3DChennai%26utm_medium%3Dqrcode%26utm_term%3Dreferral%26utm_content%3Dcoins%26utm_campaign%{referralCode}%26anid%3Dadmob&id=in.juspay.nammayatri"
     , minDistanceBetweenTwoPoints = +25
+    , inMemConfig
     }

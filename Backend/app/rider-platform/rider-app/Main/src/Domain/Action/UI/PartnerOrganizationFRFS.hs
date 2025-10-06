@@ -93,8 +93,8 @@ import qualified Storage.CachedQueries.Person as CQP
 import qualified Storage.Queries.FRFSQuote as QQuote
 import qualified Storage.Queries.FRFSSearch as QSearch
 import qualified Storage.Queries.FRFSTicket as QFT
-import qualified Storage.Queries.FRFSTicketBokingPayment as QFTBP
 import qualified Storage.Queries.FRFSTicketBooking as QFTB
+import qualified Storage.Queries.FRFSTicketBookingPayment as QFTBP
 import qualified Storage.Queries.Person as Person
 import qualified Storage.Queries.PersonStats as QPStats
 import qualified Storage.Queries.RegistrationToken as RegistrationToken
@@ -383,11 +383,29 @@ getConfigByStationIds partnerOrg fromGMMStationId toGMMStationId integratedBPPCo
 
   fromStation <- Utils.mkPOrgStationAPIRes fromStation' (Just partnerOrg.orgId)
   toStation <- Utils.mkPOrgStationAPIRes toStation' (Just partnerOrg.orgId)
-  let frfsConfig = Utils.mkFRFSConfigAPI frfsConfig'
+  let modifiedFrfsConfig = case integratedBPPConfig.providerConfig of
+        DIBC.ONDC DIBC.ONDCBecknConfig {providerInfo} ->
+          case providerInfo of
+            Just providerInfo' ->
+              mkProviderSpecificConfig providerInfo' frfsConfig'
+            Nothing -> frfsConfig'
+        _ -> frfsConfig'
+  let frfsConfig = Utils.mkFRFSConfigAPI modifiedFrfsConfig
   moc <- CQMOC.findById fromStation'.merchantOperatingCityId >>= fromMaybeM (MerchantOperatingCityNotFound fromStation'.merchantOperatingCityId.getId)
   let city = moc.city
   let cityId = moc.id
   pure $ GetConfigResp {..}
+  where
+    mkProviderSpecificConfig :: DIBC.ProviderLevelInfo -> FRFSConfig -> FRFSConfig
+    mkProviderSpecificConfig providerInfo baseFrfsConfig =
+      baseFrfsConfig
+        { bookingEndTime = providerInfo.bookingEndTime,
+          bookingStartTime = providerInfo.bookingStartTime,
+          isCancellationAllowed = providerInfo.isCancellationAllowed,
+          oneWayTicketLimit = providerInfo.oneWayTicketLimit,
+          roundTripTicketLimit = providerInfo.roundTripTicketLimit,
+          providerId = Just providerInfo.providerId
+        }
 
 shareTicketInfo :: Id DFTB.FRFSTicketBooking -> Flow ShareTicketInfoResp
 shareTicketInfo ticketBookingId = do
@@ -502,13 +520,13 @@ getFareV2 merchantOperatingCity partnerOrg fromStation toStation partnerOrgTrans
             riderId = Utils.partnerOrgRiderId,
             partnerOrgTransactionId = partnerOrgTransactionId',
             partnerOrgId = Just partnerOrg'.orgId,
-            journeyLegInfo = Nothing,
             isOnSearchReceived = Nothing,
-            journeyLegStatus = Nothing,
+            onSearchFailed = Nothing,
             integratedBppConfigId = integratedBPPConfig.id,
-            journeyRouteDetails = [],
             recentLocationId = Nothing,
             validTill = Just validTill,
+            multimodalSearchRequestId = Nothing,
+            searchAsParentStops = Nothing,
             ..
           }
 
@@ -622,7 +640,8 @@ mkQuoteFromCache fromStation toStation frfsConfig partnerOrg partnerOrgTransacti
                 DFRFSQuote.integratedBppConfigId = fromStation'.integratedBppConfigId,
                 DFRFSQuote.fareDetails = Nothing,
                 DFRFSQuote.childTicketQuantity = Nothing,
-                DFRFSQuote.oldCacheDump = Nothing
+                DFRFSQuote.oldCacheDump = Nothing,
+                DFRFSQuote.multimodalSearchRequestId = Nothing
               }
       return $ Just quote
 
@@ -696,7 +715,7 @@ createNewBookingAndTriggerInit partnerOrg req regPOCfg = do
       let ticketsBookedInEvent = fromMaybe 0 stats.ticketsBookedInEvent
           (discountedTickets, eventDiscountAmount) = Utils.getDiscountInfo isEventOngoing frfsConfig.freeTicketInterval frfsConfig.maxFreeTicketCashback quote.price req.numberOfPassengers ticketsBookedInEvent
       QQuote.backfillQuotesForCachedQuoteFlow personId req.numberOfPassengers discountedTickets eventDiscountAmount frfsConfig.isEventOngoing req.searchId
-      bookingRes <- DFRFSTicketService.postFrfsQuoteV2ConfirmUtil (Just personId, fromStation.merchantId) quote.id (FRFSTypes.FRFSQuoteConfirmReq {discounts = [], ticketQuantity = Nothing, childTicketQuantity = Nothing}) Nothing
+      bookingRes <- DFRFSTicketService.postFrfsQuoteV2ConfirmUtil (Just personId, fromStation.merchantId) quote.id (FRFSTypes.FRFSQuoteConfirmReq {offered = Nothing, ticketQuantity = Nothing, childTicketQuantity = Nothing}) Nothing Nothing
       let body = UpsertPersonAndQuoteConfirmResBody {bookingInfo = bookingRes, token}
       Redis.unlockRedis lockKey
       return

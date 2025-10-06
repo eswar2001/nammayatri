@@ -37,11 +37,13 @@ module Tools.Payment
     SplitType (..),
     mkSplitSettlementDetails,
     mkUnaggregatedSplitSettlementDetails,
+    mkUnaggregatedRefundSplitSettlementDetails,
     groupSumVendorSplits,
     roundVendorFee,
     getIsSplitEnabled,
     getIsRefundSplitEnabled,
     roundToTwoDecimalPlaces,
+    fetchGatewayReferenceId,
   )
 where
 
@@ -178,7 +180,7 @@ runWithServiceConfigAndServiceName func merchantId merchantOperatingCityId mbPla
 
 decidePaymentService :: (ServiceFlow m r) => DMSC.ServiceName -> Maybe Version -> m DMSC.ServiceName
 decidePaymentService paymentServiceName clientSdkVersion = do
-  aaClientSdkVersion <- L.runIO $ (T.pack . (fromMaybe "") <$> SE.lookupEnv "AA_ENABLED_CLIENT_SDK_VERSION")
+  aaClientSdkVersion <- L.runIO $ (T.pack . (fromMaybe "999.999.999") <$> SE.lookupEnv "AA_ENABLED_CLIENT_SDK_VERSION")
   return $ case clientSdkVersion of
     Just v
       | v >= textToVersionDefault aaClientSdkVersion -> DMSC.PaymentService Payment.AAJuspay
@@ -262,24 +264,26 @@ roundToTwoDecimalPlaces x = fromIntegral (round (x * 100) :: Integer) / 100
 roundVendorFee :: VendorSplitDetails -> VendorSplitDetails
 roundVendorFee vf = vf {splitAmount = roundToTwoDecimalPlaces vf.splitAmount}
 
-mkSplitSettlementDetails :: Bool -> HighPrecMoney -> [VendorSplitDetails] -> Maybe SplitSettlementDetails
+mkSplitSettlementDetails :: (MonadFlow m) => Bool -> HighPrecMoney -> [VendorSplitDetails] -> m (Maybe SplitSettlementDetails)
 mkSplitSettlementDetails isSplitEnabled totalAmount vendorFees = case isSplitEnabled of
-  False -> Nothing
+  False -> return Nothing
   True -> do
+    uuid <- L.generateGUID
     let sortedVendorFees = sortBy (compare `on` (\p -> (p.vendorId, p.ticketId))) (roundVendorFee <$> vendorFees)
         groupedVendorFees = groupBy ((==) `on` (\p -> (p.vendorId, p.ticketId))) sortedVendorFees
-        mbVendorSplits = map computeSplit groupedVendorFees
+        mbVendorSplits = map (computeSplit uuid) groupedVendorFees
         vendorSplits = catMaybes mbVendorSplits
         totalVendorAmount = roundToTwoDecimalPlaces $ sum $ map (\Split {amount} -> amount) vendorSplits
         marketplaceAmount = roundToTwoDecimalPlaces (totalAmount - totalVendorAmount)
-    Just $
-      SplitSettlementDetails
-        { marketplace = Marketplace marketplaceAmount,
-          mdrBorneBy = ALL,
-          vendor = Vendor vendorSplits
-        }
+    return $
+      Just $
+        SplitSettlementDetails
+          { marketplace = Marketplace marketplaceAmount,
+            mdrBorneBy = ALL,
+            vendor = Vendor vendorSplits
+          }
   where
-    computeSplit feesForVendor =
+    computeSplit uniqueId feesForVendor =
       case feesForVendor of
         [] -> Nothing
         (firstFee : _) ->
@@ -288,13 +292,14 @@ mkSplitSettlementDetails isSplitEnabled totalAmount vendorFees = case isSplitEna
               { amount = roundToTwoDecimalPlaces $ sum $ map (\fee -> splitAmount fee) feesForVendor,
                 merchantCommission = 0,
                 subMid = firstFee.vendorId,
-                uniqueSplitId = firstFee.ticketId
+                uniqueSplitId = fromMaybe uniqueId firstFee.ticketId
               }
 
-mkUnaggregatedSplitSettlementDetails :: Bool -> HighPrecMoney -> [VendorSplitDetails] -> Maybe SplitSettlementDetails
+mkUnaggregatedSplitSettlementDetails :: (MonadFlow m) => Bool -> HighPrecMoney -> [VendorSplitDetails] -> m (Maybe SplitSettlementDetails)
 mkUnaggregatedSplitSettlementDetails isSplitEnabled totalAmount vendorFees = case isSplitEnabled of
-  False -> Nothing
+  False -> return Nothing
   True -> do
+    uuid <- L.generateGUID
     let vendorSplits =
           map
             ( \fee ->
@@ -303,20 +308,50 @@ mkUnaggregatedSplitSettlementDetails isSplitEnabled totalAmount vendorFees = cas
                       { amount = splitAmount roundedFee,
                         merchantCommission = 0,
                         subMid = vendorId roundedFee,
-                        uniqueSplitId = fee.ticketId
+                        uniqueSplitId = fromMaybe uuid fee.ticketId
                       }
             )
             vendorFees
 
         totalVendorAmount = roundToTwoDecimalPlaces $ sum $ map (\Split {amount} -> amount) vendorSplits
         marketplaceAmount = roundToTwoDecimalPlaces (totalAmount - totalVendorAmount)
+    when (marketplaceAmount < 0) $ do
+      logError $ "Marketplace amount is negative: " <> show marketplaceAmount <> " for vendorFees: " <> show vendorFees <> "totalVendorAmount: " <> show totalVendorAmount <> " totalAmount: " <> show totalAmount
+      throwError (InternalError "Marketplace amount is negative")
+    return $
+      Just $
+        SplitSettlementDetails
+          { marketplace = Marketplace marketplaceAmount,
+            mdrBorneBy = ALL,
+            vendor = Vendor vendorSplits
+          }
 
-    Just $
-      SplitSettlementDetails
-        { marketplace = Marketplace marketplaceAmount,
-          mdrBorneBy = ALL,
-          vendor = Vendor vendorSplits
-        }
+mkUnaggregatedRefundSplitSettlementDetails :: (MonadFlow m) => Bool -> HighPrecMoney -> [VendorSplitDetails] -> m (Maybe RefundSplitSettlementDetails)
+mkUnaggregatedRefundSplitSettlementDetails isSplitEnabled totalAmount vendorFees = case isSplitEnabled of
+  False -> return Nothing
+  True -> do
+    let vendorSplits =
+          map
+            ( \fee ->
+                let roundedFee = roundVendorFee fee
+                 in RefundSplit
+                      { refundAmount = splitAmount roundedFee,
+                        subMid = vendorId roundedFee
+                      }
+            )
+            vendorFees
+        totalVendorAmount = roundToTwoDecimalPlaces $ sum $ map (\RefundSplit {refundAmount} -> refundAmount) vendorSplits
+        marketplaceAmount = roundToTwoDecimalPlaces (totalAmount - totalVendorAmount)
+    when (marketplaceAmount < 0) $ do
+      logError $ "Marketplace amount is negative: " <> show marketplaceAmount <> " for vendorFees: " <> show vendorFees <> "totalVendorAmount: " <> show totalVendorAmount <> " totalAmount: " <> show totalAmount
+      throwError (InternalError "Marketplace amount is negative")
+    return $
+      Just $
+        RefundSplitSettlementDetails
+          { marketplace = RefundMarketplace marketplaceAmount,
+            mdrBorneBy = ALL,
+            vendor = RefundVendor vendorSplits
+          }
 
 groupSumVendorSplits :: [VendorSplitDetails] -> [VendorSplitDetails]
 groupSumVendorSplits vendorFees = map (\groups -> (head groups) {splitAmount = roundToTwoDecimalPlaces $ sum (map splitAmount groups)}) (groupBy ((==) `on` vendorId) (sortOn vendorId vendorFees))
@@ -371,6 +406,35 @@ getIsRefundSplitEnabled merchantId merchantOperatingCityId mbPlaceId paymentServ
     Just (DMSC.BbpsPaymentServiceConfig vsc) -> Payment.isRefundSplitEnabled vsc
     Just (DMSC.MultiModalPaymentServiceConfig vsc) -> Payment.isRefundSplitEnabled vsc
     _ -> False
+  where
+    getPaymentServiceByType = \case
+      Normal -> DMSC.PaymentService Payment.Juspay
+      BBPS -> DMSC.BbpsPaymentService Payment.Juspay
+      FRFSBooking -> DMSC.MetroPaymentService Payment.Juspay
+      FRFSBusBooking -> DMSC.BusPaymentService Payment.Juspay
+      FRFSMultiModalBooking -> DMSC.MultiModalPaymentService Payment.Juspay
+
+fetchGatewayReferenceId ::
+  (MonadTime m, MonadFlow m, CacheFlow m r, EsqDBFlow m r) =>
+  Id DM.Merchant ->
+  Id DMOC.MerchantOperatingCity ->
+  Maybe (Id TicketPlace) ->
+  PaymentServiceType ->
+  m (Maybe Text)
+fetchGatewayReferenceId merchantId merchantOperatingCityId mbPlaceId paymentServiceType = do
+  placeBasedConfig <- case mbPlaceId of
+    Just id -> CQPBSC.findByPlaceIdAndServiceName id (DMSC.PaymentService Payment.Juspay)
+    Nothing -> return Nothing
+  merchantServiceConfig <-
+    CQMSC.findByMerchantOpCityIdAndService merchantId merchantOperatingCityId (getPaymentServiceByType paymentServiceType)
+      >>= fromMaybeM (MerchantServiceConfigNotFound merchantId.getId "Payment" (show Payment.Juspay))
+  return $ case (placeBasedConfig <&> (.serviceConfig)) <|> Just merchantServiceConfig.serviceConfig of
+    Just (DMSC.PaymentServiceConfig vsc) -> Payment.getGatewayReferenceId vsc
+    Just (DMSC.MetroPaymentServiceConfig vsc) -> Payment.getGatewayReferenceId vsc
+    Just (DMSC.BusPaymentServiceConfig vsc) -> Payment.getGatewayReferenceId vsc
+    Just (DMSC.BbpsPaymentServiceConfig vsc) -> Payment.getGatewayReferenceId vsc
+    Just (DMSC.MultiModalPaymentServiceConfig vsc) -> Payment.getGatewayReferenceId vsc
+    _ -> Nothing
   where
     getPaymentServiceByType = \case
       Normal -> DMSC.PaymentService Payment.Juspay

@@ -1,5 +1,6 @@
 module Lib.JourneyLeg.Types.Bus where
 
+import API.Types.UI.FRFSTicketService
 import qualified API.Types.UI.MultimodalConfirm as ApiTypes
 import qualified BecknV2.FRFS.Enums as Spec
 import Domain.Types.FRFSQuote
@@ -14,7 +15,7 @@ import Kernel.External.Maps.Google.MapsClient.Types
 import Kernel.Prelude
 import qualified Kernel.Types.Beckn.Context as Context
 import Kernel.Types.Id
-import Kernel.Utils.Common
+import qualified Lib.JourneyModule.Types as JL
 
 data BusLegRequestSearchData = BusLegRequestSearchData
   { quantity :: Int,
@@ -22,48 +23,43 @@ data BusLegRequestSearchData = BusLegRequestSearchData
     merchantId :: Id DMerchant.Merchant,
     city :: Context.City,
     journeyLeg :: DJourneyLeg.JourneyLeg,
-    recentLocationId :: Maybe (Id DRecentLocation.RecentLocation)
+    multimodalSearchRequestId :: Maybe Text,
+    recentLocationId :: Maybe (Id DRecentLocation.RecentLocation),
+    upsertJourneyLegAction :: forall m r c. JL.SearchRequestFlow m r c => Text -> m ()
   }
 
 data BusLegRequestConfirmData = BusLegRequestConfirmData
   { quoteId :: Maybe (Id FRFSQuote),
     searchId :: Id FRFSSearch.FRFSSearch,
-    skipBooking :: Bool,
+    bookLater :: Bool,
     bookingAllowed :: Bool,
     personId :: Id DPerson.Person,
     merchantId :: Id DMerchant.Merchant,
     merchantOperatingCityId :: Id DMOC.MerchantOperatingCity,
     quantity :: Maybe Int,
-    childTicketQuantity :: Maybe Int
+    childTicketQuantity :: Maybe Int,
+    categorySelectionReq :: Maybe [FRFSCategorySelectionReq],
+    isSingleMode :: Maybe Bool
   }
 
 data BusLegRequestUpdateData = BusLegRequestUpdateData
 
 data BusLegRequestCancelData = BusLegRequestCancelData
   { searchId :: Id FRFSSearch.FRFSSearch,
-    cancellationType :: Spec.CancellationType,
-    isSkipped :: Bool
-  }
-
-data BusLegRequestIsCancellableData = BusLegRequestIsCancellableData
-  { searchId :: Id FRFSSearch.FRFSSearch
+    cancellationType :: Spec.CancellationType
   }
 
 data BusLegRequestGetInfoData = BusLegRequestGetInfoData
   { searchId :: Id FRFSSearch.FRFSSearch,
-    fallbackFare :: Maybe HighPrecMoney,
-    distance :: Maybe Distance,
-    duration :: Maybe Seconds,
-    journeyLeg :: DJourneyLeg.JourneyLeg,
-    ignoreOldSearchRequest :: Bool
+    journeyLeg :: DJourneyLeg.JourneyLeg
   }
 
 data BusLegRequestGetStateData = BusLegRequestGetStateData
   { searchId :: Id FRFSSearch.FRFSSearch,
     riderLastPoints :: [ApiTypes.RiderLocationReq],
-    isLastCompleted :: Bool,
     movementDetected :: Bool,
-    routeCodeForDetailedTracking :: Maybe Text
+    routeCodeForDetailedTracking :: Maybe Text,
+    journeyLeg :: DJourneyLeg.JourneyLeg
   }
 
 data BusLegRequestGetFareData = BusLegRequestGetFareData
@@ -74,6 +70,7 @@ data BusLegRequestGetFareData = BusLegRequestGetFareData
     merchant :: DMerchant.Merchant,
     riderId :: Id DPerson.Person,
     fromArrivalTime :: Maybe UTCTime,
+    serviceType :: Maybe Spec.ServiceTierType,
     merchantOpCity :: DMOC.MerchantOperatingCity
   }
 
@@ -82,7 +79,6 @@ data BusLegRequest
   | BusLegRequestConfirm BusLegRequestConfirmData
   | BusLegRequestUpdate BusLegRequestUpdateData
   | BusLegRequestCancel BusLegRequestCancelData
-  | BusLegRequestIsCancellable BusLegRequestIsCancellableData
   | BusLegRequestGetFare BusLegRequestGetFareData
   | BusLegRequestGetState BusLegRequestGetStateData
   | BusLegRequestGetInfo BusLegRequestGetInfoData

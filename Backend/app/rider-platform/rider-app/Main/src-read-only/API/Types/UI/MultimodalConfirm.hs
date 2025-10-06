@@ -9,11 +9,15 @@ import Data.OpenApi (ToSchema)
 import qualified Domain.Types.BookingUpdateRequest
 import qualified Domain.Types.Estimate
 import qualified Domain.Types.FRFSQuote
+import qualified Domain.Types.FRFSTicketBookingStatus
 import qualified Domain.Types.IntegratedBPPConfig
 import qualified Domain.Types.Journey
+import qualified Domain.Types.JourneyLeg
 import qualified Domain.Types.Location
 import qualified Domain.Types.LocationAddress
 import qualified Domain.Types.MultimodalPreferences
+import qualified Domain.Types.RouteDetails
+import qualified Domain.Types.RouteStopTimeTable
 import qualified Domain.Types.Station
 import qualified Domain.Types.StationType
 import qualified Domain.Types.Trip
@@ -25,13 +29,40 @@ import qualified Kernel.Prelude
 import qualified Kernel.Types.Common
 import qualified Kernel.Types.Id
 import qualified Lib.JourneyLeg.Types
+import qualified Lib.JourneyModule.State.Types
 import qualified Lib.JourneyModule.Types
 import qualified Lib.JourneyModule.Utils
 import qualified Lib.Payment.Domain.Types.PaymentOrder
 import Servant
 import Tools.Auth
 
-data CrisSdkResponse = CrisSdkResponse {bookAuthCode :: Kernel.Prelude.Text, osBuildVersion :: Kernel.Prelude.Text, osType :: Kernel.Prelude.Text}
+data AvailableRoute = AvailableRoute
+  { quoteId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.FRFSQuote.FRFSQuote),
+    routeCode :: Kernel.Prelude.Text,
+    routeLongName :: Kernel.Prelude.Text,
+    routeShortName :: Kernel.Prelude.Text,
+    routeTimings :: [Kernel.Types.Common.Seconds],
+    serviceTierName :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
+    serviceTierType :: BecknV2.FRFS.Enums.ServiceTierType,
+    source :: Domain.Types.RouteStopTimeTable.SourceType
+  }
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data ChangeStopsReq = ChangeStopsReq
+  { journeyId :: Kernel.Types.Id.Id Domain.Types.Journey.Journey,
+    legOrder :: Kernel.Prelude.Int,
+    newDestinationStation :: Kernel.Prelude.Maybe StationAPIEntity,
+    newSourceStation :: Kernel.Prelude.Maybe StationAPIEntity
+  }
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data ChangeStopsResp = ChangeStopsResp {stationsChanged :: Kernel.Prelude.Bool}
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data CrisSdkResponse = CrisSdkResponse {bookAuthCode :: Kernel.Prelude.Text, latency :: Kernel.Prelude.Maybe Kernel.Prelude.Int, osBuildVersion :: Kernel.Prelude.Text, osType :: Kernel.Prelude.Text}
   deriving stock (Generic, Show)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
@@ -64,7 +95,8 @@ data IntegratedQRReq = IntegratedQRReq {integratedQR :: Lib.JourneyModule.Types.
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
 data JourneyBookingPaymentStatus = JourneyBookingPaymentStatus
-  { journeyId :: Kernel.Types.Id.Id Domain.Types.Journey.Journey,
+  { gatewayReferenceId :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
+    journeyId :: Kernel.Types.Id.Id Domain.Types.Journey.Journey,
     paymentFareUpdate :: Kernel.Prelude.Maybe [PaymentFareUpdate],
     paymentOrder :: Kernel.Prelude.Maybe PaymentOrder
   }
@@ -76,7 +108,8 @@ data JourneyConfirmReq = JourneyConfirmReq {journeyConfirmReqElements :: [Journe
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
 data JourneyConfirmReqElement = JourneyConfirmReqElement
-  { childTicketQuantity :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
+  { categorySelectionReq :: Kernel.Prelude.Maybe [API.Types.UI.FRFSTicketService.FRFSCategorySelectionReq],
+    childTicketQuantity :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     crisSdkResponse :: Kernel.Prelude.Maybe CrisSdkResponse,
     journeyLegOrder :: Kernel.Prelude.Int,
     skipBooking :: Kernel.Prelude.Bool,
@@ -90,7 +123,7 @@ data JourneyFeedBackForm = JourneyFeedBackForm {additionalFeedBack :: Kernel.Pre
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
 data JourneyInfoResp = JourneyInfoResp
-  { crisSdkToken :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
+  { createdAt :: Kernel.Prelude.UTCTime,
     endTime :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     estimatedDistance :: Kernel.Types.Common.Distance,
     estimatedDuration :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
@@ -101,6 +134,7 @@ data JourneyInfoResp = JourneyInfoResp
     legs :: [Lib.JourneyModule.Types.LegInfo],
     merchantOperatingCityName :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     paymentOrderShortId :: Kernel.Prelude.Maybe (Kernel.Types.Id.ShortId Lib.Payment.Domain.Types.PaymentOrder.PaymentOrder),
+    result :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     startTime :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     unifiedQR :: Kernel.Prelude.Maybe Lib.JourneyModule.Types.UnifiedTicketQR,
     unifiedQRV2 :: Kernel.Prelude.Maybe Lib.JourneyModule.Types.UnifiedTicketQRV2
@@ -117,17 +151,30 @@ data JourneyStatusResp = JourneyStatusResp
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
-data LegServiceTierOptionsResp = LegServiceTierOptionsResp {options :: [Lib.JourneyModule.Utils.AvailableRoutesByTier]}
+data LegServiceTierOptionsResp = LegServiceTierOptionsResp {options :: [Domain.Types.RouteDetails.AvailableRoutesByTier]}
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
 data LegStatus = LegStatus
-  { legOrder :: Kernel.Prelude.Int,
+  { bookingStatus :: Lib.JourneyModule.State.Types.JourneyBookingStatus,
+    fleetNo :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
+    legOrder :: Kernel.Prelude.Int,
     mode :: Domain.Types.Trip.MultimodalTravelMode,
     status :: Lib.JourneyLeg.Types.JourneyLegStatus,
     subLegOrder :: Kernel.Prelude.Int,
+    trackingStatus :: Lib.JourneyModule.State.Types.TrackingStatus,
+    trackingStatusLastUpdatedAt :: Kernel.Prelude.UTCTime,
     userPosition :: Kernel.Prelude.Maybe Kernel.External.Maps.Types.LatLong,
     vehiclePositions :: [Lib.JourneyModule.Types.VehiclePosition]
+  }
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data MultimodalCancelStatusResp = MultimodalCancelStatusResp
+  { bookingStatus :: Domain.Types.FRFSTicketBookingStatus.FRFSTicketBookingStatus,
+    cancellationCharges :: Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney,
+    isCancellable :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
+    refundAmount :: Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney
   }
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
@@ -163,6 +210,10 @@ data MultimodalUserPreferences = MultimodalUserPreferences
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
+data OnboardedVehicleDetailsReq = OnboardedVehicleDetailsReq {vehicleNumber :: Kernel.Prelude.Text}
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
 data PaymentFareUpdate = PaymentFareUpdate {journeyLegOrder :: Kernel.Prelude.Int, newFare :: Kernel.Types.Common.PriceAPIEntity, oldFare :: Kernel.Types.Common.PriceAPIEntity}
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
@@ -173,9 +224,14 @@ data PaymentOrder = PaymentOrder {sdkPayload :: Kernel.Prelude.Maybe Kernel.Exte
 
 data PublicTransportData = PublicTransportData {ptcv :: Kernel.Prelude.Text, rs :: [TransportRoute], rsm :: [TransportRouteStopMapping], ss :: [TransportStation]}
   deriving stock (Generic)
-  deriving anyclass (ToJSON, FromJSON, ToSchema)
+  deriving anyclass (ToSchema)
 
-data RateMultiModelTravelModes = RateMultiModelTravelModes {isExperienceGood :: Kernel.Prelude.Maybe Kernel.Prelude.Bool, legOrder :: Kernel.Prelude.Int, travelMode :: Kernel.Prelude.Maybe Domain.Types.Trip.MultimodalTravelMode}
+data RateMultiModelTravelModes = RateMultiModelTravelModes
+  { isExperienceGood :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
+    legOrder :: Kernel.Prelude.Int,
+    rating :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
+    travelMode :: Kernel.Prelude.Maybe Domain.Types.Trip.MultimodalTravelMode
+  }
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
@@ -183,11 +239,41 @@ data RiderLocationReq = RiderLocationReq {currTime :: Kernel.Prelude.UTCTime, la
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
+data RouteAvailabilityReq = RouteAvailabilityReq
+  { endStopCode :: Kernel.Prelude.Text,
+    journeyId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.Journey.Journey),
+    legOrder :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
+    onlyLive :: Kernel.Prelude.Bool,
+    startStopCode :: Kernel.Prelude.Text
+  }
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data RouteAvailabilityResp = RouteAvailabilityResp {availableRoutes :: [AvailableRoute]}
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data SetRouteNameReq = SetRouteNameReq {journeyId :: Kernel.Types.Id.Id Domain.Types.Journey.Journey, legOrder :: Kernel.Prelude.Int, shortName :: Kernel.Prelude.Text}
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data SimilarJourneyLegsResp = SimilarJourneyLegsResp {allLegsLoaded :: Kernel.Prelude.Bool, journeyLegsInfo :: [Lib.JourneyModule.Utils.JourneyLegOption]}
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
 data SingleQRReq = SingleQRReq {provider :: Lib.JourneyModule.Types.Provider, tickets :: [Kernel.Prelude.Text]}
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
+data StationAPIEntity = StationAPIEntity {stopCode :: Kernel.Prelude.Text}
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
 data SwitchFRFSTierReq = SwitchFRFSTierReq {quoteId :: Kernel.Types.Id.Id Domain.Types.FRFSQuote.FRFSQuote}
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data SwitchJourneyLegReq = SwitchJourneyLegReq {journeyLegId :: Kernel.Types.Id.Id Domain.Types.JourneyLeg.JourneyLeg}
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
@@ -196,6 +282,17 @@ data SwitchLegReq = SwitchLegReq
     newMode :: Domain.Types.Trip.MultimodalTravelMode,
     originAddress :: Kernel.Prelude.Maybe Domain.Types.LocationAddress.LocationAddress,
     startLocation :: Kernel.Prelude.Maybe Kernel.External.Maps.Google.MapsClient.Types.LatLngV2
+  }
+  deriving stock (Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data SwitchRouteReq = SwitchRouteReq
+  { journeyId :: Kernel.Types.Id.Id Domain.Types.Journey.Journey,
+    legOrder :: Kernel.Prelude.Int,
+    quoteId :: Kernel.Types.Id.Id Domain.Types.FRFSQuote.FRFSQuote,
+    routeCode :: Kernel.Prelude.Text,
+    routeLongName :: Kernel.Prelude.Text,
+    routeShortName :: Kernel.Prelude.Text
   }
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
@@ -211,15 +308,17 @@ data TransportRoute = TransportRoute
     ibc :: Kernel.Types.Id.Id Domain.Types.IntegratedBPPConfig.IntegratedBPPConfig,
     lN :: Kernel.Prelude.Text,
     sN :: Kernel.Prelude.Text,
+    st :: Kernel.Prelude.Maybe BecknV2.FRFS.Enums.ServiceTierType,
     stC :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
+    stn :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     vt :: Kernel.Prelude.Text
   }
   deriving stock (Generic)
-  deriving anyclass (ToJSON, FromJSON, ToSchema)
+  deriving anyclass (ToSchema)
 
 data TransportRouteStopMapping = TransportRouteStopMapping {ibc :: Kernel.Types.Id.Id Domain.Types.IntegratedBPPConfig.IntegratedBPPConfig, rc :: Kernel.Prelude.Text, sc :: Kernel.Prelude.Text, sn :: Kernel.Prelude.Int}
   deriving stock (Generic)
-  deriving anyclass (ToJSON, FromJSON, ToSchema)
+  deriving anyclass (ToSchema)
 
 data TransportStation = TransportStation
   { ad :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
@@ -236,7 +335,7 @@ data TransportStation = TransportStation
     vt :: Kernel.Prelude.Text
   }
   deriving stock (Generic)
-  deriving anyclass (ToJSON, FromJSON, ToSchema)
+  deriving anyclass (ToSchema)
 
 data UpdatePaymentOrderReq = UpdatePaymentOrderReq {childTicketQuantity :: Kernel.Prelude.Int, quantity :: Kernel.Prelude.Int}
   deriving stock (Generic)

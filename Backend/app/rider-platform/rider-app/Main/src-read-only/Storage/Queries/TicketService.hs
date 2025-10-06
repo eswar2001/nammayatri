@@ -6,6 +6,7 @@ module Storage.Queries.TicketService (module Storage.Queries.TicketService, modu
 
 import qualified Data.Aeson
 import qualified Domain.Types.TicketService
+import qualified Domain.Types.TicketSubPlace
 import Kernel.Beam.Functions
 import Kernel.External.Encryption
 import Kernel.Prelude
@@ -32,6 +33,11 @@ findByPlacesIdAndService placesId service = do findOneWithKV [Se.And [Se.Is Beam
 getTicketServicesByPlaceId :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Prelude.Text -> m [Domain.Types.TicketService.TicketService])
 getTicketServicesByPlaceId placesId = do findAllWithKV [Se.Is Beam.placesId $ Se.Eq placesId]
 
+getTicketServicesByPlaceIdAndSubPlaceId ::
+  (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
+  (Kernel.Prelude.Text -> Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.TicketSubPlace.TicketSubPlace) -> m [Domain.Types.TicketService.TicketService])
+getTicketServicesByPlaceIdAndSubPlaceId placesId subPlaceId = do findAllWithKV [Se.And [Se.Is Beam.placesId $ Se.Eq placesId, Se.Is Beam.subPlaceId $ Se.Eq (Kernel.Types.Id.getId <$> subPlaceId)]]
+
 findByPrimaryKey :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Types.Id.Id Domain.Types.TicketService.TicketService -> m (Maybe Domain.Types.TicketService.TicketService))
 findByPrimaryKey id = do findOneWithKV [Se.And [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId id)]]
 
@@ -44,6 +50,7 @@ updateByPrimaryKey (Domain.Types.TicketService.TicketService {..}) = do
       Se.Set Beam.businessHours (Kernel.Types.Id.getId <$> businessHours),
       Se.Set Beam.expiry expiry,
       Se.Set Beam.isClosed (Kernel.Prelude.Just isClosed),
+      Se.Set Beam.maxSelection maxSelection,
       Se.Set Beam.maxVerification maxVerification,
       Se.Set Beam.operationalEndDate (operationalDate <&> (.eneDate)),
       Se.Set Beam.operationalStartDate (operationalDate <&> (.startDate)),
@@ -51,7 +58,9 @@ updateByPrimaryKey (Domain.Types.TicketService.TicketService {..}) = do
       Se.Set Beam.placesId placesId,
       Se.Set Beam.rules (Data.Aeson.toJSON <$> rules),
       Se.Set Beam.service service,
+      Se.Set Beam.serviceDetails (Data.Aeson.toJSON <$> serviceDetails),
       Se.Set Beam.shortDesc shortDesc,
+      Se.Set Beam.subPlaceId (Kernel.Types.Id.getId <$> subPlaceId),
       Se.Set Beam.merchantId (Kernel.Types.Id.getId <$> merchantId),
       Se.Set Beam.merchantOperatingCityId (Kernel.Types.Id.getId <$> merchantOperatingCityId),
       Se.Set Beam.createdAt createdAt,

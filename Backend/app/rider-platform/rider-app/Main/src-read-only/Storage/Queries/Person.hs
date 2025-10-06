@@ -4,6 +4,7 @@
 
 module Storage.Queries.Person (module Storage.Queries.Person, module ReExport) where
 
+import qualified BecknV2.OnDemand.Enums
 import qualified Data.Time
 import qualified Domain.Types.Person
 import qualified Domain.Types.ServiceTierType
@@ -113,10 +114,27 @@ updateJuspayCustomerPaymentId juspayCustomerPaymentID id = do
   _now <- getCurrentTime
   updateWithKV [Se.Set Beam.juspayCustomerPaymentID juspayCustomerPaymentID, Se.Set Beam.updatedAt _now] [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId id)]
 
+updateLastUsedVehicleCategories :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => ([BecknV2.OnDemand.Enums.VehicleCategory] -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
+updateLastUsedVehicleCategories lastUsedVehicleCategories id = do
+  _now <- getCurrentTime
+  updateWithKV [Se.Set Beam.lastUsedVehicleCategories (Just lastUsedVehicleCategories), Se.Set Beam.updatedAt _now] [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId id)]
+
 updateLastUsedVehicleServiceTiers :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => ([Domain.Types.ServiceTierType.ServiceTierType] -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
 updateLastUsedVehicleServiceTiers lastUsedVehicleServiceTiers id = do
   _now <- getCurrentTime
   updateWithKV [Se.Set Beam.lastUsedVehicleServiceTiers (Just lastUsedVehicleServiceTiers), Se.Set Beam.updatedAt _now] [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId id)]
+
+updateLastUsedVehicleServiceTiersAndCategories ::
+  (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
+  ([Domain.Types.ServiceTierType.ServiceTierType] -> [BecknV2.OnDemand.Enums.VehicleCategory] -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
+updateLastUsedVehicleServiceTiersAndCategories lastUsedVehicleServiceTiers lastUsedVehicleCategories id = do
+  _now <- getCurrentTime
+  updateWithKV
+    [ Se.Set Beam.lastUsedVehicleServiceTiers (Just lastUsedVehicleServiceTiers),
+      Se.Set Beam.lastUsedVehicleCategories (Just lastUsedVehicleCategories),
+      Se.Set Beam.updatedAt _now
+    ]
+    [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId id)]
 
 updateLiveActivityToken :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Prelude.Maybe Kernel.Prelude.Text -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
 updateLiveActivityToken liveActivityToken id = do
@@ -202,6 +220,7 @@ updateByPrimaryKey (Domain.Types.Person.Person {..}) = do
       Se.Set Beam.juspayCustomerPaymentID juspayCustomerPaymentID,
       Se.Set Beam.language language,
       Se.Set Beam.lastName lastName,
+      Se.Set Beam.lastUsedVehicleCategories (Just lastUsedVehicleCategories),
       Se.Set Beam.lastUsedVehicleServiceTiers (Just lastUsedVehicleServiceTiers),
       Se.Set Beam.latestLat latestLat,
       Se.Set Beam.latestLon latestLon,

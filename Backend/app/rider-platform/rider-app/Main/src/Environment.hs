@@ -47,6 +47,7 @@ import Kernel.Storage.Clickhouse.Config
 import Kernel.Storage.Esqueleto.Config
 import Kernel.Storage.Hedis as Redis hiding (ttl)
 import Kernel.Storage.Hedis.AppPrefixes (riderAppPrefix)
+import qualified Kernel.Storage.InMem as IM
 import Kernel.Types.App
 import qualified Kernel.Types.Beckn.Domain as Domain
 import Kernel.Types.Cache
@@ -167,7 +168,8 @@ data AppCfg = AppCfg
     nammayatriRegistryConfig :: NyRegistry.RegistryConfig,
     nearByDriverAPIRateLimitOptions :: APIRateLimitOptions,
     selfBaseUrl :: BaseUrl,
-    tsServiceConfig :: CPT.TSServiceConfig
+    tsServiceConfig :: CPT.TSServiceConfig,
+    inMemConfig :: CF.InMemConfig
   }
   deriving (Generic, FromDhall)
 
@@ -268,7 +270,9 @@ data AppEnv = AppEnv
     nammayatriRegistryConfig :: NyRegistry.RegistryConfig,
     nearByDriverAPIRateLimitOptions :: APIRateLimitOptions,
     selfBaseUrl :: BaseUrl,
-    tsServiceConfig :: CPT.TSServiceConfig
+    tsServiceConfig :: CPT.TSServiceConfig,
+    inMemEnv :: CF.InMemEnv,
+    url :: Maybe Text
   }
   deriving (Generic)
 
@@ -321,6 +325,8 @@ buildAppEnv cfg@AppCfg {..} = do
   let serviceClickhouseCfg = riderClickhouseCfg
   let ondcTokenHashMap = HM.fromList $ M.toList ondcTokenMap
   ltsHedisEnv <- connectHedis ltsRedis identity
+  inMemEnv <- IM.setupInMemEnv inMemConfig (Just hedisClusterEnv)
+  let url = Nothing
   return AppEnv {minTripDistanceForReferralCfg = convertHighPrecMetersToDistance Meter <$> minTripDistanceForReferralCfg, ..}
 
 releaseAppEnv :: AppEnv -> IO ()
@@ -371,8 +377,12 @@ instance Registry Flow where
       performRegistryLookup :: [Domain.Types.GatewayAndRegistryService] -> SimpleLookupRequest -> DM.Merchant -> Int -> Flow (Maybe Subscriber)
       performRegistryLookup priorityList sub merchant tryNumber = do
         fetchUrlFromList priorityList >>= \registryUrl -> do
-          bapConfig <- QBC.findByMerchantIdDomainAndVehicle (Just merchant.id) (show Spec.FRFS) BecknSpec.METRO >>= fromMaybeM (BecknConfigNotFound $ "MerchantId:" +|| merchant.id.getId ||+ "Domain:" +|| Spec.FRFS ||+ "Vehicle:" +|| BecknSpec.METRO ||+ "")
-          let selfSubId = if sub.domain == Domain.PUBLIC_TRANSPORT then bapConfig.subscriberId else merchant.bapId
+          selfSubId <-
+            if sub.domain == Domain.PUBLIC_TRANSPORT
+              then do
+                bapConfig <- QBC.findByMerchantIdDomainAndVehicle (Just merchant.id) (show Spec.FRFS) BecknSpec.METRO >>= fromMaybeM (BecknConfigNotFound $ "MerchantId:" +|| merchant.id.getId ||+ "Domain:" +|| Spec.FRFS ||+ "Vehicle:" +|| BecknSpec.METRO ||+ "")
+                pure bapConfig.subscriberId
+              else pure merchant.bapId
           Registry.registryLookup registryUrl sub selfSubId
             `catch` \e -> retryWithNextRegistry e registryUrl sub merchant (tryNumber + 1)
       reorderList :: [a] -> [a]

@@ -8,10 +8,12 @@ import qualified Domain.Types.Person
 import Kernel.Prelude
 import qualified Kernel.Types.Common
 import qualified Kernel.Types.Id
+import qualified Lib.DriverCoins.Types
 import qualified Tools.Beam.UtilsTH
 
 data DriverStats = DriverStats
-  { bonusEarned :: Kernel.Types.Common.HighPrecMoney,
+  { blacklistCoinEvents :: Kernel.Prelude.Maybe [Lib.DriverCoins.Types.DriverCoinsFunctionType],
+    bonusEarned :: Kernel.Types.Common.HighPrecMoney,
     coinCovertedToCashLeft :: Kernel.Types.Common.HighPrecMoney,
     currency :: Kernel.Types.Common.Currency,
     distanceUnit :: Kernel.Types.Common.DistanceUnit,
@@ -23,6 +25,7 @@ data DriverStats = DriverStats
     lateNightTrips :: Kernel.Prelude.Int,
     numDriversOnboarded :: Kernel.Prelude.Int,
     numFleetsOnboarded :: Kernel.Prelude.Int,
+    onlineDuration :: Kernel.Types.Common.Seconds,
     rating :: Kernel.Prelude.Maybe Kernel.Types.Common.Centesimal,
     ridesCancelled :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     safetyPlusEarnings :: Kernel.Types.Common.HighPrecMoney,

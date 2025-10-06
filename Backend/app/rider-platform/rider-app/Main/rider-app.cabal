@@ -54,6 +54,7 @@ library
       API.Internal.DriverArrivalNotf
       API.Internal.FrequentLocUser
       API.Internal.FRFS
+      API.Internal.GetPickupInstructions
       API.Internal.Rating
       API.Internal.RideSearchExpired
       API.Internal.StopEvents
@@ -68,6 +69,7 @@ library
       API.UI.CallEvent
       API.UI.Cancel
       API.UI.CancellationReason
+      API.UI.CancelSearch
       API.UI.Confirm
       API.UI.Disability
       API.UI.FeedbackForm
@@ -190,7 +192,9 @@ library
       Domain.Action.Internal.DriverArrivalNotf
       Domain.Action.Internal.FrequentLocUser
       Domain.Action.Internal.FRFS
+      Domain.Action.Internal.GetPickupInstructions
       Domain.Action.Internal.Payout
+      Domain.Action.Internal.PickupInstructionHandler
       Domain.Action.Internal.Rating
       Domain.Action.Internal.RideSearchExpired
       Domain.Action.Internal.StopEvents
@@ -231,6 +235,7 @@ library
       Domain.Action.UI.Maps
       Domain.Action.UI.MerchantPaymentMethod
       Domain.Action.UI.MeterRideInternal
+      Domain.Action.UI.Metrics
       Domain.Action.UI.Miscellaneous
       Domain.Action.UI.MultimodalConfirm
       Domain.Action.UI.NearbyBuses
@@ -290,6 +295,7 @@ library
       Domain.Types.Extra.Ride
       Domain.Types.Extra.RiderConfig
       Domain.Types.Extra.TicketBooking
+      Domain.Types.Extra.VendorSplitDetails
       Domain.Types.FarePolicy.FareProductType
       Domain.Types.Geometry
       Domain.Types.HotSpot
@@ -301,7 +307,9 @@ library
       Domain.Types.RouteStopTimeTable
       Domain.Types.Station
       Domain.Types.TicketDashboard
+      Domain.Types.TicketKapture
       Domain.Types.UtilsTH
+      Domain.Types.Yudhishthira
       Environment
       ExternalBPP.CallAPI
       ExternalBPP.ExternalAPI.Bus.EBIX.Auth
@@ -323,6 +331,7 @@ library
       ExternalBPP.ExternalAPI.Metro.CMRL.PassengerViewStatus
       ExternalBPP.ExternalAPI.Metro.CMRL.StationList
       ExternalBPP.ExternalAPI.Metro.CMRL.TicketStatus
+      ExternalBPP.ExternalAPI.Metro.CMRL.UpdateQrReceivedStatus
       ExternalBPP.ExternalAPI.Subway.CRIS.Auth
       ExternalBPP.ExternalAPI.Subway.CRIS.BookJourney
       ExternalBPP.ExternalAPI.Subway.CRIS.ChangeDevice
@@ -331,6 +340,7 @@ library
       ExternalBPP.ExternalAPI.Subway.CRIS.OtpGeneration
       ExternalBPP.ExternalAPI.Subway.CRIS.RouteFare
       ExternalBPP.ExternalAPI.Subway.CRIS.SDKData
+      ExternalBPP.ExternalAPI.Subway.CRIS.Types
       ExternalBPP.ExternalAPI.Subway.CRIS.Uts
       ExternalBPP.ExternalAPI.Types
       ExternalBPP.Flow
@@ -349,6 +359,8 @@ library
       Lib.JourneyLeg.Walk
       Lib.JourneyModule.Base
       Lib.JourneyModule.Location
+      Lib.JourneyModule.State.Types
+      Lib.JourneyModule.State.Utils
       Lib.JourneyModule.Types
       Lib.JourneyModule.Utils
       SharedLogic.Booking
@@ -357,6 +369,7 @@ library
       SharedLogic.CallBPPInternal
       SharedLogic.CallFRFSBPP
       SharedLogic.CallIGMBPP
+      SharedLogic.Cancel
       SharedLogic.Confirm
       SharedLogic.CreateFareForMultiModal
       SharedLogic.External.BbpsService.Flow
@@ -367,6 +380,7 @@ library
       SharedLogic.External.Nandi.API.Nandi
       SharedLogic.External.Nandi.Flow
       SharedLogic.External.Nandi.Types
+      SharedLogic.FRFSCancel
       SharedLogic.FRFSUtils
       SharedLogic.GoogleTranslate
       SharedLogic.Insurance
@@ -393,6 +407,7 @@ library
       SharedLogic.Scheduler.Jobs.CheckExotelCallStatusAndNotifyBPP
       SharedLogic.Scheduler.Jobs.CheckMultimodalConfirmFail
       SharedLogic.Scheduler.Jobs.CheckPNAndSendSMS
+      SharedLogic.Scheduler.Jobs.CheckRefundStatus
       SharedLogic.Scheduler.Jobs.ExecutePaymentIntent
       SharedLogic.Scheduler.Jobs.MetroBusinessHour
       SharedLogic.Scheduler.Jobs.NyRegularInstance
@@ -428,6 +443,7 @@ library
       Storage.CachedQueries.FRFSConfig
       Storage.CachedQueries.FRFSGtfsStageFare
       Storage.CachedQueries.HotSpotConfig
+      Storage.CachedQueries.IntegratedBPPConfig
       Storage.CachedQueries.Maps.LocationMapCache
       Storage.CachedQueries.Maps.PlaceNameCache
       Storage.CachedQueries.Merchant
@@ -489,8 +505,8 @@ library
       Storage.Queries.FeedbackFormExtra
       Storage.Queries.FRFSQuoteExtra
       Storage.Queries.FRFSSearchExtra
-      Storage.Queries.FRFSTicketBokingPayment
       Storage.Queries.FRFSTicketBookingExtra
+      Storage.Queries.FRFSTicketBookingPaymentExtra
       Storage.Queries.Geometry
       Storage.Queries.IntegratedBPPConfigExtra
       Storage.Queries.IssueExtra
@@ -515,6 +531,7 @@ library
       Storage.Queries.RecentLocationExtra
       Storage.Queries.RegistrationTokenExtra
       Storage.Queries.RideExtra
+      Storage.Queries.RouteDetailsExtra
       Storage.Queries.RoutePolylinesExtra
       Storage.Queries.SafetySettingsExtra
       Storage.Queries.SavedReqLocationExtra
@@ -533,19 +550,18 @@ library
       Storage.Queries.Transformers.BookingCancellationReason
       Storage.Queries.Transformers.CancellationReason
       Storage.Queries.Transformers.Estimate
-      Storage.Queries.Transformers.FRFSSearch
       Storage.Queries.Transformers.IntegratedBPPConfig
+      Storage.Queries.Transformers.Journey
+      Storage.Queries.Transformers.JourneyLeg
       Storage.Queries.Transformers.Merchant
       Storage.Queries.Transformers.MerchantConfig
       Storage.Queries.Transformers.MerchantMessage
       Storage.Queries.Transformers.MerchantPaymentMethod
       Storage.Queries.Transformers.MerchantServiceConfig
-      Storage.Queries.Transformers.MultiModal
       Storage.Queries.Transformers.PartnerOrgConfig
       Storage.Queries.Transformers.Person
       Storage.Queries.Transformers.Quote
       Storage.Queries.Transformers.RentalDetails
-      Storage.Queries.Transformers.RouteDetails
       Storage.Queries.Transformers.SearchReqLocation
       Storage.Queries.Transformers.SearchRequest
       Storage.Queries.Transformers.ServicePeopleCategory
@@ -555,7 +571,6 @@ library
       Storage.Queries.Transformers.WhiteListOrg
       Storage.Queries.UiRiderConfigExtra
       Storage.Queries.VehicleRouteMappingExtra
-      Storage.Queries.WalkLegMultimodalExtra
       Storage.Queries.WhiteListOrgExtra
       Tools.AadhaarVerification
       Tools.Auth
@@ -565,6 +580,7 @@ library
       Tools.Constants
       Tools.Error
       Tools.Event
+      Tools.HTTPManager
       Tools.Insurance
       Tools.JSON
       Tools.Maps
@@ -626,6 +642,7 @@ library
       API.Action.UI.InsuranceInternal
       API.Action.UI.Invoice
       API.Action.UI.MeterRideInternal
+      API.Action.UI.Metrics
       API.Action.UI.Miscellaneous
       API.Action.UI.MultimodalConfirm
       API.Action.UI.NearbyBuses
@@ -688,6 +705,7 @@ library
       API.Types.UI.Insurance
       API.Types.UI.Invoice
       API.Types.UI.MeterRideInternal
+      API.Types.UI.Metrics
       API.Types.UI.Miscellaneous
       API.Types.UI.MultimodalConfirm
       API.Types.UI.NearbyBuses
@@ -737,6 +755,8 @@ library
       Domain.Types.FRFSFarePolicy
       Domain.Types.FRFSGtfsStageFare
       Domain.Types.FRFSQuote
+      Domain.Types.FRFSQuoteBreakup
+      Domain.Types.FRFSQuoteCategory
       Domain.Types.FRFSRecon
       Domain.Types.FRFSRouteFareProduct
       Domain.Types.FRFSRouteStopStageFare
@@ -744,8 +764,10 @@ library
       Domain.Types.FRFSStageFare
       Domain.Types.FRFSTicket
       Domain.Types.FRFSTicketBooking
+      Domain.Types.FRFSTicketBookingBreakup
       Domain.Types.FRFSTicketBookingFeedback
       Domain.Types.FRFSTicketBookingPayment
+      Domain.Types.FRFSTicketCategoryMetadataConfig
       Domain.Types.FRFSTicketDiscount
       Domain.Types.FRFSVehicleServiceTier
       Domain.Types.HotSpotConfig
@@ -755,11 +777,9 @@ library
       Domain.Types.InterCityDetails
       Domain.Types.Issue
       Domain.Types.Journey
-      Domain.Types.JourneyBooking
       Domain.Types.JourneyFeedback
       Domain.Types.JourneyLeg
-      Domain.Types.JourneyLegsFeedbacks
-      Domain.Types.JourneyRouteDetails
+      Domain.Types.JourneyLegMapping
       Domain.Types.Location
       Domain.Types.LocationMapping
       Domain.Types.Merchant
@@ -783,7 +803,6 @@ library
       Domain.Types.PartnerOrganization
       Domain.Types.PartnerOrgConfig
       Domain.Types.PartnerOrgStation
-      Domain.Types.PassengerDetails
       Domain.Types.PaymentCustomer
       Domain.Types.PayoutConfig
       Domain.Types.Person
@@ -829,13 +848,13 @@ library
       Domain.Types.TicketMerchantDetails
       Domain.Types.TicketPlace
       Domain.Types.TicketService
+      Domain.Types.TicketSubPlace
       Domain.Types.TripTerms
       Domain.Types.UiRiderConfig
       Domain.Types.ValueAddNP
       Domain.Types.VehicleConfig
       Domain.Types.VehicleRouteMapping
       Domain.Types.VendorSplitDetails
-      Domain.Types.WalkLegMultimodal
       Domain.Types.WhiteListOrg
       Storage.Beam.AadhaarOtpReq
       Storage.Beam.AadhaarOtpVerify
@@ -872,6 +891,8 @@ library
       Storage.Beam.FRFSFarePolicy
       Storage.Beam.FRFSGtfsStageFare
       Storage.Beam.FRFSQuote
+      Storage.Beam.FRFSQuoteBreakup
+      Storage.Beam.FRFSQuoteCategory
       Storage.Beam.FRFSRecon
       Storage.Beam.FRFSRouteFareProduct
       Storage.Beam.FRFSRouteStopStageFare
@@ -879,8 +900,10 @@ library
       Storage.Beam.FRFSStageFare
       Storage.Beam.FRFSTicket
       Storage.Beam.FRFSTicketBooking
+      Storage.Beam.FRFSTicketBookingBreakup
       Storage.Beam.FRFSTicketBookingFeedback
       Storage.Beam.FRFSTicketBookingPayment
+      Storage.Beam.FRFSTicketCategoryMetadataConfig
       Storage.Beam.FRFSTicketDiscount
       Storage.Beam.FRFSVehicleServiceTier
       Storage.Beam.HotSpotConfig
@@ -890,11 +913,9 @@ library
       Storage.Beam.InterCityDetails
       Storage.Beam.Issue
       Storage.Beam.Journey
-      Storage.Beam.JourneyBooking
       Storage.Beam.JourneyFeedback
       Storage.Beam.JourneyLeg
-      Storage.Beam.JourneyLegsFeedbacks
-      Storage.Beam.JourneyRouteDetails
+      Storage.Beam.JourneyLegMapping
       Storage.Beam.Location
       Storage.Beam.LocationMapping
       Storage.Beam.Merchant
@@ -918,7 +939,6 @@ library
       Storage.Beam.PartnerOrganization
       Storage.Beam.PartnerOrgConfig
       Storage.Beam.PartnerOrgStation
-      Storage.Beam.PassengerDetails
       Storage.Beam.PaymentCustomer
       Storage.Beam.PayoutConfig
       Storage.Beam.Person
@@ -963,17 +983,17 @@ library
       Storage.Beam.TicketMerchantDetails
       Storage.Beam.TicketPlace
       Storage.Beam.TicketService
+      Storage.Beam.TicketSubPlace
       Storage.Beam.TripTerms
       Storage.Beam.UiRiderConfig
       Storage.Beam.ValueAddNP
       Storage.Beam.VehicleConfig
       Storage.Beam.VehicleRouteMapping
       Storage.Beam.VendorSplitDetails
-      Storage.Beam.WalkLegMultimodal
       Storage.Beam.WhiteListOrg
       Storage.CachedQueries.FeedbackForm
+      Storage.CachedQueries.FRFSVehicleServiceTier
       Storage.CachedQueries.InsuranceConfig
-      Storage.CachedQueries.IntegratedBPPConfig
       Storage.CachedQueries.SavedReqLocation
       Storage.Queries.AadhaarOtpReq
       Storage.Queries.AadhaarOtpVerify
@@ -1009,6 +1029,8 @@ library
       Storage.Queries.FRFSFarePolicy
       Storage.Queries.FRFSGtfsStageFare
       Storage.Queries.FRFSQuote
+      Storage.Queries.FRFSQuoteBreakup
+      Storage.Queries.FRFSQuoteCategory
       Storage.Queries.FRFSRecon
       Storage.Queries.FRFSRouteFareProduct
       Storage.Queries.FRFSRouteStopStageFare
@@ -1016,8 +1038,10 @@ library
       Storage.Queries.FRFSStageFare
       Storage.Queries.FRFSTicket
       Storage.Queries.FRFSTicketBooking
+      Storage.Queries.FRFSTicketBookingBreakup
       Storage.Queries.FRFSTicketBookingFeedback
       Storage.Queries.FRFSTicketBookingPayment
+      Storage.Queries.FRFSTicketCategoryMetadataConfig
       Storage.Queries.FRFSTicketDiscount
       Storage.Queries.FRFSVehicleServiceTier
       Storage.Queries.HotSpotConfig
@@ -1027,11 +1051,9 @@ library
       Storage.Queries.InterCityDetails
       Storage.Queries.Issue
       Storage.Queries.Journey
-      Storage.Queries.JourneyBooking
       Storage.Queries.JourneyFeedback
       Storage.Queries.JourneyLeg
-      Storage.Queries.JourneyLegsFeedbacks
-      Storage.Queries.JourneyRouteDetails
+      Storage.Queries.JourneyLegMapping
       Storage.Queries.Location
       Storage.Queries.LocationMapping
       Storage.Queries.Merchant
@@ -1068,6 +1090,7 @@ library
       Storage.Queries.OrphanInstances.FRFSQuote
       Storage.Queries.OrphanInstances.FRFSSearch
       Storage.Queries.OrphanInstances.FRFSTicketBooking
+      Storage.Queries.OrphanInstances.FRFSTicketBookingPayment
       Storage.Queries.OrphanInstances.IntegratedBPPConfig
       Storage.Queries.OrphanInstances.Issue
       Storage.Queries.OrphanInstances.Journey
@@ -1090,6 +1113,7 @@ library
       Storage.Queries.OrphanInstances.RecentLocation
       Storage.Queries.OrphanInstances.RegistrationToken
       Storage.Queries.OrphanInstances.Ride
+      Storage.Queries.OrphanInstances.RouteDetails
       Storage.Queries.OrphanInstances.RoutePolylines
       Storage.Queries.OrphanInstances.SafetySettings
       Storage.Queries.OrphanInstances.SavedReqLocation
@@ -1104,13 +1128,11 @@ library
       Storage.Queries.OrphanInstances.TicketService
       Storage.Queries.OrphanInstances.UiRiderConfig
       Storage.Queries.OrphanInstances.VehicleRouteMapping
-      Storage.Queries.OrphanInstances.WalkLegMultimodal
       Storage.Queries.OrphanInstances.WhiteListOrg
       Storage.Queries.ParcelDetails
       Storage.Queries.PartnerOrganization
       Storage.Queries.PartnerOrgConfig
       Storage.Queries.PartnerOrgStation
-      Storage.Queries.PassengerDetails
       Storage.Queries.PaymentCustomer
       Storage.Queries.PayoutConfig
       Storage.Queries.Person
@@ -1155,13 +1177,13 @@ library
       Storage.Queries.TicketMerchantDetails
       Storage.Queries.TicketPlace
       Storage.Queries.TicketService
+      Storage.Queries.TicketSubPlace
       Storage.Queries.TripTerms
       Storage.Queries.UiRiderConfig
       Storage.Queries.ValueAddNP
       Storage.Queries.VehicleConfig
       Storage.Queries.VehicleRouteMapping
       Storage.Queries.VendorSplitDetails
-      Storage.Queries.WalkLegMultimodal
       Storage.Queries.WhiteListOrg
   other-modules:
       Paths_rider_app

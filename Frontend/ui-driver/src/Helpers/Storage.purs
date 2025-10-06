@@ -123,6 +123,8 @@ data KeyStore = USER_NAME
                 | TOTAL_WAITED
                 | VISITED_DRIVER_COINS_PAGE
                 | REFERRAL_CODE_ADDED
+                | DRIVER_OPERATOR_ID
+                | DRIVER_FLEET_OWNER_ID
                 | SAVED_GOTO_COUNT
                 | OLD_COIN_BALANCE
                 | TIMES_OPENED_NEW_BENEFITS
@@ -182,6 +184,7 @@ data KeyStore = USER_NAME
                 | PET_RIDES_POPUP_SHOWN
                 | NY_CLUB_POPUP_SHOWN
                 | NY_CLUB_POPUP_DECLINED_COUNT
+                | PET_RIDES_INFO_POPUP_SHOWN
 
 derive instance genericKeyStore :: Generic KeyStore _
 instance showKeyStore :: Show KeyStore where

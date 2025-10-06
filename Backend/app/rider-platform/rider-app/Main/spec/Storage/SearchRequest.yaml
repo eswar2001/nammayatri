@@ -24,10 +24,10 @@ imports:
   DeliveryPersonDetails: Domain.Types.DeliveryPersonDetails
   DbHash: Kernel.External.Encryption
   TripParty: Domain.Types.Trip
-  JourneySearchData: Lib.JourneyLeg.Types
   DriverIdentifierType: Domain.Types.RefereeLink
   DriverIdentifier: Domain.Types.RefereeLink
   ConfigVersionMap: Lib.Yudhishthira.Types
+  JourneyLeg: Domain.Types.JourneyLeg
   Value: Data.Aeson
   RecentLocation: Domain.Types.RecentLocation
   VehicleCategory: BecknV2.OnDemand.Enums
@@ -81,7 +81,7 @@ SearchRequest:
     availablePaymentMethods: "[Id MerchantPaymentMethod]"
     placeNameSource:  Maybe Text
     initiatedBy: Maybe TripParty
-    journeyLegInfo: Maybe JourneySearchData
+    onSearchFailed: Maybe Bool
     driverIdentifier: Maybe DriverIdentifier
     hasMultimodalSearch: Maybe Bool
     routeCode: Maybe Text
@@ -92,6 +92,7 @@ SearchRequest:
     allJourneysLoaded: Maybe Bool
     searchMode: Maybe SearchMode
     isMultimodalSearch: Maybe Bool
+    multimodalSearchRequestId: Maybe Text
 
   default:
     hasMultimodalSearch: "false"
@@ -154,15 +155,6 @@ SearchRequest:
       clientOsVersion: Maybe Text
       clientModelName: Maybe Text
       clientManufacturer: Maybe Text
-    journeyLegInfo:
-      journeyLegOrder: Maybe Int
-      journeyId: Maybe Text
-      agency: Maybe Text
-      skipBooking: Maybe Bool
-      convenienceCost: Maybe Int
-      pricingId: Maybe Text
-      isDeleted: Maybe Bool
-      onSearchFailed: Maybe Bool
     driverIdentifier:
       driverIdentifierType: Maybe DriverIdentifierType
       driverIdentifierValue: Maybe Text
@@ -189,14 +181,6 @@ SearchRequest:
     clientConfigVersion: Kernel.Utils.Version.versionToText <$> clientConfigVersion|E
     backendConfigVersion: Kernel.Utils.Version.versionToText <$> backendConfigVersion|E
     distanceUnit: Kernel.Prelude.Just|I
-    journeyLegOrder: Kernel.Prelude.fmap (.journeyLegOrder)|I
-    journeyId: Kernel.Prelude.fmap (.journeyId)|I
-    agency: (journeyLegInfo >>= (.agency))|E
-    skipBooking: Kernel.Prelude.fmap (.skipBooking)|I
-    convenienceCost: Kernel.Prelude.fmap (.convenienceCost)|I
-    pricingId: (journeyLegInfo >>= (.pricingId))|E
-    isDeleted:  (journeyLegInfo >>= (.isDeleted))|E
-    onSearchFailed:  (journeyLegInfo >>= (.onSearchFailed))|E
     driverIdentifierType: driverIdentifier <&> (._type)|E
     driverIdentifierValue: driverIdentifier <&> (.value)|E
     configInExperimentVersions: Just $ toJSON configInExperimentVersions|E
@@ -216,9 +200,9 @@ SearchRequest:
     clientDevice: Kernel.Utils.Version.mkClientDevice clientOsType clientOsVersion clientModelName clientManufacturer|E
     backendConfigVersion: mapM Kernel.Utils.Version.readVersion (Data.Text.strip <$> backendConfigVersion)|EM
     distanceUnit: Kernel.Prelude.fromMaybe Kernel.Types.Common.Meter |I
-    journeyLegInfo: Storage.Queries.Transformers.SearchRequest.mkJourneyLegInfo
     driverIdentifier: Domain.Types.RefereeLink.mkDriverIdentifier
     configInExperimentVersions: fromMaybe [] (Kernel.Utils.JSON.valueToMaybe =<< configInExperimentVersions)|E
+
   excludedFields: [updatedAt]
 
   excludedDefaultQueries:
@@ -266,7 +250,6 @@ SearchRequest:
   constraints:
     id: PrimaryKey
     riderId: SecondaryKey
-    # journeyId: "!SecondaryKey" # forcing to be a secondary key
 
   extraOperations:
     - EXTRA_QUERY_FILE

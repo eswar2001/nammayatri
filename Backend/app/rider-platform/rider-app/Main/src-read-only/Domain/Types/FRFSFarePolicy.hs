@@ -4,7 +4,7 @@
 module Domain.Types.FRFSFarePolicy where
 
 import Data.Aeson
-import qualified Domain.Types.FRFSTicketDiscount
+import qualified Domain.Types.FRFSTicketCategoryMetadataConfig
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.MerchantOperatingCity
 import Kernel.Prelude
@@ -14,7 +14,7 @@ import qualified Tools.Beam.UtilsTH
 
 data FRFSFarePolicy = FRFSFarePolicy
   { _type :: Domain.Types.FRFSFarePolicy.FRFSFarePolicyType,
-    applicableDiscountIds :: [Kernel.Types.Id.Id Domain.Types.FRFSTicketDiscount.FRFSTicketDiscount],
+    applicableDiscountIds :: [Kernel.Types.Id.Id Domain.Types.FRFSTicketCategoryMetadataConfig.FRFSTicketCategoryMetadataConfig],
     cessCharge :: Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney,
     description :: Kernel.Prelude.Text,
     id :: Kernel.Types.Id.Id Domain.Types.FRFSFarePolicy.FRFSFarePolicy,

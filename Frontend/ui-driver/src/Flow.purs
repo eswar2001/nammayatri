@@ -504,6 +504,8 @@ getDriverInfoFlow event activeRideResp driverInfoResp updateShowSubscription isA
             void $ lift $ lift $ fork $ Remote.getDriverInfoApi ""
           if getDriverInfoResp.enabled
             then do
+              if isJust getDriverInfoResp.operatorId then void $ pure $ setValueToLocalStore DRIVER_OPERATOR_ID (fromMaybe "" getDriverInfoResp.operatorId) else pure unit
+              if isJust getDriverInfoResp.fleetOwnerId then void $ pure $ setValueToLocalStore DRIVER_FLEET_OWNER_ID (fromMaybe "" getDriverInfoResp.fleetOwnerId) else pure unit
               deleteValueFromLocalStore ENTERED_RC
               if getValueToLocalStore IS_DRIVER_ENABLED == "false"
                 then do
@@ -2411,6 +2413,13 @@ currentRideFlow activeRideResp isActiveRide = do
                 else
                   setValueToLocalStore NIGHT_SAFETY_POP_UP "false"
 
+              when (fromMaybe false activeRide.isPetRide) $ do
+                let localVal = getValueToLocalStore PET_RIDES_INFO_POPUP_SHOWN
+                    isShown = localVal == "true"
+                when (not isShown) $ do
+                  setValueToLocalStore PET_RIDES_INFO_POPUP_SHOWN "true"
+                  modifyScreenState $ HomeScreenStateType (\homeScreen -> homeScreen {props {showPetRidesInfoPopUp = true }})
+
               void $ updateStage $ HomeScreenStage stage
               void $ pure $ setCleverTapUserProp [{key : "Driver On-ride", value : unsafeToForeign "Yes"}]
               let stateChange = if (ride.bookingType == Just ADVANCED)
@@ -2667,6 +2676,7 @@ homeScreenFlow = do
       resp <- lift $ lift $ Remote.driverActiveInactive "true" $ toUpper $ show Online
       handleDriverActivityResp resp
       void $ pure $ setValueToLocalStore RENTAL_RIDE_STATUS_POLLING "False"
+      void $ pure $ setValueToLocalStore PET_RIDES_INFO_POPUP_SHOWN "false"
       void $ updateStage $ HomeScreenStage HomeScreen
 
       when state.data.driverGotoState.isGotoEnabled do
@@ -3244,6 +3254,7 @@ endTheRide id endOtp endOdometerReading endOdometerImage lat lon ts state = do
             void $ pure $ setValueToLocalNativeStore DRIVER_STATUS_N "Online"
             void $ lift $ lift $ Remote.driverActiveInactive "true" $ toUpper $ show Online
             void $ pure $ setValueToLocalNativeStore TRIP_STATUS "ended"
+            void $ pure $ setValueToLocalStore PET_RIDES_INFO_POPUP_SHOWN "false"
             when (state.props.currentStage == RideStarted) $ for_  state.data.activeRide.stops $ \(API.Stop stop) -> do
               let (API.LocationInfo stopLocation) = stop.location
               pure $ removeMarker $ "stop" <> show stopLocation.lat <> show stopLocation.lon
@@ -4113,11 +4124,14 @@ updateBannerAndPopupFlags = do
       else NO_SUBSCRIPTION_BANNER
     showFreeTrialPopupOnDays = any (_ == freeTrialDays) freeTrialPopupDaysList
     showFreeTrialPopupOnRides = any (_ == freeTrialRidesLeft) freeTrialPopupOnRidesList
+    dueLimitNotCrossed = pendingTotalManualDues < subscriptionRemoteConfig.low_dues_warning_limit
+    duesPopupType = if pendingTotalManualDues >= subscriptionRemoteConfig.max_dues_limit then NO_SUBSCRIPTION_POPUP else LOW_DUES_CLEAR_POPUP
     subscriptionPopupType =
       case isOnFreeTrial FunctionCall, autoPayNotActive, shouldShowPopup of
         true, true , true | showFreeTrialPopupOnDays -> FREE_TRIAL_POPUP
         true, true , true | showFreeTrialPopupOnRides -> FREE_TRIAL_RIDES_POPUP
-        false, _, true -> if pendingTotalManualDues >= subscriptionRemoteConfig.max_dues_limit then NO_SUBSCRIPTION_POPUP else LOW_DUES_CLEAR_POPUP
+        false, false, true ->  if dueLimitNotCrossed then NO_SUBSCRIPTION_POPUP else duesPopupType
+        false, _, true -> duesPopupType
         _, _, _ -> NO_SUBSCRIPTION_POPUP
 
     shouldMoveDriverOffline = (withinTimeRange "12:00:00" "23:59:59" (convertUTCtoISC (getCurrentUTC "") "HH:mm:ss"))
@@ -4265,6 +4279,8 @@ logoutFlow = do
   deleteValueFromLocalStore ONBOARDING_SUBSCRIPTION_SCREEN_COUNT
   deleteValueFromLocalStore FREE_TRIAL_DAYS
   deleteValueFromLocalStore REFERRAL_CODE_ADDED
+  deleteValueFromLocalStore DRIVER_OPERATOR_ID
+  deleteValueFromLocalStore DRIVER_FLEET_OWNER_ID
   deleteValueFromLocalStore VEHICLE_CATEGORY
   deleteValueFromLocalStore ENTERED_RC
   deleteValueFromLocalStore GULLAK_TOKEN

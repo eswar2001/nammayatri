@@ -24,13 +24,16 @@ module Domain.Action.Dashboard.Management.DriverRegistration
     getDriverRegistrationDocumentsInfo,
     postDriverRegistrationDocumentsUpdate,
     postDriverRegistrationRegisterAadhaar,
+    postDriverRegistrationUnlinkDocument,
   )
 where
 
+import qualified API.Types.ProviderPlatform.Management.Account as Common
 import qualified "dashboard-helper-api" API.Types.ProviderPlatform.Management.DriverRegistration as Common
 import qualified API.Types.UI.DriverOnboardingV2
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Tuple.Extra as TE
+import qualified Domain.Action.Dashboard.Common as DCommon
 import qualified Domain.Action.Dashboard.Management.Driver as DDriver
 import qualified Domain.Action.UI.DriverOnboarding.AadhaarVerification as AV
 import Domain.Action.UI.DriverOnboarding.DriverLicense
@@ -43,6 +46,8 @@ import qualified Domain.Types.DriverLicense as DDL
 import qualified Domain.Types.DriverPanCard as DPan
 import qualified Domain.Types.Merchant as DM
 import qualified Domain.Types.MerchantOperatingCity as DMOC
+import qualified Domain.Types.Person as DP
+import qualified Domain.Types.VehicleCategory as DVC
 import qualified Domain.Types.VehicleFitnessCertificate as DFC
 import qualified Domain.Types.VehicleInsurance as DVI
 import qualified Domain.Types.VehicleNOC as DNOC
@@ -64,11 +69,17 @@ import Kernel.Types.Id
 import Kernel.Utils.Common
 import SharedLogic.Merchant (findMerchantByShortId)
 import qualified Storage.Cac.TransporterConfig as CCT
+import qualified Storage.CachedQueries.DocumentVerificationConfig as CQDVC
 import qualified Storage.CachedQueries.Merchant.MerchantOperatingCity as CQMOC
+import qualified Storage.Queries.AadhaarCard as QAadhaarCard
 import qualified Storage.Queries.BusinessLicense as QBL
+import qualified Storage.Queries.DriverGstin as QGstin
+import qualified Storage.Queries.DriverInformation as QDriverInfo
 import qualified Storage.Queries.DriverLicense as QDL
 import qualified Storage.Queries.DriverPanCard as QPan
 import qualified Storage.Queries.DriverSSN as QSSN
+import qualified Storage.Queries.FleetOwnerDocumentVerificationConfig as QFODVC
+import qualified Storage.Queries.FleetOwnerInformation as QFOI
 import Storage.Queries.Image as QImage
 import qualified Storage.Queries.Person as QDriver
 import qualified Storage.Queries.Person as QPerson
@@ -94,7 +105,7 @@ getDriverRegistrationDocumentsList merchantShortId city driverId mbRcId = do
   vehicleBackInteriorImgs <- getVehicleImages merchant.id Domain.VehicleBackInterior
   pucImages <- getDriverImages merchant.id Domain.VehiclePUC
   permitImages <- getDriverImages merchant.id Domain.VehiclePermit
-  dlImgs <- groupByTxnIdInHM <$> runInReplica (findImagesByPersonAndType merchant.id (cast driverId) Domain.DriverLicense)
+  dlImgs <- groupByTxnIdInHM <$> runInReplica (findImagesByPersonAndType Nothing Nothing merchant.id (cast driverId) Domain.DriverLicense)
   vInspectionImgs <- getDriverImages merchant.id Domain.VehicleInspectionForm
   vehRegImgs <- getDriverImages merchant.id Domain.VehicleRegistrationCertificate
   uploadProfImgs <- getDriverImages merchant.id Domain.UploadProfile
@@ -148,7 +159,7 @@ getDriverRegistrationDocumentsList merchantShortId city driverId mbRcId = do
       Just rcId -> map (.id.getId) <$> runInReplica (findImagesByRCAndType merchantId (Just rcId) imageType Nothing)
       Nothing -> pure []
 
-    getDriverImages merchantId imageType = map (.id.getId) <$> runInReplica (findImagesByPersonAndType merchantId (cast driverId) imageType)
+    getDriverImages merchantId imageType = map (.id.getId) <$> runInReplica (findImagesByPersonAndType Nothing Nothing merchantId (cast driverId) imageType)
 
     groupByTxnIdInHM = handleNullTxnIds . foldl' (\acc img -> HM.insertWith (++) (fromMaybe "Nothing" img.workflowTransactionId) [img.id.getId] acc) (HM.empty :: HM.HashMap Text [Text])
     handleNullTxnIds hm = (maybe [] (map (: [])) $ HM.lookup "Nothing" hm) ++ (HM.elems $ HM.delete "Nothing" hm)
@@ -231,6 +242,21 @@ mapDocumentType Common.VehicleLeft = Domain.VehicleLeft
 mapDocumentType Common.VehicleRight = Domain.VehicleRight
 mapDocumentType Common.Odometer = Domain.Odometer
 mapDocumentType Common.InspectionHub = Domain.InspectionHub
+-- Netherlands Document Types
+mapDocumentType Common.KIWADriverCard = Domain.KIWADriverCard
+mapDocumentType Common.KIWATaxiPermit = Domain.KIWATaxiPermit
+mapDocumentType Common.KvKChamberOfCommerceRegistration = Domain.KvKChamberOfCommerceRegistration
+mapDocumentType Common.TAXDetails = Domain.TAXDetails
+mapDocumentType Common.BankingDetails = Domain.BankingDetails
+mapDocumentType Common.VehicleDetails = Domain.VehicleDetails
+mapDocumentType Common.SchipolAirportAgreement = Domain.SchipolAirportAgreement
+mapDocumentType Common.SchipolSmartcardProof = Domain.SchipolSmartcardProof
+mapDocumentType Common.TXQualityMark = Domain.TXQualityMark
+-- Finland Document Types
+mapDocumentType Common.TaxiDriverPermit = Domain.TaxiDriverPermit
+mapDocumentType Common.TaxiTransportLicense = Domain.TaxiTransportLicense
+mapDocumentType Common.FinnishIDResidencePermit = Domain.FinnishIDResidencePermit
+mapDocumentType Common.BusinessRegistrationExtract = Domain.BusinessRegistrationExtract
 
 postDriverRegistrationDocumentUpload :: ShortId DM.Merchant -> Context.City -> Id Common.Driver -> Common.UploadDocumentReq -> Flow Common.UploadDocumentResp
 postDriverRegistrationDocumentUpload merchantShortId opCity driverId_ req = do
@@ -257,12 +283,79 @@ postDriverRegistrationDocumentUpload merchantShortId opCity driverId_ req = do
         }
   pure $ Common.UploadDocumentResp {imageId = cast res.imageId}
 
+postDriverRegistrationUnlinkDocument :: ShortId DM.Merchant -> Context.City -> Id Common.Driver -> Common.DocumentType -> Maybe Text -> Flow Common.UnlinkDocumentResp
+postDriverRegistrationUnlinkDocument merchantShortId opCity personId documentType mbRequestorId = do
+  merchant <- findMerchantByShortId merchantShortId
+  merchantOpCityId <- CQMOC.getMerchantOpCityId Nothing merchant (Just opCity)
+  person <- case mbRequestorId of
+    Just requestorId -> do
+      entities <- QPerson.findAllByPersonIdsAndMerchantOpsCityId [Id requestorId, cast personId] merchantOpCityId
+      entity <- find (\e -> e.id == cast personId) entities & fromMaybeM (PersonDoesNotExist personId.getId)
+      requestor <- find (\e -> e.id == Id requestorId) entities & fromMaybeM (PersonDoesNotExist requestorId)
+      isValid <- DDriver.isAssociationBetweenTwoPerson requestor entity
+      unless isValid $ throwError (InvalidRequest "Driver is not associated with the entity")
+      pure entity
+    Nothing -> runInReplica $ QPerson.findById (cast personId) >>= fromMaybeM (PersonDoesNotExist personId.getId)
+  res <- unlinkPersonDocument merchantOpCityId person
+  return
+    Common.UnlinkDocumentResp
+      { mandatoryDocumentRemoved = res
+      }
+  where
+    unlinkPersonDocument :: Id DMOC.MerchantOperatingCity -> DP.Person -> Flow Bool
+    unlinkPersonDocument merchantOpCityId person = do
+      case person.role of
+        DP.FLEET_OWNER -> do
+          case documentType of
+            Common.PanCard -> QFOI.updatePanImage Nothing Nothing person.id
+            Common.GSTCertificate -> QFOI.updateGstImage Nothing Nothing person.id
+            Common.AadhaarCard -> QFOI.updateAadhaarImage Nothing Nothing Nothing person.id
+            _ -> throwError (InvalidRequest "Invalid document type")
+        DP.DRIVER -> do
+          case documentType of
+            Common.PanCard -> QDriverInfo.updatePanNumber Nothing person.id
+            Common.AadhaarCard -> QDriverInfo.updateAadhaarNumber Nothing person.id
+            _ -> throwError (InvalidRequest "Invalid document type")
+        _ -> pure ()
+      case documentType of
+        Common.PanCard -> QPan.deleteByDriverId person.id
+        Common.GSTCertificate -> QGstin.deleteByDriverId person.id
+        Common.AadhaarCard -> QAadhaarCard.deleteByPersonId person.id
+        Common.DriverLicense -> QDL.deleteByDriverId person.id
+        _ -> throwError (InvalidRequest "Invalid document type")
+      checkAndUpdateEnabledStatus merchantOpCityId documentType person
+
+    checkAndUpdateEnabledStatus :: Id DMOC.MerchantOperatingCity -> Common.DocumentType -> DP.Person -> Flow Bool
+    checkAndUpdateEnabledStatus merchantOpCityId docType person = do
+      case person.role of
+        role | DCommon.checkFleetOwnerRole role -> do
+          mbFleetVerificationConfig <- QFODVC.findByPrimaryKey (mapDocumentType docType) merchantOpCityId person.role
+          let isMandatory = maybe False (.isMandatory) mbFleetVerificationConfig
+          if isMandatory
+            then do
+              QFOI.updateFleetOwnerEnabledStatus False person.id
+              pure True
+            else pure False
+        DP.DRIVER -> do
+          mbVerificationConfig <- CQDVC.findByMerchantOpCityIdAndDocumentTypeAndCategory merchantOpCityId (mapDocumentType docType) DVC.CAR Nothing
+          let isMandatory = maybe False (\config -> fromMaybe config.isMandatory config.isMandatoryForEnabling) mbVerificationConfig
+          when isMandatory $ do
+            QDriverInfo.updateEnabledVerifiedState person.id False Nothing
+          pure False
+        _ -> pure False
+
 postDriverRegistrationRegisterDl :: ShortId DM.Merchant -> Context.City -> Id Common.Driver -> Common.RegisterDLReq -> Flow APISuccess
 postDriverRegistrationRegisterDl merchantShortId opCity driverId_ Common.RegisterDLReq {..} = do
   merchant <- findMerchantByShortId merchantShortId
   merchantOpCityId <- CQMOC.getMerchantOpCityId Nothing merchant (Just opCity)
+  let verifyBy = case accessType of
+        Just accessTypeValue -> case accessTypeValue of
+          Common.DASHBOARD_ADMIN -> DPan.DASHBOARD_ADMIN
+          Common.DASHBOARD_USER -> DPan.DASHBOARD_USER
+          _ -> DPan.DASHBOARD
+        Nothing -> DPan.DASHBOARD
   verifyDL
-    True
+    verifyBy
     (Just merchant)
     (cast driverId_, cast merchant.id, merchantOpCityId)
     DriverDLReq
@@ -291,6 +384,7 @@ postDriverRegistrationRegisterRc merchantShortId opCity driverId_ Common.Registe
         }
     )
     False
+    Nothing
 
 postDriverRegistrationRegisterAadhaar :: ShortId DM.Merchant -> Context.City -> Id Common.Driver -> Common.AadhaarCardReq -> Flow APISuccess
 postDriverRegistrationRegisterAadhaar merchantShortId opCity driverId req = do

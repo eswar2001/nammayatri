@@ -3,13 +3,14 @@ module ExternalBPP.ExternalAPI.Subway.CRIS.BookJourney where
 import qualified API.Types.UI.FRFSTicketService as FRFSTicketServiceAPI
 import BecknV2.FRFS.Enums as Enums
 import Data.Aeson
+import Data.Bits (shiftL, (.|.))
 import qualified Data.ByteString.Lazy as LBS
 import Data.Maybe
-import Data.Text
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Time (NominalDiffTime)
 import Data.Time.Format
+import Data.Time.LocalTime
+import Data.UUID (UUID, fromText, toWords)
 import Domain.Types.FRFSQuote as DFRFSQuote
 import Domain.Types.FRFSTicketBooking as DFRFSTicketBooking
 import Domain.Types.IntegratedBPPConfig
@@ -17,9 +18,10 @@ import EulerHS.Prelude hiding (find, readMaybe)
 import qualified EulerHS.Types as ET
 import ExternalBPP.ExternalAPI.Subway.CRIS.Auth (callCRISAPI)
 import ExternalBPP.ExternalAPI.Subway.CRIS.Encryption (decryptResponseData, encryptPayload)
+import ExternalBPP.ExternalAPI.Subway.CRIS.Error (CRISError (..), CRISErrorUnhandled (..))
 import ExternalBPP.ExternalAPI.Types
 import Kernel.External.Encryption
-import Kernel.Prelude (intToNominalDiffTime)
+import Kernel.Prelude ((!!))
 import Kernel.Tools.Metrics.CoreMetrics (CoreMetrics)
 import Kernel.Types.App
 import Kernel.Types.Error
@@ -27,7 +29,6 @@ import Kernel.Utils.Common
 import Servant.API
 import qualified Storage.CachedQueries.OTPRest.OTPRest as OTPRest
 import qualified Storage.Queries.FRFSQuote as QFRFSQuote
-import qualified Storage.Queries.FRFSTicketBokingPayment as QFRFSTicketBookingPayment
 import qualified Storage.Queries.Person as QPerson
 
 -- Encrypted request/response types for API
@@ -44,8 +45,8 @@ instance ToJSON EncryptedRequest where
 data EncryptedResponse = EncryptedResponse
   { respCode :: Int,
     respMessage :: Text,
-    encrypted :: Text,
-    agentTicketData :: Text
+    encrypted :: Maybe Text,
+    agentTicketData :: Maybe Text
   }
   deriving (Generic, Show, ToJSON, FromJSON)
 
@@ -123,7 +124,8 @@ data CRISBookingResponse = CRISBookingResponse
     journeyDate :: Maybe Text, -- journeyDate
     routeMessage :: Maybe Text,
     chargeableAmount :: Maybe HighPrecMoney,
-    encryptedTicketData :: Text
+    encryptedTicketData :: Text,
+    showTicketValidity :: Text
   }
   deriving (Generic, Show, ToJSON, FromJSON)
 
@@ -142,7 +144,7 @@ data CRISTicketData = CRISTicketData
     serviceTax :: Maybe Text,
     txnTime :: Maybe Text,
     jrnyCommencingString :: Maybe Text,
-    -- showTicketValidity :: Text,
+    showTicketValidity :: Text,
     journeyDate :: Maybe Text,
     routeMessage :: Maybe Text,
     chargeableAmount :: Maybe HighPrecMoney,
@@ -182,19 +184,34 @@ getBookJourney config request = do
 
   encResponse <- callCRISAPI config bookJourneyAPI (eulerClientFn encReq) "bookJourney"
 
-  let (encryptedData, _) = T.breakOn "#" encResponse.agentTicketData
-
-  -- 3. Handle the encrypted response
-  if respCode encResponse == 0
-    then do
+  case (respCode encResponse, encResponse.agentTicketData, encResponse.encrypted) of
+    -- Case 1: Non-zero response code (API error)
+    (code, _, _)
+      | code /= 0 ->
+        throwError $ CRISError $ "API returned error code " <> show code <> ": " <> encResponse.respMessage
+    -- Case 2: Success code but no agent ticket data
+    (0, Nothing, _) ->
+      throwError $ CRISError $ "No ticket data received from API: " <> encResponse.respMessage
+    -- Case 3: Success code but no encrypted field
+    (0, Just _, Nothing) ->
+      throwError $ CRISError $ "No encrypted data received from API: " <> encResponse.respMessage
+    -- Case 4: Success case - process the ticket data
+    (0, Just agentTicketData, Just encrypted) -> do
+      let (encryptedData, _) = T.breakOn "#" agentTicketData
       case decryptResponseData encryptedData decryptedAgentDataKey of
-        Left err -> throwError $ InternalError $ "Failed to decrypt ticket data: " <> T.pack err
+        Left err -> do
+          logError $ "Failed to decrypt ticket data: " <> T.pack err
+          throwError $ CRISError $ "Failed to decrypt ticket data"
         Right decryptedJson -> do
           logInfo $ "Decrypted ticket data: " <> decryptedJson
           case eitherDecode (LBS.fromStrict $ TE.encodeUtf8 decryptedJson) of
-            Left err -> throwError $ InternalError $ "Failed to parse ticket data: " <> T.pack err
-            Right ticketData -> pure $ convertToBookingResponse ticketData encResponse.encrypted
-    else throwError $ InternalError $ "Booking failed with code: " <> (show $ respCode encResponse)
+            Left err -> do
+              logError $ "Failed to parse ticket data: " <> T.pack err
+              throwError $ CRISError $ "Failed to parse ticket data"
+            Right ticketData -> pure $ convertToBookingResponse ticketData encrypted
+    -- Catch-all case (should never be reached)
+    (code, _, _) ->
+      throwError $ CRISErrorUnhandled $ "Unhandled response pattern: code=" <> show code <> ", message=" <> encResponse.respMessage
   where
     eulerClientFn encReq token =
       let client = ET.client bookJourneyAPI
@@ -221,31 +238,35 @@ convertToBookingResponse ticketData encrypted =
       journeyDate = ticketData.journeyDate,
       routeMessage = ticketData.routeMessage,
       chargeableAmount = ticketData.chargeableAmount,
-      encryptedTicketData = encrypted
+      encryptedTicketData = encrypted,
+      showTicketValidity = ticketData.showTicketValidity
     }
 
 createOrder :: (CoreMetrics m, MonadTime m, MonadFlow m, CacheFlow m r, EsqDBFlow m r, EncFlow m r, HasShortDurationRetryCfg r c) => CRISConfig -> IntegratedBPPConfig -> DFRFSTicketBooking.FRFSTicketBooking -> m ProviderOrder
 createOrder config integratedBPPConfig booking = do
   person <- QPerson.findById booking.riderId >>= fromMaybeM (PersonNotFound booking.riderId.getId)
   mbMobileNumber <- decrypt `mapM` person.mobileNumber
-  fromStation <- OTPRest.getStationByGtfsIdAndStopCode booking.fromStationCode integratedBPPConfig >>= fromMaybeM (InternalError $ "Station not found for stationCode: " <> booking.fromStationCode <> " and integratedBPPConfigId: " <> integratedBPPConfig.id.getId)
-  toStation <- OTPRest.getStationByGtfsIdAndStopCode booking.toStationCode integratedBPPConfig >>= fromMaybeM (InternalError $ "Station not found for stationCode: " <> booking.toStationCode <> " and integratedBPPConfigId: " <> integratedBPPConfig.id.getId)
+  fromStation <- OTPRest.getStationByGtfsIdAndStopCode booking.fromStationCode integratedBPPConfig >>= fromMaybeM (CRISError $ "Station not found for stationCode: " <> booking.fromStationCode <> " and integratedBPPConfigId: " <> integratedBPPConfig.id.getId)
+  toStation <- OTPRest.getStationByGtfsIdAndStopCode booking.toStationCode integratedBPPConfig >>= fromMaybeM (CRISError $ "Station not found for stationCode: " <> booking.toStationCode <> " and integratedBPPConfigId: " <> integratedBPPConfig.id.getId)
   quote <- QFRFSQuote.findById booking.quoteId >>= fromMaybeM (QuoteNotFound booking.quoteId.getId)
 
   (osBuildVersion, osType, bookAuthCode) <- case (booking.osBuildVersion, booking.osType, booking.bookingAuthCode) of
     (Just osBuildVersion, Just osType, Just bookingAuthCode) -> return (osBuildVersion, osType, bookingAuthCode)
-    _ -> throwError $ InternalError ("Invalid booking data: " <> show booking.osBuildVersion <> " " <> show booking.osType <> " " <> show booking.bookingAuthCode)
+    _ -> throwError $ CRISError ("Invalid booking data: " <> show booking.osBuildVersion <> " " <> show booking.osType <> " " <> show booking.bookingAuthCode)
 
   mbImeiNumber <- decrypt `mapM` person.imeiNumber
   let deviceId = fromMaybe "ed409d8d764c04f7" mbImeiNumber
   (trainTypeCode, distance, crisRouteId, appSession) <-
     case (quote.fareDetails <&> (.trainTypeCode), quote.fareDetails <&> (.distance), quote.fareDetails <&> (.providerRouteId), quote.fareDetails <&> (.appSession)) of
       (Just trainTypeCode, Just distance, Just crisRouteId, Just appSession) -> return (trainTypeCode, distance, crisRouteId, appSession)
-      _ -> throwError $ InternalError ("Invalid quote data: " <> show quote.fareDetails)
+      _ -> throwError $ CRISError ("Invalid quote data: " <> show quote.fareDetails)
 
-  frfsTicketBookingPayment <- QFRFSTicketBookingPayment.findNewTBPByBookingId booking.id >>= fromMaybeM (InternalError "FRFS ticket booking payment not found")
+  orderId <- case booking.bppOrderId of
+    Just oid -> return oid
+    Nothing -> getBppOrderId booking
   classCode <- getFRFSVehicleServiceTier quote
-  startTime <- fromMaybeM (InternalError "Start time not found") booking.startTime
+  startTime <- fromMaybeM (CRISError "Start time not found") booking.startTime
+  let tpBookType = if booking.isSingleMode == Just True then 1 else 0
 
   let bookJourneyReq =
         CRISBookingRequest
@@ -255,14 +276,14 @@ createOrder config integratedBPPConfig booking = do
             sessionId = appSession,
             source = fromStation.code,
             destination = toStation.code,
-            via = " ",
+            via = fromMaybe " " $ quote.fareDetails <&> (.via),
             routeId = crisRouteId,
             classCode = classCode,
             trainType = trainTypeCode,
             tktType = config.ticketType,
-            journeyDate = T.pack $ formatTime defaultTimeLocale "%m-%d-%Y" startTime,
+            journeyDate = T.pack $ formatTime defaultTimeLocale "%m-%d-%Y" (utcToIST startTime),
             adult = booking.quantity,
-            child = 0,
+            child = fromMaybe 0 booking.childTicketQuantity,
             seniorMen = 0,
             seniorWomen = 0,
             fare = round booking.price.amount.getHighPrecMoney,
@@ -285,20 +306,18 @@ createOrder config integratedBPPConfig booking = do
             tktTypeId = 1,
             agentAccountId = show config.tpAccountId,
             bookAuthCode = bookAuthCode,
-            agentAppTxnId = show frfsTicketBookingPayment.paymentOrderId,
+            agentAppTxnId = orderId,
             bankDeductedAmount = round booking.price.amount.getHighPrecMoney,
-            tpBookType = 0
+            tpBookType = tpBookType
           }
   logInfo $ "GetBookJourney: " <> show bookJourneyReq
   bookJourneyResp <- getBookJourney config bookJourneyReq
 
-  let journeyCommencingHours = intToNominalDiffTime $ fromMaybe 3 bookJourneyResp.validUntil
-  now <- getCurrentTime
-  let hoursFromNow = addUTCTime (journeyCommencingHours * 60 * 60 :: NominalDiffTime) now
+  qrValidityTime <- parseTicketValidity bookJourneyResp.showTicketValidity
 
   return $
     ProviderOrder
-      { orderId = bookJourneyResp.ticketNumber,
+      { orderId = orderId,
         tickets =
           [ ProviderTicket
               { ticketNumber = bookJourneyResp.ticketNumber,
@@ -306,8 +325,9 @@ createOrder config integratedBPPConfig booking = do
                 description = bookJourneyResp.journeyComment,
                 qrData = bookJourneyResp.encryptedTicketData,
                 qrStatus = "UNCLAIMED",
-                qrValidity = hoursFromNow,
-                qrRefreshAt = Nothing
+                qrValidity = qrValidityTime,
+                qrRefreshAt = Nothing,
+                commencingHours = bookJourneyResp.validUntil
               }
           ]
       }
@@ -366,9 +386,57 @@ getFRFSVehicleServiceTier ::
 getFRFSVehicleServiceTier quote = do
   let routeStations :: Maybe [FRFSTicketServiceAPI.FRFSRouteStationsAPI] = decodeFromText =<< quote.routeStationsJson
   let mbServiceTier = listToMaybe $ mapMaybe (.vehicleServiceTier) (fromMaybe [] routeStations)
-  serviceTier <- mbServiceTier & fromMaybeM (InternalError "serviceTier not found")
+  serviceTier <- mbServiceTier & fromMaybeM (CRISError "serviceTier not found")
   -- serviceTierType <- mbServiceTier._type & fromMaybeM (InternalError "serviceTierType not found")
   case serviceTier._type of
     Enums.FIRST_CLASS -> pure "FC"
     Enums.SECOND_CLASS -> pure "II"
-    _ -> throwError $ InternalError "Invalid vehicle service tier"
+    _ -> throwError $ CRISError "Invalid vehicle service tier"
+
+alphabet :: String
+alphabet = ['0' .. '9'] ++ ['a' .. 'z'] ++ ['A' .. 'Z']
+
+uuidToInteger :: UUID -> Integer
+uuidToInteger u =
+  let (w1, w2, w3, w4) = toWords u
+   in (fromIntegral w1 `shiftL` 96)
+        .|. (fromIntegral w2 `shiftL` 64)
+        .|. (fromIntegral w3 `shiftL` 32)
+        .|. fromIntegral w4
+
+intToBase62 :: Integer -> String
+intToBase62 0 = [alphabet !! 0]
+intToBase62 n = reverse $ go n
+  where
+    go 0 = []
+    go x = let (q, r) = x `divMod` 62 in (alphabet !! fromIntegral r) : go q
+
+normalizeLength :: Int -> String -> String
+normalizeLength l s
+  | length s < l = replicate (l - length s) (alphabet !! 0) ++ s
+  | otherwise = take l s
+
+uuidTo21CharString :: UUID -> Text
+uuidTo21CharString = T.pack . normalizeLength 21 . intToBase62 . uuidToInteger
+
+getBppOrderId :: (MonadFlow m) => FRFSTicketBooking -> m Text
+getBppOrderId booking = do
+  bookingUUID <- fromText booking.id.getId & fromMaybeM (CRISError "Booking Id not being able to parse into UUID")
+  return $ uuidTo21CharString bookingUUID --- The length should be 21 characters (alphanumeric)
+
+-- Convert UTC time to IST
+utcToIST :: UTCTime -> LocalTime
+utcToIST utcTime =
+  let istTimeZone = TimeZone (5 * 60 + 30) False "IST" -- IST is UTC+5:30
+   in utcToLocalTime istTimeZone utcTime
+
+-- Parse IST datetime string to UTCTime
+parseTicketValidity :: (MonadFlow m) => Text -> m UTCTime
+parseTicketValidity validityStr = do
+  let timeFormat = "%d/%m/%Y %H:%M:%S" --Parse format: "04/08/2025 23:59:00" in IST
+  case parseTimeM True defaultTimeLocale timeFormat (T.unpack validityStr) of
+    Nothing -> throwError $ CRISError $ "Failed to parse ticket validity: " <> validityStr
+    Just localTime -> do
+      let istTimeZone = TimeZone (5 * 60 + 30) False "IST" -- IST is UTC+5:30
+      let zonedTime = ZonedTime localTime istTimeZone
+      return $ zonedTimeToUTC zonedTime

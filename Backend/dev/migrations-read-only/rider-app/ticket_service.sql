@@ -35,3 +35,18 @@ ALTER TABLE atlas_app.ticket_service ADD COLUMN rules json ;
 ------- SQL updates -------
 
 ALTER TABLE atlas_app.ticket_service ADD COLUMN is_closed boolean  default false;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.ticket_service ADD COLUMN service_details json ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.ticket_service ADD COLUMN sub_place_id character varying(36) ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.ticket_service ADD COLUMN max_selection integer ;

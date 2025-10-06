@@ -8,6 +8,7 @@ module Domain.Action.Dashboard.Common
     appendPlusInMobileCountryCode,
     castStatus,
     checkFleetOwnerVerification,
+    checkFleetOwnerRole,
   )
 where
 
@@ -46,6 +47,7 @@ mapServiceName :: Common.ServiceNames -> ServiceNames
 mapServiceName common = case common of
   Common.YATRI_SUBSCRIPTION -> YATRI_SUBSCRIPTION
   Common.YATRI_RENTAL -> YATRI_RENTAL
+  Common.PREPAID_SUBSCRIPTION -> PREPAID_SUBSCRIPTION
   Common.DASHCAM_RENTAL_CAUTIO -> DASHCAM_RENTAL CAUTIO
 
 castVerificationStatus :: Documents.VerificationStatus -> Common.VerificationStatus
@@ -84,10 +86,11 @@ castVehicleVariantDashboard = \case
   Just DV.DELIVERY_TRUCK_ULTRA_LARGE -> Just Common.DELIVERY_TRUCK_ULTRA_LARGE
   Just DV.BUS_NON_AC -> Just Common.BUS_NON_AC
   Just DV.BUS_AC -> Just Common.BUS_AC
+  Just DV.BOAT -> Just Common.BOAT
   _ -> Nothing
 
-runVerifyRCFlow :: Id DP.Person -> DM.Merchant -> Id DMOC.MerchantOperatingCity -> Context.City -> Common.AddVehicleReq -> Bool -> Bool -> Flow ()
-runVerifyRCFlow personId merchant merchantOpCityId operatingCity req isFleet bulkUpload = do
+runVerifyRCFlow :: Id DP.Person -> DM.Merchant -> Id DMOC.MerchantOperatingCity -> Context.City -> Common.AddVehicleReq -> Bool -> Bool -> Maybe (Id DP.Person) -> Flow ()
+runVerifyRCFlow personId merchant merchantOpCityId operatingCity req isFleet bulkUpload mbFleetOwnerId = do
   let imageId = maybe "" cast req.imageId
   let rcReq =
         DomainRC.DriverRCReq
@@ -102,7 +105,7 @@ runVerifyRCFlow personId merchant merchantOpCityId operatingCity req isFleet bul
             vehicleDetails = Nothing,
             vehicleCategory = req.vehicleCategory
           }
-  void $ DomainRC.verifyRC (not isFleet) (Just merchant) (personId, merchant.id, merchantOpCityId) rcReq bulkUpload
+  void $ DomainRC.verifyRC (not isFleet) (Just merchant) (personId, merchant.id, merchantOpCityId) rcReq bulkUpload mbFleetOwnerId
 
 notifyYatriRentalEventsToDriver :: Maybe Text -> MessageKey -> Id DP.Person -> TransporterConfig -> Maybe Text -> MediaChannel -> Flow ()
 notifyYatriRentalEventsToDriver vehicleId messageKey personId transporterConfig mbReason channel = do
@@ -156,3 +159,6 @@ checkFleetOwnerVerification personId mbEnabledCheck = do
   when (mbEnabledCheck == Just True) $ do
     fleetOwnerInfo <- QFI.findByPrimaryKey (Id personId) >>= fromMaybeM (InvalidRequest $ "Fleet owner does not exist " <> personId)
     unless fleetOwnerInfo.enabled $ throwError (InvalidRequest "Fleet owner is not enabled")
+
+checkFleetOwnerRole :: DP.Role -> Bool
+checkFleetOwnerRole role = role `elem` [DP.FLEET_OWNER, DP.FLEET_BUSINESS]

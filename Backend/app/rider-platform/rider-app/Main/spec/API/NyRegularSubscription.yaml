@@ -18,6 +18,9 @@ imports:
   Client: Domain.Types.Client
   SearchRequest: Domain.Types.SearchRequest
   GetQuotesRes: Domain.Action.UI.Quote
+  Price: Kernel.Types.Price
+  Person: Domain.Types.Person
+  SearchReqLocation : SharedLogic.Search
 
 module: NyRegularSubscription
 types:
@@ -37,8 +40,8 @@ types:
     platformType: Maybe PlatformType
 
   CreateSubscriptionReq:
-    pickupLocation: Location
-    dropoffLocation: Location
+    pickupLocation: SearchReqLocation
+    dropoffLocation: SearchReqLocation
     vehicleServiceTier: Maybe ServiceTierType
     startDatetime: UTCTime
     recurrenceRuleDays: "[DayOfWeek]"
@@ -47,6 +50,31 @@ types:
     bppId: Text
     metadata: Maybe Value
     oneWaySearchReqDetails: OneWaySearchReqDetails
+
+  NyRegularSubscriptionApiEntity:
+    id: Id NyRegularSubscription
+    userId: Id Person
+    pickupLocation: SearchReqLocation
+    dropoffLocation: SearchReqLocation
+    vehicleServiceTier: Maybe ServiceTierType
+    startDatetime: UTCTime
+    recurrenceRuleDays: "[DayOfWeek]"
+    scheduledTimeOfDay: TimeOfDay
+    recurrenceEndDate: Maybe Day
+    fixedPrice: Maybe Price
+    fixedPriceBreakupDetails: Maybe Value
+    fixedPriceExpiryDate: Maybe UTCTime
+    initialBppQuoteId: Maybe Text
+    bppId: Text
+    status: NyRegularSubscriptionStatus
+    pauseStartDate: Maybe UTCTime
+    pauseEndDate: Maybe UTCTime
+    createdAt: UTCTime
+    updatedAt: UTCTime
+    metadata: Maybe Text
+    lastProcessedAt: Maybe UTCTime
+    schedulingHash: Maybe Text # Added new field
+    nextRideOccurence : Maybe UTCTime
 
   CreateSubscriptionRes:
     subscriptionId: Id NyRegularSubscription
@@ -102,7 +130,7 @@ apis:
       request:
         type: ConfirmSubscriptionReq
       response:
-        type: NyRegularSubscription
+        type: NyRegularSubscriptionApiEntity
 
   # POST /nyRegular/subscriptions/update
   - POST:
@@ -111,7 +139,7 @@ apis:
       request:
         type: UpdateSubscriptionReq
       response:
-        type: NyRegularSubscription
+        type: NyRegularSubscriptionApiEntity
 
   # GET /nyRegular/subscriptions
   - GET:
@@ -122,7 +150,7 @@ apis:
         - limit: Int
         - offset: Int
       response:
-        type: "[NyRegularSubscription]"
+        type: "[NyRegularSubscriptionApiEntity]"
 
   # GET /nyRegular/subscriptionDetails/{subscriptionId}
   - GET:
@@ -131,13 +159,13 @@ apis:
       params:
         subscriptionId: Id NyRegularSubscription
       response:
-        type: NyRegularSubscription
+        type: NyRegularSubscriptionApiEntity
 
-  # POST /nyRegular/subscriptions/{subscriptionId}/cancel
+# POST /nyRegular/subscriptions/{subscriptionId}/cancel
   - POST:
-      endpoint: /nyRegular/subscriptions/{subscriptionId}/cancel
-      auth: TokenAuth
-      params:
-        subscriptionId: Id NyRegularSubscription
-      response:
-        type: NyRegularSubscription
+        endpoint: /nyRegular/subscriptions/{subscriptionId}/cancel
+        auth: TokenAuth
+        params:
+          subscriptionId: Id NyRegularSubscription
+        response:
+          type: NyRegularSubscriptionApiEntity

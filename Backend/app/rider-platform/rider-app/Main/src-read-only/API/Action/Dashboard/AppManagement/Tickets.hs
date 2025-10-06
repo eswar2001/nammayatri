@@ -10,7 +10,7 @@ where
 import qualified API.Types.Dashboard.AppManagement.Tickets
 import qualified "this" API.Types.UI.TicketService
 import qualified Data.Time.Calendar
-import qualified Domain.Action.Dashboard.AppManagement.Tickets as Domain.Action.Dashboard.AppManagement.Tickets
+import qualified Domain.Action.Dashboard.AppManagement.Tickets
 import qualified Domain.Types.Merchant
 import qualified "this" Domain.Types.MerchantOnboarding
 import qualified "this" Domain.Types.TicketBooking
@@ -18,8 +18,10 @@ import qualified "this" Domain.Types.TicketBookingService
 import qualified "this" Domain.Types.TicketDashboard
 import qualified "this" Domain.Types.TicketPlace
 import qualified "this" Domain.Types.TicketService
+import qualified Domain.Types.TicketSubPlace
 import qualified Environment
 import EulerHS.Prelude
+import qualified Kernel.External.Payment.Interface.Types
 import qualified Kernel.Prelude
 import qualified Kernel.Types.APISuccess
 import qualified Kernel.Types.Beckn.Context
@@ -29,13 +31,13 @@ import Servant
 import Tools.Auth
 
 handler :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Environment.FlowServer API.Types.Dashboard.AppManagement.Tickets.API)
-handler merchantId city = postTicketsVerify merchantId city :<|> postTicketsServices merchantId city :<|> getTicketsPlaces merchantId city :<|> postTicketsUpdate merchantId city :<|> postTicketsBookingsCancel merchantId city :<|> postTicketsServiceCancel merchantId city :<|> getTicketsBookingDetails merchantId city :<|> postTicketsTicketdashboardRegister merchantId city :<|> postTicketsTicketdashboardLoginAuth merchantId city :<|> postTicketsTicketdashboardLoginVerify merchantId city :<|> getTicketsTicketdashboardAgreement merchantId city :<|> getTicketsTicketdashboardUserInfo merchantId city :<|> getTicketsTicketdashboardFile merchantId city :<|> postTicketsTicketdashboardSendverifyotp merchantId city :<|> getTicketsTicketdashboardTicketplaceInfo merchantId city :<|> postTicketsTicketdashboardTicketplaceUpdate merchantId city :<|> getTicketsTicketdashboardTicketplaces merchantId city
+handler merchantId city = postTicketsVerify merchantId city :<|> postTicketsServices merchantId city :<|> getTicketsPlaces merchantId city :<|> postTicketsUpdate merchantId city :<|> postTicketsBookingsCancel merchantId city :<|> postTicketsServiceCancel merchantId city :<|> getTicketsBookingDetails merchantId city :<|> postTicketsTicketdashboardRegister merchantId city :<|> postTicketsTicketdashboardLoginAuth merchantId city :<|> postTicketsTicketdashboardLoginVerify merchantId city :<|> getTicketsTicketdashboardAgreement merchantId city :<|> getTicketsTicketdashboardUserInfo merchantId city :<|> getTicketsTicketdashboardFile merchantId city :<|> postTicketsTicketdashboardSendverifyotp merchantId city :<|> getTicketsTicketdashboardTicketplaceInfo merchantId city :<|> postTicketsTicketdashboardTicketplaceUpdate merchantId city :<|> getTicketsTicketdashboardTicketplaces merchantId city :<|> getTicketsTicketdashboardTicketplaceSubPlaces merchantId city :<|> postTicketsTicketdashboardTicketplaceUpdateSubPlaces merchantId city :<|> getTicketFleetVehicles merchantId city :<|> postTicketBookingsVerifyV2 merchantId city :<|> postTicketPlacesBook merchantId city :<|> getTicketPlaces merchantId city :<|> getTicketPlaceServices merchantId city :<|> getTicketBookingDetails merchantId city :<|> getTicketsDashboardBookingStatus merchantId city :<|> getAllTicketBookings merchantId city :<|> postTicketBookingCashCollect merchantId city :<|> postTicketPlacesDirectBook merchantId city
 
-postTicketsVerify :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketService.TicketService -> Kernel.Types.Id.ShortId Domain.Types.TicketBookingService.TicketBookingService -> Environment.FlowHandler API.Types.UI.TicketService.TicketServiceVerificationResp)
-postTicketsVerify a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.postTicketsVerify a4 a3 a2 a1
+postTicketsVerify :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketService.TicketService -> Kernel.Types.Id.ShortId Domain.Types.TicketBookingService.TicketBookingService -> Kernel.Prelude.Maybe Kernel.Prelude.Text -> Kernel.Prelude.Maybe Kernel.Prelude.Text -> Environment.FlowHandler API.Types.UI.TicketService.TicketServiceVerificationResp)
+postTicketsVerify a6 a5 a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.postTicketsVerify a6 a5 a4 a3 a2 a1
 
-postTicketsServices :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace -> Kernel.Prelude.Maybe Data.Time.Calendar.Day -> Environment.FlowHandler [API.Types.UI.TicketService.TicketServiceResp])
-postTicketsServices a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.postTicketsServices a4 a3 a2 a1
+postTicketsServices :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace -> Kernel.Prelude.Maybe Data.Time.Calendar.Day -> Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.TicketSubPlace.TicketSubPlace) -> Environment.FlowHandler [API.Types.UI.TicketService.TicketServiceResp])
+postTicketsServices a5 a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.postTicketsServices a5 a4 a3 a2 a1
 
 getTicketsPlaces :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Environment.FlowHandler [Domain.Types.TicketPlace.TicketPlace])
 getTicketsPlaces a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.getTicketsPlaces a2 a1
@@ -81,3 +83,39 @@ postTicketsTicketdashboardTicketplaceUpdate a5 a4 a3 a2 a1 = withDashboardFlowHa
 
 getTicketsTicketdashboardTicketplaces :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Prelude.Maybe Kernel.Prelude.Text -> Kernel.Prelude.Maybe Kernel.Prelude.Text -> Kernel.Prelude.Maybe Domain.Types.MerchantOnboarding.RequestorRole -> Environment.FlowHandler [Domain.Types.TicketPlace.TicketPlace])
 getTicketsTicketdashboardTicketplaces a5 a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.getTicketsTicketdashboardTicketplaces a5 a4 a3 a2 a1
+
+getTicketsTicketdashboardTicketplaceSubPlaces :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace -> Environment.FlowHandler [Domain.Types.TicketSubPlace.TicketSubPlace])
+getTicketsTicketdashboardTicketplaceSubPlaces a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.getTicketsTicketdashboardTicketplaceSubPlaces a3 a2 a1
+
+postTicketsTicketdashboardTicketplaceUpdateSubPlaces :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace -> [Domain.Types.TicketSubPlace.TicketSubPlace] -> Environment.FlowHandler Kernel.Types.APISuccess.APISuccess)
+postTicketsTicketdashboardTicketplaceUpdateSubPlaces a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.postTicketsTicketdashboardTicketplaceUpdateSubPlaces a4 a3 a2 a1
+
+getTicketFleetVehicles :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace -> Kernel.Prelude.Maybe Kernel.Prelude.Int -> Kernel.Prelude.Maybe Kernel.Prelude.Int -> Kernel.Prelude.Maybe Kernel.Prelude.Text -> Environment.FlowHandler [API.Types.UI.TicketService.TicketFleetVehicleResp])
+getTicketFleetVehicles a6 a5 a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.getTicketFleetVehicles a6 a5 a4 a3 a2 a1
+
+postTicketBookingsVerifyV2 :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketService.TicketService -> Kernel.Types.Id.ShortId Domain.Types.TicketBookingService.TicketBookingService -> API.Types.UI.TicketService.TicketServiceVerificationReq -> Environment.FlowHandler API.Types.UI.TicketService.TicketServiceVerificationResp)
+postTicketBookingsVerifyV2 a5 a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.postTicketBookingsVerifyV2 a5 a4 a3 a2 a1
+
+postTicketPlacesBook :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace -> API.Types.UI.TicketService.TicketBookingReq -> Environment.FlowHandler Kernel.External.Payment.Interface.Types.CreateOrderResp)
+postTicketPlacesBook a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.postTicketPlacesBook a4 a3 a2 a1
+
+getTicketPlaces :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Environment.FlowHandler [Domain.Types.TicketPlace.TicketPlace])
+getTicketPlaces a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.getTicketPlaces a2 a1
+
+getTicketPlaceServices :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace -> Kernel.Prelude.Maybe Data.Time.Calendar.Day -> Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.TicketSubPlace.TicketSubPlace) -> Environment.FlowHandler [API.Types.UI.TicketService.TicketServiceResp])
+getTicketPlaceServices a5 a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.getTicketPlaceServices a5 a4 a3 a2 a1
+
+getTicketBookingDetails :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.ShortId Domain.Types.TicketBooking.TicketBooking -> Environment.FlowHandler API.Types.UI.TicketService.TicketBookingDetails)
+getTicketBookingDetails a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.getTicketBookingDetails a3 a2 a1
+
+getTicketsDashboardBookingStatus :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Prelude.Text -> Kernel.Types.Id.ShortId Domain.Types.TicketBooking.TicketBooking -> Environment.FlowHandler Domain.Types.TicketBooking.BookingStatus)
+getTicketsDashboardBookingStatus a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.getTicketsDashboardBookingStatus a4 a3 a2 a1
+
+getAllTicketBookings :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Prelude.Maybe Kernel.Prelude.Int -> Kernel.Prelude.Maybe Kernel.Prelude.Int -> Kernel.Prelude.Maybe Domain.Types.TicketBooking.BookingStatus -> Environment.FlowHandler [API.Types.UI.TicketService.TicketBookingAPIEntityV2])
+getAllTicketBookings a5 a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.getAllTicketBookings a5 a4 a3 a2 a1
+
+postTicketBookingCashCollect :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.ShortId Domain.Types.TicketBooking.TicketBooking -> Environment.FlowHandler Kernel.Types.APISuccess.APISuccess)
+postTicketBookingCashCollect a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.postTicketBookingCashCollect a3 a2 a1
+
+postTicketPlacesDirectBook :: (Kernel.Types.Id.ShortId Domain.Types.Merchant.Merchant -> Kernel.Types.Beckn.Context.City -> Kernel.Types.Id.Id Domain.Types.TicketPlace.TicketPlace -> Kernel.Prelude.Maybe Kernel.Prelude.Text -> API.Types.UI.TicketService.DirectTicketBookingReq -> Environment.FlowHandler API.Types.UI.TicketService.DirectTicketBookingResp)
+postTicketPlacesDirectBook a5 a4 a3 a2 a1 = withDashboardFlowHandlerAPI $ Domain.Action.Dashboard.AppManagement.Tickets.postTicketPlacesDirectBook a5 a4 a3 a2 a1

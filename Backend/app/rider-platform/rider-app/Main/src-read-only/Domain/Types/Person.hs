@@ -3,6 +3,7 @@
 
 module Domain.Types.Person where
 
+import qualified BecknV2.OnDemand.Enums
 import Data.Aeson
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.MerchantConfig
@@ -70,6 +71,7 @@ data PersonE e = Person
     juspayCustomerPaymentID :: Kernel.Prelude.Maybe Kernel.External.Payment.Interface.Types.CustomerId,
     language :: Kernel.Prelude.Maybe Kernel.External.Maps.Language,
     lastName :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
+    lastUsedVehicleCategories :: [BecknV2.OnDemand.Enums.VehicleCategory],
     lastUsedVehicleServiceTiers :: [Domain.Types.ServiceTierType.ServiceTierType],
     latestLat :: Kernel.Prelude.Maybe Kernel.Prelude.Double,
     latestLon :: Kernel.Prelude.Maybe Kernel.Prelude.Double,
@@ -163,6 +165,7 @@ instance EncryptedItem Person where
           juspayCustomerPaymentID = juspayCustomerPaymentID entity,
           language = language entity,
           lastName = lastName entity,
+          lastUsedVehicleCategories = lastUsedVehicleCategories entity,
           lastUsedVehicleServiceTiers = lastUsedVehicleServiceTiers entity,
           latestLat = latestLat entity,
           latestLon = latestLon entity,
@@ -248,6 +251,7 @@ instance EncryptedItem Person where
             juspayCustomerPaymentID = juspayCustomerPaymentID entity,
             language = language entity,
             lastName = lastName entity,
+            lastUsedVehicleCategories = lastUsedVehicleCategories entity,
             lastUsedVehicleServiceTiers = lastUsedVehicleServiceTiers entity,
             latestLat = latestLat entity,
             latestLon = latestLon entity,

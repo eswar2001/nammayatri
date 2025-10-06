@@ -48,7 +48,7 @@ Ride:
     clientId: Maybe Text
     merchantId: Maybe (Id Merchant)
     merchantOperatingCityId: Id MerchantOperatingCity
-    status: RideStatus
+    status: RideStatus|NoRelation
     driverId: Id Person
     otp: Text
     endOtp: Maybe Text
@@ -101,6 +101,7 @@ Ride:
     isAirConditioned: Maybe Bool
     rideEndedBy: Maybe RideEndedBy
     clientSdkVersion: Maybe Version
+    reactBundleVersion: Maybe Text
     clientBundleVersion: Maybe Version
     clientConfigVersion: Maybe Version
     backendConfigVersion: Maybe Version
@@ -303,4 +304,3 @@ Ride:
 
   extraOperations:
     - EXTRA_QUERY_FILE
-

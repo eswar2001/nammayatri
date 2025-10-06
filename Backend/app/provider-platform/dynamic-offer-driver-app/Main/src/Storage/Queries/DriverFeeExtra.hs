@@ -475,43 +475,6 @@ findAllByStatusAndDriverIdWithServiceName (Id driverId) driverFeeStatus mbDriver
           <> maybe [] (\driverFeeIds -> [Se.Is BeamDF.id $ Se.In (getId <$> driverFeeIds)]) mbDriverFeeIds
     ]
 
-findAllPendingAndDueDriverFeeByDriverIdForServiceName :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Id Person -> ServiceNames -> m [DriverFee]
-findAllPendingAndDueDriverFeeByDriverIdForServiceName (Id driverId) serviceName = do
-  findAllWithKV
-    [ Se.And
-        [ Se.Is BeamDF.feeType $ Se.In [RECURRING_INVOICE, RECURRING_EXECUTION_INVOICE],
-          Se.Is BeamDF.status $ Se.In [PAYMENT_PENDING, PAYMENT_OVERDUE],
-          Se.Is BeamDF.serviceName $ Se.Eq (Just serviceName),
-          Se.Is BeamDF.driverId $ Se.Eq driverId
-        ]
-    ]
-
-findAllOverdueDriverFeeByDriverIdForServiceName :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Id Person -> ServiceNames -> m [DriverFee]
-findAllOverdueDriverFeeByDriverIdForServiceName (Id driverId) serviceName =
-  findAllWithKV
-    [ Se.And
-        [ Se.Is BeamDF.feeType $ Se.Eq RECURRING_INVOICE,
-          Se.Is BeamDF.serviceName $ Se.Eq (Just serviceName),
-          Se.Is BeamDF.status $ Se.Eq PAYMENT_OVERDUE,
-          Se.Is BeamDF.driverId $ Se.Eq driverId
-        ]
-    ]
-
-findAllPendingRegistrationDriverFeeByDriverIdForServiceName ::
-  (MonadFlow m, EsqDBFlow m r, CacheFlow m r) =>
-  Id Person ->
-  ServiceNames ->
-  m [DriverFee]
-findAllPendingRegistrationDriverFeeByDriverIdForServiceName (Id driverId) serviceName = do
-  findAllWithKV
-    [ Se.And
-        [ Se.Is BeamDF.feeType $ Se.Eq MANDATE_REGISTRATION,
-          Se.Is BeamDF.serviceName $ Se.Eq (Just serviceName),
-          Se.Is BeamDF.status $ Se.Eq PAYMENT_PENDING,
-          Se.Is BeamDF.driverId $ Se.Eq driverId
-        ]
-    ]
-
 findAllDriverFeesRequiredToMovedIntoBadDebt :: (MonadFlow m, CacheFlow m r, EsqDBFlow m r) => Id Merchant -> TransporterConfig -> m [DriverFee]
 findAllDriverFeesRequiredToMovedIntoBadDebt merchantId transporterConfig = do
   now <- getLocalCurrentTime transporterConfig.timeDiffFromUtc
@@ -555,6 +518,27 @@ findLatestByFeeTypeAndStatusWithServiceName feeType status driverId serviceName 
         [ Se.Is BeamDF.feeType $ Se.Eq feeType,
           Se.Is BeamDF.status $ Se.In status,
           Se.Is BeamDF.serviceName $ Se.Eq (Just serviceName),
+          Se.Is BeamDF.driverId $ Se.Eq driverId.getId
+        ]
+    ]
+    (Se.Desc BeamDF.updatedAt)
+    (Just 1)
+    Nothing
+    <&> listToMaybe
+
+findLatestByFeeTypeAndStatusWithTotalEarnings ::
+  (MonadFlow m, EsqDBFlow m r, CacheFlow m r) =>
+  Domain.FeeType ->
+  [Domain.DriverFeeStatus] ->
+  Id Person ->
+  HighPrecMoney ->
+  m (Maybe DriverFee)
+findLatestByFeeTypeAndStatusWithTotalEarnings feeType status driverId totalEarnings = do
+  findAllWithOptionsKV
+    [ Se.And
+        [ Se.Is BeamDF.feeType $ Se.Eq feeType,
+          Se.Is BeamDF.status $ Se.In status,
+          Se.Is BeamDF.totalEarningsAmount $ Se.Eq (Just totalEarnings),
           Se.Is BeamDF.driverId $ Se.Eq driverId.getId
         ]
     ]
@@ -702,23 +686,6 @@ getLastDayOfMonth :: UTCTime -> Day
 getLastDayOfMonth now = do
   let (year, month, _) = toGregorian (utctDay now)
   addDays (-1) $ fromGregorian year month 1
-
-findAllByStatusAndDriverIdWithServiceNameFeetype ::
-  (MonadFlow m, EsqDBFlow m r, CacheFlow m r) =>
-  Id Person ->
-  [Domain.DriverFeeStatus] ->
-  Domain.FeeType ->
-  ServiceNames ->
-  m [DriverFee]
-findAllByStatusAndDriverIdWithServiceNameFeetype (Id driverId) driverFeeStatus feeType serviceName = do
-  findAllWithKV
-    [ Se.And
-        [ Se.Is BeamDF.feeType $ Se.In [feeType],
-          Se.Is BeamDF.serviceName $ Se.Eq (Just serviceName),
-          Se.Is BeamDF.status $ Se.In driverFeeStatus,
-          Se.Is BeamDF.driverId $ Se.Eq driverId
-        ]
-    ]
 
 findAllChildsOFDriverFee ::
   (MonadFlow m, EsqDBFlow m r, CacheFlow m r) =>

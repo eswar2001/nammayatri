@@ -94,6 +94,7 @@ mapVariantToVehicle = \case
   DTV.BUS_NON_AC -> Enums.BUS
   DTV.BUS_AC -> Enums.BUS
   DTV.AUTO_PLUS -> Enums.AUTO_RICKSHAW
+  DTV.BOAT -> Enums.BOAT
 
 castVehicleCategoryToDomain :: Enums.VehicleCategory -> DVC.VehicleCategory
 castVehicleCategoryToDomain = \case
@@ -103,6 +104,7 @@ castVehicleCategoryToDomain = \case
   Enums.MOTORCYCLE -> DVC.MOTORCYCLE
   Enums.METRO -> DVC.TRAIN
   Enums.SUBWAY -> DVC.TRAIN
+  Enums.BOAT -> DVC.BOAT
   _ -> DVC.CAR -- not used
 
 mapServiceTierToCategory :: ServiceTierType -> Enums.VehicleCategory
@@ -138,6 +140,7 @@ mapServiceTierToCategory = \case
   BUS_NON_AC -> Enums.BUS
   BUS_AC -> Enums.BUS
   AUTO_PLUS -> Enums.AUTO_RICKSHAW
+  BOAT -> Enums.BOAT
 
 getListOfServiceTireTypes :: Enums.VehicleCategory -> [DVST.ServiceTierType]
 getListOfServiceTireTypes Enums.CAB = [DVST.SEDAN, DVST.SUV, DVST.HATCHBACK, DVST.TAXI, DVST.TAXI_PLUS, DVST.ECO, DVST.COMFY, DVST.PREMIUM, DVST.PREMIUM_SEDAN, DVST.BLACK, DVST.BLACK_XL, DVST.SUV_PLUS, DVST.HERITAGE_CAB]
@@ -149,17 +152,19 @@ getListOfServiceTireTypes Enums.METRO = []
 getListOfServiceTireTypes Enums.SUBWAY = []
 getListOfServiceTireTypes Enums.BUS = [DVST.BUS_NON_AC, DVST.BUS_AC]
 getListOfServiceTireTypes Enums.TRUCK = [DVST.DELIVERY_LIGHT_GOODS_VEHICLE, DVST.DELIVERY_TRUCK_MINI, DVST.DELIVERY_TRUCK_SMALL, DVST.DELIVERY_TRUCK_MEDIUM, DVST.DELIVERY_TRUCK_LARGE, DVST.DELIVERY_TRUCK_ULTRA_LARGE]
+getListOfServiceTireTypes Enums.BOAT = [DVST.BOAT]
 
 tripCategoryToFulfillmentType :: TripCategory -> Text
 tripCategoryToFulfillmentType = \case
   -- Off-us Beckn-fulfillmentType Enums
   OneWay OneWayOnDemandDynamicOffer -> show Enums.DELIVERY
+  OneWay OneWayOnDemandStaticOffer -> show Enums.SCHEDULED_TRIP
   d@(Delivery _) -> show d
-  -- TODO :: To be removed after released ---- STARTS HERE
   OneWay OneWayRideOtp -> show Enums.RIDE_OTP
   CrossCity OneWayRideOtp _ -> show Enums.RIDE_OTP
   RideShare RideOtp -> show Enums.RIDE_OTP
   Rental _ -> show Enums.RENTAL
+  i@(InterCity OneWayRideOtp _) -> show i
   InterCity _ _ -> show Enums.INTER_CITY
   Ambulance _ -> show Enums.AMBULANCE_FLOW
   OneWay MeterRide -> show Enums.METER_RIDE
@@ -182,4 +187,5 @@ fulfillmentTypeToTripCategory fulfillmentType =
         Just Enums.INTER_CITY -> InterCity OneWayOnDemandStaticOffer Nothing
         Just Enums.AMBULANCE_FLOW -> Ambulance OneWayOnDemandDynamicOffer
         Just Enums.METER_RIDE -> OneWay MeterRide
+        Just Enums.SCHEDULED_TRIP -> OneWay OneWayOnDemandStaticOffer
         _ -> OneWay OneWayOnDemandDynamicOffer

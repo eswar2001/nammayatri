@@ -15,6 +15,7 @@
 module Storage.Clickhouse.Booking where
 
 import qualified Domain.Types.Booking as DB
+import qualified Domain.Types.BookingStatus as DB
 import qualified Domain.Types.Location as DL
 import qualified Domain.Types.Merchant as DM
 import qualified Domain.Types.Person as DP
@@ -64,7 +65,7 @@ findAllCompletedRiderBookingsByMerchantInRange merchantId riderId from to =
   CH.findAll $
     CH.select $
       CH.filter_
-        ( \booking _ ->
+        ( \booking ->
             booking.merchantId CH.==. merchantId
               CH.&&. booking.riderId CH.==. riderId
               CH.&&. booking.status CH.==. DB.COMPLETED
@@ -85,7 +86,7 @@ findCountByRideIdStatusAndTime riderId status from to = do
     CH.findAll $
       CH.select_ (\booking -> CH.aggregate $ CH.count_ booking.id) $
         CH.filter_
-          ( \booking _ ->
+          ( \booking ->
               booking.status CH.==. status
                 CH.&&. booking.riderId CH.==. riderId
                 CH.&&. booking.createdAt >=. from
@@ -105,7 +106,7 @@ findCountByRiderIdAndStatus riderId status createdAt = do
     CH.findAll $
       CH.select_ (\booking -> CH.aggregate $ CH.count_ booking.id) $
         CH.filter_
-          ( \booking _ ->
+          ( \booking ->
               booking.status CH.==. status
                 CH.&&. booking.riderId CH.==. riderId
                 CH.&&. booking.createdAt >=. createdAt
@@ -123,7 +124,7 @@ findAllCancelledBookingIdsByRider riderId createdAt = do
     CH.findAll $
       CH.select_ (\booking -> CH.notGrouped booking.id) $
         CH.filter_
-          ( \booking _ ->
+          ( \booking ->
               booking.status CH.==. DB.CANCELLED
                 CH.&&. booking.riderId CH.==. riderId
                 CH.&&. booking.createdAt >=. createdAt
@@ -142,7 +143,7 @@ findMaxTimeForCancelledBookingByRiderId riderId createdAt = do
       CH.select_ (\booking -> CH.notGrouped $ CH.max (booking.createdAt)) $
         CH.selectModifierOverride CH.NO_SELECT_MODIFIER $
           CH.filter_
-            ( \booking _ ->
+            ( \booking ->
                 booking.status CH.==. DB.CANCELLED
                   CH.&&. booking.riderId CH.==. riderId
                   CH.&&. booking.createdAt >=. createdAt
@@ -163,7 +164,7 @@ findByRiderIdAndStatus riderId status createdAt = do
       CH.select_ (\booking -> CH.notGrouped $ CH.distinct booking.createdAt) $
         CH.selectModifierOverride CH.NO_SELECT_MODIFIER $
           CH.filter_
-            ( \booking _ ->
+            ( \booking ->
                 booking.status CH.==. status
                   CH.&&. booking.riderId CH.==. riderId
                   CH.&&. booking.createdAt >=. createdAt

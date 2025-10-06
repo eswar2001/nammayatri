@@ -13,12 +13,9 @@ import Kernel.Types.Error
 import qualified Kernel.Types.Id
 import Kernel.Utils.Common (CacheFlow, EsqDBFlow, MonadFlow, fromMaybeM, getCurrentTime)
 import qualified Storage.Beam.FRFSTicketBooking as Beam
-import qualified Storage.Queries.JourneyRouteDetails
-import qualified Storage.Queries.Transformers.RouteDetails
 
 instance FromTType' Beam.FRFSTicketBooking Domain.Types.FRFSTicketBooking.FRFSTicketBooking where
   fromTType' (Beam.FRFSTicketBookingT {..}) = do
-    journeyRouteDetailsList <- Storage.Queries.JourneyRouteDetails.findAllBySearchId (Kernel.Types.Id.Id searchId)
     pure $
       Just
         Domain.Types.FRFSTicketBooking.FRFSTicketBooking
@@ -40,22 +37,19 @@ instance FromTType' Beam.FRFSTicketBooking Domain.Types.FRFSTicketBooking.FRFSTi
             discountsJson = discountsJson,
             estimatedPrice = Kernel.Types.Common.mkPrice currency estimatedPrice,
             eventDiscountAmount = eventDiscountAmount,
+            failureReason = failureReason,
             finalPrice = Kernel.Prelude.fmap (Kernel.Types.Common.mkPrice currency) finalPrice,
             fromStationCode = fromStationId,
             googleWalletJWTUrl = googleWalletJWTUrl,
             id = Kernel.Types.Id.Id id,
             integratedBppConfigId = Kernel.Types.Id.Id integratedBppConfigId,
             isBookingCancellable = isBookingCancellable,
-            isDeleted = isDeleted,
             isFareChanged = isFareChanged,
-            isSkipped = isSkipped,
-            journeyId = Kernel.Types.Id.Id <$> journeyId,
-            journeyLegOrder = journeyLegOrder,
-            journeyLegStatus = journeyLegStatus,
+            isSingleMode = isSingleMode,
             journeyOnInitDone = journeyOnInitDone,
-            journeyRouteDetails = Storage.Queries.Transformers.RouteDetails.getTransformedJourneyRouteDetails journeyRouteDetailsList,
             merchantId = Kernel.Types.Id.Id merchantId,
             merchantOperatingCityId = Kernel.Types.Id.Id merchantOperatingCityId,
+            multimodalSearchRequestId = multimodalSearchRequestId,
             osBuildVersion = osBuildVersion,
             osType = osType,
             partnerOrgId = Kernel.Types.Id.Id <$> partnerOrgId,
@@ -104,21 +98,19 @@ instance ToTType' Beam.FRFSTicketBooking Domain.Types.FRFSTicketBooking.FRFSTick
         Beam.discountsJson = discountsJson,
         Beam.estimatedPrice = (.amount) estimatedPrice,
         Beam.eventDiscountAmount = eventDiscountAmount,
+        Beam.failureReason = failureReason,
         Beam.finalPrice = Kernel.Prelude.fmap (.amount) finalPrice,
         Beam.fromStationId = fromStationCode,
         Beam.googleWalletJWTUrl = googleWalletJWTUrl,
         Beam.id = Kernel.Types.Id.getId id,
         Beam.integratedBppConfigId = Kernel.Types.Id.getId integratedBppConfigId,
         Beam.isBookingCancellable = isBookingCancellable,
-        Beam.isDeleted = isDeleted,
         Beam.isFareChanged = isFareChanged,
-        Beam.isSkipped = isSkipped,
-        Beam.journeyId = Kernel.Types.Id.getId <$> journeyId,
-        Beam.journeyLegOrder = journeyLegOrder,
-        Beam.journeyLegStatus = journeyLegStatus,
+        Beam.isSingleMode = isSingleMode,
         Beam.journeyOnInitDone = journeyOnInitDone,
         Beam.merchantId = Kernel.Types.Id.getId merchantId,
         Beam.merchantOperatingCityId = Kernel.Types.Id.getId merchantOperatingCityId,
+        Beam.multimodalSearchRequestId = multimodalSearchRequestId,
         Beam.osBuildVersion = osBuildVersion,
         Beam.osType = osType,
         Beam.partnerOrgId = Kernel.Types.Id.getId <$> partnerOrgId,

@@ -8,11 +8,11 @@ import qualified Data.Aeson
 import qualified Database.Beam as B
 import Domain.Types.Common ()
 import qualified Domain.Types.Common
+import qualified Domain.Types.JourneyLeg
 import Kernel.External.Encryption
 import Kernel.Prelude
 import qualified Kernel.Prelude
 import qualified Kernel.Types.Common
-import qualified Lib.JourneyLeg.Types
 import Tools.Beam.UtilsTH
 
 data JourneyLegT f = JourneyLegT
@@ -24,36 +24,43 @@ data JourneyLegT f = JourneyLegT
     duration :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
     endLocationLat :: B.C f Kernel.Prelude.Double,
     endLocationLon :: B.C f Kernel.Prelude.Double,
-    entrance :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
     estimatedMaxFare :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney),
     estimatedMinFare :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney),
-    exit :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
     finalBoardedBusNumber :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
+    finalBoardedBusNumberSource :: B.C f (Kernel.Prelude.Maybe Domain.Types.JourneyLeg.BusBoardingMethod),
+    finalBoardedDepotNo :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
+    finalBoardedScheduleNo :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
+    finalBoardedWaybillId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     fromArrivalTime :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     fromDepartureTime :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     fromStopCode :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     fromStopGtfsId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     fromStopName :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     fromStopPlatformCode :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
+    groupCode :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     id :: B.C f Kernel.Prelude.Text,
     isDeleted :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
-    isSkipped :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
-    journeyId :: B.C f Kernel.Prelude.Text,
+    journeyId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
+    legPricingId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     legId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
+    merchantId :: B.C f Kernel.Prelude.Text,
+    merchantOperatingCityId :: B.C f Kernel.Prelude.Text,
     mode :: B.C f Domain.Types.Common.MultimodalTravelMode,
-    sequenceNumber :: B.C f Kernel.Prelude.Int,
+    multimodalSearchRequestId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
+    osmEntrance :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
+    osmExit :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
+    sequenceNumber :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     serviceTypes :: B.C f (Kernel.Prelude.Maybe [BecknV2.FRFS.Enums.ServiceTierType]),
     startLocationLat :: B.C f Kernel.Prelude.Double,
     startLocationLon :: B.C f Kernel.Prelude.Double,
-    status :: B.C f (Kernel.Prelude.Maybe Lib.JourneyLeg.Types.JourneyLegStatus),
+    straightLineEntrance :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
+    straightLineExit :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
     toArrivalTime :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     toDepartureTime :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime),
     toStopCode :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     toStopGtfsId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     toStopName :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     toStopPlatformCode :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
-    merchantId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
-    merchantOperatingCityId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     createdAt :: B.C f Kernel.Prelude.UTCTime,
     updatedAt :: B.C f Kernel.Prelude.UTCTime
   }
@@ -65,6 +72,6 @@ instance B.Table JourneyLegT where
 
 type JourneyLeg = JourneyLegT Identity
 
-$(enableKVPG ''JourneyLegT ['id] [['journeyId], ['legId]])
+$(enableKVPG ''JourneyLegT ['id] [['groupCode], ['journeyId], ['legId]])
 
 $(mkTableInstances ''JourneyLegT "journey_leg")

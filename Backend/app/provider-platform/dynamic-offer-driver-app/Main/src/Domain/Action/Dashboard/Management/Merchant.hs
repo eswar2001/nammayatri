@@ -47,6 +47,7 @@ module Domain.Action.Dashboard.Management.Merchant
     postMerchantConfigFailover,
     postMerchantPayoutConfigUpdate,
     postMerchantConfigUpsertPlanAndConfigSubscription,
+    postMerchantConfigOperatingCityWhiteList,
   )
 where
 
@@ -96,11 +97,14 @@ import qualified Domain.Types.Overlay as DMO
 import qualified Domain.Types.PayoutConfig as DPC
 import qualified Domain.Types.Plan as Plan
 import qualified Domain.Types.PlanTranslation as PlanTrans
+import qualified Domain.Types.RegistryMapFallback as RMF
 import qualified Domain.Types.SubscriptionConfig as DSC
 import qualified Domain.Types.TransporterConfig as DTC
+import qualified Domain.Types.ValueAddNP as VNP
 import qualified Domain.Types.VehicleCategory as DVC
 import qualified Domain.Types.VehicleServiceTier as DVST
 import qualified Domain.Types.VehicleVariant as DVeh
+import qualified Domain.Types.WhiteListOrg as WLO
 import Environment
 import qualified EulerHS.Language as L
 import qualified "shared-services" IssueManagement.Common as ICommon
@@ -180,7 +184,10 @@ import qualified Storage.Queries.PayoutConfig as QPC
 import qualified Storage.Queries.Plan as QPlan
 import qualified Storage.Queries.PlanExtra as QPlanE
 import qualified Storage.Queries.PlanTranslation as SQPT
+import qualified Storage.Queries.RegistryMapFallback as QRMF
 import qualified Storage.Queries.SubscriptionConfig as QSC
+import qualified Storage.Queries.ValueAddNP as SQVNP
+import qualified Storage.Queries.WhiteListOrg as QWLO
 import Tools.Error
 
 ---------------------------------------------------------------------
@@ -743,6 +750,7 @@ buildDocumentVerificationConfig merchantId merchantOpCityId documentType Common.
         isDisabled = False,
         isHidden = False,
         isMandatory = False,
+        isMandatoryForEnabling = Just False,
         title = "Empty title",
         vehicleCategory = DVC.AUTO_CATEGORY,
         order = 0,
@@ -977,6 +985,7 @@ postMerchantConfigFarePolicyUpdate _ _ reqFarePolicyId req = do
             tollCharges = req.tollCharges <|> tollCharges,
             petCharges = req.petCharges <|> petCharges,
             priorityCharges = req.priorityCharges <|> priorityCharges,
+            pickupBufferInSecsForNightShiftCal = req.pickupBufferInSecsForNightShiftCal <|> pickupBufferInSecsForNightShiftCal,
             farePolicyDetails = fPDetails,
             congestionChargeMultiplier = FarePolicy.mkCongestionChargeMultiplier <$> req.congestionChargeMultiplier <|> congestionChargeMultiplier,
             description = req.description <|> description,
@@ -1049,6 +1058,8 @@ data FarePolicyCSVRow = FarePolicyCSVRow
     baseDistance :: Text,
     baseFare :: Text,
     deadKmFare :: Text,
+    pickupChargesMin :: Text, --HighPrecMoney <- readCSVField idx row.pickupChargesMin "Pickup Charges Min"
+    pickupChargesMax :: Text,
     waitingCharge :: Text,
     waitingChargeType :: Text,
     nightShiftCharge :: Text,
@@ -1103,6 +1114,7 @@ data FarePolicyCSVRow = FarePolicyCSVRow
     perDayMaxAllowanceInMins :: Text,
     defaultWaitTimeAtDestination :: Text,
     enabled :: Text,
+    pickupBufferInSecsForNightShiftCal :: Text,
     disableRecompute :: Text,
     stateEntryPermitCharges :: Text,
     conditionalCharges :: Text
@@ -1137,6 +1149,8 @@ instance FromNamedRecord FarePolicyCSVRow where
       <*> r .: "base_distance"
       <*> r .: "base_fare"
       <*> r .: "dead_km_fare"
+      <*> r .: "pickup_charges_min"
+      <*> r .: "pickup_charges_max"
       <*> r .: "waiting_charge"
       <*> r .: "waiting_charge_type"
       <*> r .: "night_shift_charge"
@@ -1191,6 +1205,7 @@ instance FromNamedRecord FarePolicyCSVRow where
       <*> r .: "per_day_max_allowance_in_mins"
       <*> r .: "default_wait_time_at_destination"
       <*> r .: "enabled"
+      <*> r .: "pickup_buffer_in_secs_for_night_shift_cal"
       <*> r .: "disable_recompute"
       <*> r .: "state_entry_permit_charges"
       <*> r .: "additional_charges"
@@ -1396,6 +1411,7 @@ postMerchantConfigFarePolicyUpsert merchantShortId opCity req = do
       let tollCharges :: (Maybe HighPrecMoney) = readMaybeCSVField idx row.tollCharges "Toll Charge"
       let petCharges :: (Maybe HighPrecMoney) = readMaybeCSVField idx row.petCharges "Pet Charges"
       let priorityCharges :: (Maybe HighPrecMoney) = readMaybeCSVField idx row.priorityCharges "Priority Charges"
+      let pickupBufferInSecsForNightShiftCal :: (Maybe Seconds) = readMaybeCSVField idx row.pickupBufferInSecsForNightShiftCal "Pickup Buffer In Secs For Night Shift Cal"
       let tipOptions :: (Maybe [Int]) = readMaybeCSVField idx row.tipOptions "Tip Options"
       let perMinuteRideExtraTimeCharge :: (Maybe HighPrecMoney) = readMaybeCSVField idx row.perMinuteRideExtraTimeCharge "Per Minute Ride Extra Time Charge"
       let govtCharges :: (Maybe Double) = readMaybeCSVField idx row.govtCharges "Govt Charges"
@@ -1502,6 +1518,8 @@ postMerchantConfigFarePolicyUpsert merchantShortId opCity req = do
             baseDistance :: Meters <- readCSVField idx row.baseDistance "Base Distance"
             baseFare :: HighPrecMoney <- readCSVField idx row.baseFare "Base Fare"
             deadKmFare :: HighPrecMoney <- readCSVField idx row.deadKmFare "Dead Km Fare"
+            pickupChargesMin :: HighPrecMoney <- readCSVField idx row.pickupChargesMin "Pickup Charges Min"
+            pickupChargesMax :: HighPrecMoney <- readCSVField idx row.pickupChargesMax "Pickup Charges Max"
             let waitingChargeInfo =
                   Just
                     FarePolicy.WaitingChargeInfo
@@ -1510,6 +1528,7 @@ postMerchantConfigFarePolicyUpsert merchantShortId opCity req = do
                       }
             startDistance :: Meters <- readCSVField idx row.extraKmRateStartDistance "Extra Km Rate Start Distance"
             perExtraKmRate :: HighPrecMoney <- readCSVField idx row.perExtraKmRate "Per Extra Km Rate"
+            let pickupCharges = FarePolicy.PickupCharges {pickupChargesMin = pickupChargesMin, pickupChargesMax = pickupChargesMax}
             let baseFareDepreciation :: HighPrecMoney = fromMaybe (HighPrecMoney 0.0) (readMaybeCSVField idx row.baseFareDepreciation "Base fare depreciation")
             let perExtraKmRateSections = NE.fromList [FarePolicy.FPProgressiveDetailsPerExtraKmRateSection {startDistance, distanceUnit, perExtraKmRate, baseFareDepreciation}]
             -- TODO: Add support for per min rate sections in csv file
@@ -1696,7 +1715,7 @@ postMerchantConfigSpecialLocationUpsert merchantShortId opCity req = do
       gateInfoId <- generateGUID
       gateInfoName :: Text <- cleanCSVField idx row.gateInfoName "Gate Info (name)"
       gateInfoLat :: Double <- readCSVField idx row.gateInfoLat "Gate Info (latitude)"
-      gateInfoLon :: Double <- readCSVField idx row.gateInfoLat "Gate Info (longitude)"
+      gateInfoLon :: Double <- readCSVField idx row.gateInfoLon "Gate Info (longitude)"
       let gateInfoDefaultDriverExtra :: Maybe Int = readMaybeCSVField idx row.gateInfoDefaultDriverExtra "Gate Info (default_driver_extra)"
           gateInfoAddress :: Maybe Text = cleanMaybeCSVField idx row.gateInfoAddress "Gate Info (address)"
       gateInfoType :: DGI.GateType <- readCSVField idx row.gateInfoType "Gate Info (type)"
@@ -1897,8 +1916,14 @@ postMerchantConfigOperatingCityCreate :: ShortId DM.Merchant -> Context.City -> 
 postMerchantConfigOperatingCityCreate merchantShortId city req = do
   when (req.city == Context.AnyCity) $ throwError $ InvalidRequest "This Operation is not Allowed For AnyCity"
   baseMerchant <- findMerchantByShortId merchantShortId
+  baseMerchantCity <- case req.baseRequestCity of
+    Just baseMerchantCity -> return baseMerchantCity
+    Nothing -> return city
+  baseRequestedCityMerchant <- case req.baseRequestMerchant of
+    Just merchant -> findMerchantByShortId (ShortId merchant)
+    Nothing -> return baseMerchant
   let baseMerchantId = baseMerchant.id
-  baseOperatingCityId <- CQMOC.getMerchantOpCityId Nothing baseMerchant (Just city)
+  baseOperatingCityId <- CQMOC.getMerchantOpCityId Nothing baseRequestedCityMerchant (Just baseMerchantCity)
   now <- getCurrentTime
 
   let newMerchantId =
@@ -2115,7 +2140,8 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
           _ -> []
       return $ map (buildSubscriptionConfig newMerchantId newMerchantOperatingCityId now <$>) subscriptionCfgs
 
-  nyRegistryUrl <- asks (.nyRegistryUrl)
+  nyRegistryBaseUrl <- asks (.nyRegistryUrl)
+
   let uniqueKeyId = baseMerchant.uniqueKeyId
       subscriberId = baseMerchant.subscriberId.getShortId
       subType = BecknSub.BPP
@@ -2123,13 +2149,36 @@ postMerchantConfigOperatingCityCreate merchantShortId city req = do
       lookupReq = SimpleLookupRequest {unique_key_id = uniqueKeyId, subscriber_id = subscriberId, merchant_id = baseMerchant.id.getId, subscriber_type = subType, ..}
       newUniqueId = maybe uniqueKeyId (.uniqueKeyId) mbNewMerchant
       newSubscriberId = maybe subscriberId (.subscriberId.getShortId) mbNewMerchant
+
+  -- create a new Subscriber for New Merchant
+  oldSubscriber <- Registry.registryLookup nyRegistryBaseUrl lookupReq subscriberId
+  case oldSubscriber of
+    Just sub -> do
+      whenJust mbNewMerchant $ \newMerchant -> do
+        let newSubscriberUrlText = T.replace baseMerchant.id.getId newMerchant.id.getId (showBaseUrl sub.subscriber_url)
+            ukId = newMerchant.uniqueKeyId
+            subId = T.replace baseMerchant.id.getId newMerchant.id.getId sub.subscriber_id
+            subscriberType = BecknSub.BPP
+            subDomain = Context.MOBILITY
+            newCities = req.city
+            country = req.country
+            signingPublicKey = sub.signing_public_key
+            createdAt = now
+        newSubscriberUrl <- parseBaseUrl newSubscriberUrlText
+        void $ RegistryIF.createSubscriber nyRegistryBaseUrl (RegistryT.createNewSubscriberReq ukId subId newSubscriberUrl subscriberType subDomain newCities country signingPublicKey createdAt)
+    Nothing -> do
+      logInfo $ "No existing subscriber found for " <> subscriberId <> " skipping subscriber creation"
+  -- only add cities if old merchant is used
   mbAddCityReq <-
-    Registry.registryLookup nyRegistryUrl lookupReq subscriberId >>= \case
+    case mbNewMerchant of
+      Just _ -> return Nothing
       Nothing -> do
-        logError $ "No entry found for subscriberId: " <> subscriberId <> ", uniqueKeyId: " <> uniqueKeyId <> " in NY registry"
-        return Nothing
-      Just sub | req.city `elem` sub.city -> return Nothing
-      Just _ -> Just <$> RegistryT.buildAddCityNyReq (req.city :| []) newUniqueId newSubscriberId subType domain
+        case oldSubscriber of
+          Nothing -> do
+            logError $ "No entry found for subscriberId: " <> subscriberId <> ", uniqueKeyId: " <> uniqueKeyId <> " in NY registry"
+            return Nothing
+          Just sub | req.city `elem` sub.city -> return Nothing
+          Just _ -> Just <$> RegistryT.buildAddCityNyReq (req.city :| []) newUniqueId newSubscriberId subType domain
 
   finally
     ( do
@@ -2578,6 +2627,7 @@ postMerchantConfigClearCacheSubscription merchantShortId opCity req = do
     castServiceName = \case
       Common.YATRI_RENTAL -> Plan.YATRI_RENTAL
       Common.YATRI_SUBSCRIPTION -> Plan.YATRI_SUBSCRIPTION
+      Common.PREPAID_SUBSCRIPTION -> Plan.PREPAID_SUBSCRIPTION
       Common.DASHCAM_RENTAL_CAUTIO -> Plan.DASHCAM_RENTAL Plan.CAUTIO
 
 postMerchantConfigUpsertPlanAndConfigSubscription :: ShortId DM.Merchant -> Context.City -> Common.UpsertPlanAndConfigReq -> Flow Common.UpsertPlanAndConfigResp
@@ -2719,3 +2769,27 @@ postMerchantPayoutConfigUpdate merchantShortId city req = do
   QPC.updateConfigValues req payoutConfig merchantOpCity.id
   CPC.clearConfigCache merchantOpCity.id req.vehicleCategory
   pure Success
+
+-- provider side changes here
+postMerchantConfigOperatingCityWhiteList :: ShortId DM.Merchant -> Context.City -> Common.WhiteListOperatingCityReq -> Flow Common.WhiteListOperatingCityRes
+postMerchantConfigOperatingCityWhiteList _ _ req = do
+  let merchantId = req.bppMerchantId
+      merchantOperatingCityId = req.bppMerchantOperatingCityId
+      bapSubId = req.bapSubscriberId
+      bapUniqueKeyId = req.bapUniqueKeyId
+      bppDomain = req.bppSubscriberDomain
+  now <- getCurrentTime
+  nyRegistryBaseUrl <- asks (.nyRegistryUrl)
+  whiteListOrgId <- generateGUID
+  let whiteListOrgReq = WLO.WhiteListOrg {domain = bppDomain, id = whiteListOrgId, merchantId = Id merchantId, merchantOperatingCityId = Id merchantOperatingCityId, subscriberId = bapSubId, createdAt = now, updatedAt = now}
+      valueAddNpReq = VNP.ValueAddNP {enabled = True, subscriberId = bapSubId.getShortId, createdAt = now, updatedAt = now}
+      registryMapFallbackReq = RMF.RegistryMapFallback {registryUrl = nyRegistryBaseUrl, subscriberId = bapSubId.getShortId, uniqueId = bapUniqueKeyId}
+  QWLO.create whiteListOrgReq
+  SQVNP.create valueAddNpReq
+  QRMF.create registryMapFallbackReq
+  pure $
+    Common.WhiteListOperatingCityRes
+      { whiteListSuccess = True,
+        whiteListMessage = "Success",
+        whiteListError = Nothing
+      }

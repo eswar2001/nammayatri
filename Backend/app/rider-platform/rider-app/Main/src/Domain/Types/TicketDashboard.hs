@@ -11,10 +11,12 @@ import qualified Domain.Types.ServicePeopleCategory as DServicePeopleCategory
 import qualified Domain.Types.SpecialOccasion as DSpecialOccasion
 import qualified Domain.Types.TicketPlace as DTicketPlace
 import qualified Domain.Types.TicketService as DTicketService
+import qualified Domain.Types.TicketSubPlace as DTicketSubPlace
 import Kernel.Prelude
 import Kernel.Types.Common
 import Kernel.Types.Id
 import Kernel.Types.TimeBound (TimeBound (..))
+import SharedLogic.TicketRule.Core (Rule)
 import qualified Tools.Payment as Payment
 
 data TicketPlaceDashboardDetails = TicketPlaceDashboardDetails
@@ -40,7 +42,22 @@ data TicketPlaceDashboardDetails = TicketPlaceDashboardDetails
     businessHours :: [BusinessHourDetails],
     serviceCategories :: [ServiceCategoryDetails],
     servicePeopleCategories :: [ServicePeopleCategoryDetails],
-    specialOccasions :: [SpecialOccasionDetails]
+    specialOccasions :: [SpecialOccasionDetails],
+    faqs :: Maybe [DTicketPlace.Faq],
+    metadata :: Maybe [DTicketPlace.Metadata],
+    isRecurring :: Maybe Bool,
+    platformFee :: Maybe DTicketPlace.Fee,
+    platformFeeVendor :: Maybe Text,
+    pricingOnwards :: Maybe Int,
+    startDate :: Maybe Time.Day,
+    endDate :: Maybe Time.Day,
+    venue :: Maybe Text,
+    rules :: Maybe [Rule],
+    assignTicketToBpp :: Maybe Bool,
+    customTabs :: Maybe [DTicketPlace.CustomTab],
+    recommend :: Maybe Bool,
+    enforcedAsSubPlace :: Maybe Bool,
+    merchantOperatingCityId :: Maybe Text
   }
   deriving (Generic, Show, ToJSON, FromJSON, ToSchema)
 
@@ -53,8 +70,12 @@ data TicketServiceDetails = TicketServiceDetails
     maxVerification :: Int,
     allowFutureBooking :: Bool,
     allowCancellation :: Bool,
+    serviceDetails :: Maybe [Text],
+    subPlaceId :: Maybe (Id DTicketSubPlace.TicketSubPlace),
     expiry :: DTicketService.ExpiryType,
-    businessHours :: [Id DBusinessHour.BusinessHour]
+    businessHours :: [Id DBusinessHour.BusinessHour],
+    rules :: Maybe [Rule],
+    maxSelection :: Maybe Int
   }
   deriving (Generic, Show, ToJSON, FromJSON, ToSchema)
 
@@ -73,7 +94,10 @@ data ServiceCategoryDetails = ServiceCategoryDetails
     description :: Text,
     allowedSeats :: Maybe Int,
     availableSeats :: Maybe Int,
-    peopleCategory :: [Id DServicePeopleCategory.ServicePeopleCategory]
+    inclusionPoints :: Maybe [Text],
+    peopleCategory :: [Id DServicePeopleCategory.ServicePeopleCategory],
+    rules :: Maybe [Rule],
+    maxSelection :: Maybe Int
   }
   deriving (Generic, Show, ToJSON, FromJSON, ToSchema)
 
@@ -85,7 +109,9 @@ data ServicePeopleCategoryDetails = ServicePeopleCategoryDetails
     priceAmount :: HighPrecMoney,
     priceCurrency :: Currency,
     timeBounds :: TimeBound,
-    vendorSplitDetails :: Maybe [Payment.VendorSplitDetails]
+    vendorSplitDetails :: Maybe [Payment.VendorSplitDetails],
+    rules :: Maybe [Rule],
+    iconUrl :: Maybe Text
   }
   deriving (Generic, Show, ToJSON, FromJSON, ToSchema)
 

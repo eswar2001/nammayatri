@@ -29,17 +29,21 @@ where
 
 import qualified BecknV2.OnDemand.Enums as Enums
 import qualified Data.HashMap.Strict as HM
+import qualified Domain.SharedLogic.Cancel as SharedCancel
 import qualified Domain.Types.Booking as SRB
 import qualified Domain.Types.BookingCancellationReason as SBCR
+import qualified Domain.Types.BookingStatus as SRB
 import qualified Domain.Types.CancellationReason as SCR
 import qualified Domain.Types.DriverOffer as DDO
 import qualified Domain.Types.Estimate as DEstimate
+import qualified Domain.Types.EstimateStatus as DEstimate
 import qualified Domain.Types.Merchant as DM
 import qualified Domain.Types.Merchant as Merchant
 import qualified Domain.Types.MerchantOperatingCity as DMOC
 import qualified Domain.Types.Person as Person
 import qualified Domain.Types.PersonFlowStatus as DPFS
 import qualified Domain.Types.Ride as Ride
+import qualified Domain.Types.RideStatus as Ride
 import Domain.Types.SearchRequest (SearchRequest)
 import qualified Domain.Types.VehicleVariant as DVeh
 import Environment
@@ -176,10 +180,14 @@ cancel booking mRide req cancellationSource = do
             logTagInfo "DriverLocationFetchFailed" $ show err
             buildBookingCancellationReason Nothing Nothing (Just ride.id)
       Nothing -> buildBookingCancellationReason Nothing Nothing Nothing
-  QBCR.upsert cancellationReason
-  when (req.blockOnCancellationRate == Just True) $ do
-    Redis.setExp (makeCustomerBlockingKey booking.id.getId) True 60
   isValueAddNP <- CQVAN.isValueAddNP booking.providerId
+
+  -- Lock Description: This is a Shared Lock held Between Booking Cancel for Customer & Driver, At a time only one of them can do the full Cancel to OnCancel/Reallocation flow.
+  -- Lock Release: Held for 30 seconds and released at the end of the OnCancel/EstimateRepitition-OnUpdate/QuoteRepitition-OnUpdate.
+  SharedCancel.tryCancellationLock booking.transactionId $ do
+    QBCR.upsert cancellationReason
+    when (req.blockOnCancellationRate == Just True) $ do
+      Redis.setExp (makeCustomerBlockingKey booking.id.getId) True 60
   return $
     CancelRes
       { bppBookingId = bppBookingId,

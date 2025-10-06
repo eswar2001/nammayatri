@@ -102,13 +102,14 @@ postBbpsCreateOrder (mbPersonId, merchantId) req = do
             DBBPS.updatedAt = now
           }
   isSplitEnabled <- Payment.getIsSplitEnabled merchantId person.merchantOperatingCityId Nothing Payment.BBPS
+  splitSettlementDetails <- Payment.mkSplitSettlementDetails isSplitEnabled bbpsAmount []
   let createOrderReq =
         Payment.CreateOrderReq
           { orderId = req.bbpsTxnId,
             orderShortId = refShortId.getShortId,
             amount = bbpsAmount,
             customerId = personId.getId,
-            customerEmail = fromMaybe "test@gmail.com" personEmail,
+            customerEmail = fromMaybe "growth@nammayatri.in" personEmail,
             customerPhone = req.mobileNumber,
             customerFirstName = person.firstName,
             customerLastName = person.lastName,
@@ -120,12 +121,12 @@ postBbpsCreateOrder (mbPersonId, merchantId) req = do
             optionsGetUpiDeepLinks = Nothing,
             metadataExpiryInMins = Nothing,
             metadataGatewayReferenceId = Nothing,
-            splitSettlementDetails = Payment.mkSplitSettlementDetails isSplitEnabled bbpsAmount []
+            splitSettlementDetails = splitSettlementDetails
           }
   let commonMerchantId = Kernel.Types.Id.cast @Merchant.Merchant @DPayment.Merchant person.merchantId
       commonPersonId = Kernel.Types.Id.cast @DP.Person @DPayment.Person personId
       createOrderCall = Payment.createOrder person.merchantId person.merchantOperatingCityId Nothing Payment.BBPS (Just person.id.getId) person.clientSdkVersion
-  mCreateOrderRes <- DPayment.createOrderService commonMerchantId (Just $ Kernel.Types.Id.cast person.merchantOperatingCityId) commonPersonId createOrderReq createOrderCall
+  mCreateOrderRes <- DPayment.createOrderService commonMerchantId (Just $ Kernel.Types.Id.cast person.merchantOperatingCityId) commonPersonId Nothing createOrderReq createOrderCall
   case mCreateOrderRes of
     Just createOrderRes -> do
       QBBPS.create bbpsInfo
@@ -250,7 +251,7 @@ bbpsStatusHandler bbpsInfo = do
       | bbpsInfo.status `elem` [DBBPS.AWAITING_BBPS_CONFIRMATION] -> return oldResp -- Extra state might be needed later to handle some cases -- we can call bbps status api here..
       | bbpsInfo.status `elem` [DBBPS.REFUND_PENDING, DBBPS.CONFIRMATION_FAILED] -> do
         fork "Trigger Refund data updation" $ do
-          refunds <- QRefunds.findAllByOrderId (Kernel.Types.Id.cast bbpsInfo.refId)
+          refunds <- QRefunds.findAllByOrderId (Kernel.Types.Id.ShortId bbpsInfo.refId.getId)
           let isAnyRefundPending = any (\refund -> refund.status `elem` [Payment.REFUND_PENDING, Payment.MANUAL_REVIEW]) refunds
               isRefundSuccess = any (\refund -> refund.status == Payment.REFUND_SUCCESS) refunds
               allRefundFailed = all (\refund -> refund.status == Payment.REFUND_FAILURE) refunds

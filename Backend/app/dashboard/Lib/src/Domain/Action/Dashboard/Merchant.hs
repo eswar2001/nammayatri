@@ -141,7 +141,8 @@ buildMerchant req = do
         createdAt = now,
         requireAdminApprovalForFleetOnboarding = Just False,
         verifyFleetWhileLogin = Just True,
-        hasFleetMemberHierarchy = Just True
+        hasFleetMemberHierarchy = Just True,
+        isStrongNameCheckRequired = Just True
       }
 
 changeMerchantEnableState ::
@@ -227,5 +228,7 @@ buildPersonCreateReq req role = do
         rejectionReason = Nothing,
         rejectedAt = Nothing,
         dashboardType = fromMaybe SP.DEFAULT_DASHBOARD req.dashboardType,
-        passwordUpdatedAt = Just now
+        passwordUpdatedAt = Just now,
+        approvedBy = Nothing,
+        rejectedBy = Nothing
       }

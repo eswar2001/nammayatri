@@ -31,6 +31,7 @@ import Kernel.Sms.Config
 import Kernel.Storage.Clickhouse.Config
 import Kernel.Storage.Esqueleto.Config
 import Kernel.Storage.Hedis as Redis hiding (ttl)
+import qualified Kernel.Storage.InMem as IM
 import Kernel.Streaming.Kafka.Producer.Types
 import qualified Kernel.Tools.Metrics.CoreMetrics as Metrics
 import Kernel.Types.App
@@ -57,6 +58,7 @@ import Passetto.Client
 import qualified Registry.Beckn.Nammayatri.Types as NyRegistry
 import SharedLogic.Allocator (AllocatorJobType)
 import SharedLogic.CallBAPInternal
+import SharedLogic.CallInternalMLPricing
 import SharedLogic.External.LocationTrackingService.Types
 import SharedLogic.GoogleTranslate
 import Storage.CachedQueries.Merchant as CM
@@ -103,6 +105,7 @@ data AppCfg = AppCfg
     googleTranslateUrl :: BaseUrl,
     googleTranslateKey :: Text,
     appBackendBapInternal :: AppBackendBapInternal,
+    mlPricingInternal :: MLPricingInternal,
     searchRequestExpirationSeconds :: Int,
     searchRequestExpirationSecondsForMultimodal :: Int,
     driverQuoteExpirationSeconds :: Int,
@@ -157,7 +160,8 @@ data AppCfg = AppCfg
     selfBaseUrl :: BaseUrl,
     meterRideReferralLink :: Text,
     minDistanceBetweenTwoPoints :: Int,
-    tsServiceConfig :: CPT.TSServiceConfig
+    tsServiceConfig :: CPT.TSServiceConfig,
+    inMemConfig :: KTC.InMemConfig
   }
   deriving (Generic, FromDhall)
 
@@ -201,6 +205,7 @@ data AppEnv = AppEnv
     externalServiceRateLimitOptions :: APIRateLimitOptions,
     googleTranslateUrl :: BaseUrl,
     appBackendBapInternal :: AppBackendBapInternal,
+    mlPricingInternal :: MLPricingInternal,
     googleTranslateKey :: Text,
     bppMetrics :: BPPMetricsContainer,
     ssrMetrics :: SendSearchRequestToDriverMetricsContainer,
@@ -265,7 +270,9 @@ data AppEnv = AppEnv
     selfBaseUrl :: BaseUrl,
     meterRideReferralLink :: Text,
     minDistanceBetweenTwoPoints :: Int,
-    tsServiceConfig :: CPT.TSServiceConfig
+    tsServiceConfig :: CPT.TSServiceConfig,
+    inMemEnv :: KTC.InMemEnv,
+    url :: Maybe Text
   }
   deriving (Generic)
 
@@ -288,7 +295,7 @@ buildAppEnv cfg@AppCfg {searchRequestExpirationSeconds = _searchRequestExpiratio
   hostname <- map T.pack <$> lookupEnv "POD_NAME"
   psqlConn <- PG.connect (toConnectInfo esqDBCfg)
   version <- lookupDeploymentVersion
-  passettoContext <- (uncurry mkDefPassettoContext) encTools.service
+  passettoContext <- uncurry mkDefPassettoContext encTools.service
   isShuttingDown <- newEmptyTMVarIO
   loggerEnv <- prepareLoggerEnv loggerConfig hostname
   esqDBEnv <- prepareEsqDBEnv esqDBCfg loggerEnv
@@ -324,6 +331,8 @@ buildAppEnv cfg@AppCfg {searchRequestExpirationSeconds = _searchRequestExpiratio
   let internalEndPointHashMap = HMS.fromList $ M.toList internalEndPointMap
   let ondcTokenHashMap = HMS.fromList $ M.toList ondcTokenMap
       serviceClickhouseCfg = driverClickhouseCfg
+  inMemEnv <- IM.setupInMemEnv inMemConfig (Just hedisClusterEnv)
+  let url = Nothing
   return AppEnv {modelNamesHashMap = HMS.fromList $ M.toList modelNamesMap, ..}
 
 releaseAppEnv :: AppEnv -> IO ()

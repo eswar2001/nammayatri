@@ -15,12 +15,11 @@ import qualified Kernel.Storage.Hedis as Hedis
 import Kernel.Tools.Metrics.CoreMetrics (CoreMetrics)
 import Kernel.Types.App
 import Kernel.Utils.Common
-import Servant hiding (route)
+import Servant
 import qualified SharedLogic.FRFSUtils as FRFSUtils
 
 data FareByOriginDestReq = FareByOriginDestReq
-  { route :: T.Text,
-    origin :: T.Text,
+  { origin :: T.Text,
     destination :: T.Text,
     ticketType :: T.Text
   }
@@ -74,7 +73,7 @@ getFareByOriginDest config fareReq = do
                           currency = INR
                         },
                     childPrice = Nothing,
-                    discounts = [],
+                    categories = [],
                     fareDetails = Nothing,
                     farePolicyId = Nothing,
                     vehicleServiceTier =
@@ -83,7 +82,8 @@ getFareByOriginDest config fareReq = do
                           serviceTierProviderCode = "ORDINARY",
                           serviceTierShortName = "ORDINARY",
                           serviceTierDescription = "ORDINARY",
-                          serviceTierLongName = "ORDINARY"
+                          serviceTierLongName = "ORDINARY",
+                          isAirConditioned = False
                         }
                   }
               ]

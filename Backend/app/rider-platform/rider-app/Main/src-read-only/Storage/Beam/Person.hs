@@ -3,6 +3,7 @@
 
 module Storage.Beam.Person where
 
+import qualified BecknV2.OnDemand.Enums
 import qualified Data.Time
 import qualified Database.Beam as B
 import Domain.Types.Common ()
@@ -71,6 +72,7 @@ data PersonT f = PersonT
     juspayCustomerPaymentID :: B.C f (Kernel.Prelude.Maybe Kernel.External.Payment.Interface.Types.CustomerId),
     language :: B.C f (Kernel.Prelude.Maybe Kernel.External.Maps.Language),
     lastName :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
+    lastUsedVehicleCategories :: B.C f (Kernel.Prelude.Maybe [BecknV2.OnDemand.Enums.VehicleCategory]),
     lastUsedVehicleServiceTiers :: B.C f (Kernel.Prelude.Maybe [Domain.Types.ServiceTierType.ServiceTierType]),
     latestLat :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Double),
     latestLon :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Double),

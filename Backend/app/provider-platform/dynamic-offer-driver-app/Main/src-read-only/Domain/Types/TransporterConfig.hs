@@ -31,6 +31,7 @@ data TransporterConfigD (s :: UsageSafety) = TransporterConfig
     acStatusCheckGap :: Kernel.Prelude.Int,
     actualRideDistanceDiffThreshold :: Kernel.Types.Common.HighPrecMeters,
     actualRideDistanceDiffThresholdIfWithinPickupDrop :: Kernel.Types.Common.HighPrecMeters,
+    allowCacheDriverFlowStatus :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     allowDefaultPlanAllocation :: Kernel.Prelude.Bool,
     allowDuplicateAadhaar :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     allowDuplicateGst :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
@@ -64,6 +65,7 @@ data TransporterConfigD (s :: UsageSafety) = TransporterConfig
     cancellationFee :: Kernel.Types.Common.HighPrecMoney,
     cancellationFeeDisputeLimit :: Kernel.Prelude.Int,
     cancellationRateCalculationThreshold :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
+    cancellationRateSlabConfig :: Kernel.Prelude.Maybe Domain.Types.TransporterConfig.CancellationRateSlabConfig,
     cancellationRateThresholdDaily :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     cancellationRateThresholdWeekly :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     cancellationRateWindow :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
@@ -89,6 +91,7 @@ data TransporterConfigD (s :: UsageSafety) = TransporterConfig
     disableDriverWhenUnlinkingVehicle :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     disableListScheduledBookingAPI :: Kernel.Prelude.Bool,
     distanceUnit :: Kernel.Types.Common.DistanceUnit,
+    distanceWeightage :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     dlNumberVerification :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     dpBlackListedGeohash :: Kernel.Prelude.Maybe [Kernel.Prelude.Text],
     dpGeoHashPercision :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
@@ -96,6 +99,7 @@ data TransporterConfigD (s :: UsageSafety) = TransporterConfig
     driverAutoPayExecutionTime :: Kernel.Prelude.NominalDiffTime,
     driverAutoPayExecutionTimeFallBack :: Kernel.Prelude.NominalDiffTime,
     driverAutoPayNotificationTime :: Kernel.Prelude.NominalDiffTime,
+    driverCallingOption :: Kernel.Prelude.Maybe Domain.Types.TransporterConfig.CallingOption,
     driverDistanceToPickupThresholdOnCancel :: Kernel.Types.Common.Meters,
     driverDistanceTravelledOnPickupThresholdOnCancel :: Kernel.Types.Common.Meters,
     driverDrivenSearchReqExpiry :: Kernel.Prelude.Maybe Kernel.Prelude.NominalDiffTime,
@@ -124,11 +128,14 @@ data TransporterConfigD (s :: UsageSafety) = TransporterConfig
     editLocTimeThreshold :: Kernel.Types.Common.Seconds,
     emailOtpConfig :: Kernel.Prelude.Maybe Email.Types.EmailOTPConfig,
     enableDashboardSms :: Kernel.Prelude.Bool,
+    enableDriverWallet :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     enableExistingVehicleInBulkUpload :: Kernel.Prelude.Bool,
     enableFaceVerification :: Kernel.Prelude.Bool,
     enableOverchargingBlocker :: Kernel.Prelude.Bool,
     enableTollCrossedNotifications :: Kernel.Prelude.Bool,
     enableUdfForOffers :: Kernel.Prelude.Bool,
+    enableWalletPayout :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
+    enableWalletTopup :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     exotelAppIdMapping :: Kernel.Prelude.Maybe Domain.Types.Extra.TransporterConfig.ExotelMapping,
     exotelStatusCheckSchedulerDelay :: Kernel.Prelude.Int,
     fakeOtpEmails :: [Kernel.Prelude.Text],
@@ -141,11 +148,13 @@ data TransporterConfigD (s :: UsageSafety) = TransporterConfig
     generateReferralCodeForFleet :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     generateReferralCodeForOperator :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     graceTimeForScheduledRidePickup :: Kernel.Prelude.NominalDiffTime,
+    gstPercentage :: Kernel.Prelude.Maybe Kernel.Prelude.Double,
     includeDriverCurrentlyOnRide :: Kernel.Prelude.Bool,
     isAAEnabledForRecurring :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     isAvoidToll :: Kernel.Prelude.Bool,
     isDeviceIdChecksRequired :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     isDynamicPricingQARCalEnabled :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
+    isMLBasedDynamicPricingEnabled :: Kernel.Prelude.Bool,
     isPlanMandatory :: Kernel.Prelude.Bool,
     issueBreachConfig :: Kernel.Prelude.Maybe [SharedLogic.BehaviourManagement.IssueBreach.IssueBreachConfig],
     kaptureDisposition :: Kernel.Prelude.Text,
@@ -160,7 +169,9 @@ data TransporterConfigD (s :: UsageSafety) = TransporterConfig
     mandateValidity :: Kernel.Prelude.Int,
     maxAllowedDocSizeInMB :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     maxAllowedVideoDocSizeInMB :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
+    maxOnlineDurationDays :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     maxPayoutReferralForADay :: Kernel.Prelude.Int,
+    maxWalletPayoutsPerDay :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     mediaFileSizeUpperLimit :: Kernel.Prelude.Int,
     mediaFileUrlPattern :: Kernel.Prelude.Text,
     merchantId :: Kernel.Types.Id.Id Domain.Types.Merchant.Merchant,
@@ -171,6 +182,7 @@ data TransporterConfigD (s :: UsageSafety) = TransporterConfig
     minRidesForCancellationScore :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     minRidesToUnlist :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     minThresholdForPassThroughDestination :: Kernel.Prelude.Maybe Kernel.Types.Common.Meters,
+    minimumWalletPayoutAmount :: Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney,
     minmRentalAndScheduledBookingLeadTimeHours :: Kernel.Types.Common.Hours,
     nightSafetyEndTime :: Kernel.Types.Common.Seconds,
     nightSafetyRouteDeviationThreshold :: Kernel.Types.Common.Meters,
@@ -183,6 +195,7 @@ data TransporterConfigD (s :: UsageSafety) = TransporterConfig
     onboardingDocsCountLimit :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     onboardingRetryTimeInHours :: Kernel.Prelude.Int,
     onboardingTryLimit :: Kernel.Prelude.Int,
+    onlineDurationCalculateFrom :: Kernel.Prelude.Maybe Kernel.Prelude.UTCTime,
     openMarketUnBlocked :: Kernel.Prelude.Bool,
     orderAndNotificationStatusCheckFallBackTime :: Kernel.Prelude.NominalDiffTime,
     orderAndNotificationStatusCheckTime :: Kernel.Prelude.NominalDiffTime,
@@ -191,9 +204,11 @@ data TransporterConfigD (s :: UsageSafety) = TransporterConfig
     overlayBatchSize :: Kernel.Prelude.Int,
     pastDaysRideCounter :: Kernel.Prelude.Int,
     payoutBatchLimit :: Kernel.Prelude.Int,
+    payoutCutOffDays :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     pickupLocThreshold :: Kernel.Types.Common.Meters,
     placeNameCacheExpiryDays :: Kernel.Prelude.Maybe Kernel.Prelude.Int,
     popupDelayToAddAsPenalty :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
+    prepaidSubscriptionThreshold :: Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney,
     qarCalRadiusInKm :: Kernel.Prelude.Maybe Kernel.Prelude.Double,
     ratingAsDecimal :: Kernel.Prelude.Bool,
     rcExpiryChecks :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
@@ -253,6 +268,7 @@ data ArrivalTimeBufferOfVehicle = ArrivalTimeBufferOfVehicle
     bike :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
     black :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
     blackxl :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
+    boat :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
     busAc :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
     busNonAc :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
     deliveryLightGoodsVehicle :: Kernel.Prelude.Maybe Kernel.Types.Common.Seconds,
@@ -275,6 +291,7 @@ data AvgSpeedOfVechilePerKm = AvgSpeedOfVechilePerKm
     bike :: Kernel.Types.Common.Kilometers,
     black :: Kernel.Types.Common.Kilometers,
     blackxl :: Kernel.Types.Common.Kilometers,
+    boat :: Kernel.Types.Common.Kilometers,
     busAc :: Kernel.Types.Common.Kilometers,
     busNonAc :: Kernel.Types.Common.Kilometers,
     deliveryLightGoodsVehicle :: Kernel.Types.Common.Kilometers,
@@ -290,8 +307,11 @@ data AvgSpeedOfVechilePerKm = AvgSpeedOfVechilePerKm
   }
   deriving (Generic, Show, ToJSON, FromJSON, Read, Eq)
 
+data CallingOption = AnonymousCall | DirectCall | DualCall deriving (Eq, Ord, Show, Read, Generic, ToJSON, FromJSON, ToSchema)
+
 data CancellationRateBasedNudgingAndBlockingConfig = CancellationRateBasedNudgingAndBlockingConfig
-  { cancellationRateThresholdDaily :: Kernel.Prelude.Int,
+  { cancellationRateSlabConfig :: Kernel.Prelude.Maybe Domain.Types.TransporterConfig.CancellationRateSlabConfig,
+    cancellationRateThresholdDaily :: Kernel.Prelude.Int,
     cancellationRateThresholdWeekly :: Kernel.Prelude.Int,
     dailyConditionCooldownTimeHours :: Kernel.Prelude.Int,
     dailyMinRidesforBlocking :: Kernel.Prelude.Int,
@@ -302,6 +322,12 @@ data CancellationRateBasedNudgingAndBlockingConfig = CancellationRateBasedNudgin
     weeklyMinRidesforNudging :: Kernel.Prelude.Int,
     weeklyOffenceSuspensionTimeHours :: Kernel.Prelude.Int
   }
+  deriving (Generic, Show, ToJSON, FromJSON, ToSchema, Eq)
+
+data CancellationRateSlab = CancellationRateSlab {cancellationPercentageThreshold :: Kernel.Prelude.Int, suspensionTimeInHours :: Kernel.Prelude.Int}
+  deriving (Generic, Show, ToJSON, FromJSON, ToSchema, Eq)
+
+data CancellationRateSlabConfig = CancellationRateSlabConfig {dailySlabs :: [Domain.Types.TransporterConfig.SlabType], weeklySlabs :: [Domain.Types.TransporterConfig.SlabType]}
   deriving (Generic, Show, ToJSON, FromJSON, ToSchema, Eq)
 
 data DashboardMediaSendingLimit = DashboardMediaSendingLimit {alert :: Kernel.Prelude.Int, overlay :: Kernel.Prelude.Int, sms :: Kernel.Prelude.Int, whatsapp :: Kernel.Prelude.Int}
@@ -319,6 +345,9 @@ data DemandHotspotsConfig = DemandHotspotsConfig
 data DistanceRecomputeConfigs = DistanceRecomputeConfigs {estimatedDistanceUpper :: Kernel.Types.Common.Meters, minThresholdDistance :: Kernel.Types.Common.Meters, minThresholdPercentage :: Kernel.Prelude.Int}
   deriving (Generic, Show, ToJSON, FromJSON, Read, Eq)
 
+data SlabType = SlabType {minBookingsRange :: [Kernel.Prelude.Int], penalityForCancellation :: Domain.Types.TransporterConfig.CancellationRateSlab}
+  deriving (Generic, Show, ToJSON, FromJSON, ToSchema, Eq)
+
 type TransporterConfig = TransporterConfigD 'Safe
 
 instance FromJSON (TransporterConfigD 'Unsafe)
@@ -328,3 +357,5 @@ instance ToJSON (TransporterConfigD 'Unsafe)
 instance FromJSON (TransporterConfigD 'Safe)
 
 instance ToJSON (TransporterConfigD 'Safe)
+
+$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''CallingOption)

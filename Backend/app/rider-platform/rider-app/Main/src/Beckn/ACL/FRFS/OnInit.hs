@@ -18,6 +18,7 @@ import qualified Beckn.ACL.FRFS.Utils as Utils
 import qualified BecknV2.FRFS.Enums as Spec
 import qualified BecknV2.FRFS.Types as Spec
 import qualified BecknV2.FRFS.Utils as Utils
+import Domain.Action.Beckn.FRFS.Common
 import qualified Domain.Action.Beckn.FRFS.OnInit as Domain
 import Kernel.Prelude
 import Kernel.Types.Error
@@ -42,6 +43,17 @@ buildOnInitReq onInitReq = do
   providerId <- order.orderProvider >>= (.providerId) & fromMaybeM (InvalidRequest "Provider not found")
 
   item <- order.orderItems >>= listToMaybe & fromMaybeM (InvalidRequest "Item not found")
+  let orderItems = fromMaybe [item] order.orderItems
+  selectedCategories <-
+    mapM
+      ( \orderItem -> do
+          bppItemId' <- orderItem.itemId & fromMaybeM (InvalidRequest "BppItemId not found")
+          quantity' <- orderItem.itemQuantity >>= (.itemQuantitySelected) >>= (.itemQuantitySelectedCount) & fromMaybeM (InvalidRequest "Item Quantity not found")
+          return $ DCategorySelect {bppItemId = bppItemId', quantity = quantity'}
+      )
+      orderItems
+  let totalQuantity = sum $ map (.quantity) selectedCategories
+
   bppItemId <- item.itemId & fromMaybeM (InvalidRequest "BppItemId not found")
 
   quotation <- order.orderQuote & fromMaybeM (InvalidRequest "Quotation not found")
@@ -60,6 +72,8 @@ buildOnInitReq onInitReq = do
     Domain.DOnInit
       { providerId = providerId,
         totalPrice,
+        totalQuantity = totalQuantity,
+        totalChildTicketQuantity = Nothing,
         fareBreakUp = fareBreakUp,
         bppItemId,
         transactionId,

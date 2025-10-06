@@ -28,6 +28,7 @@ import qualified Domain.Types.Merchant as DM
 import qualified Domain.Types.MerchantServiceConfig as DMSC
 import qualified Domain.Types.Person as DP
 import qualified Domain.Types.Ride as DRide
+import qualified Domain.Types.RideStatus as DRide
 import Environment
 import qualified EulerHS.Language as L
 import Kernel.Beam.Functions as B
@@ -81,6 +82,7 @@ createOrder (personId, merchantId) rideId = do
   customerEmail <- person.email & fromMaybeM (PersonFieldNotPresent "email") >>= decrypt
   customerPhone <- person.mobileNumber & fromMaybeM (PersonFieldNotPresent "mobileNumber") >>= decrypt
   isSplitEnabled <- Payment.getIsSplitEnabled merchantId person.merchantOperatingCityId Nothing Payment.Normal
+  splitSettlementDetails <- Payment.mkSplitSettlementDetails isSplitEnabled totalFare.amount []
   let createOrderReq =
         Payment.CreateOrderReq
           { orderId = rideId.getId,
@@ -99,13 +101,13 @@ createOrder (personId, merchantId) rideId = do
             optionsGetUpiDeepLinks = Nothing,
             metadataExpiryInMins = Nothing,
             metadataGatewayReferenceId = Nothing, --- assigned in shared kernel
-            splitSettlementDetails = Payment.mkSplitSettlementDetails isSplitEnabled totalFare.amount []
+            splitSettlementDetails = splitSettlementDetails
           }
 
   let commonMerchantId = cast @DM.Merchant @DPayment.Merchant merchantId
       commonPersonId = cast @DP.Person @DPayment.Person personId
       createOrderCall = Payment.createOrder merchantId person.merchantOperatingCityId Nothing Payment.Normal (Just person.id.getId) person.clientSdkVersion -- api call
-  DPayment.createOrderService commonMerchantId (Just $ cast person.merchantOperatingCityId) commonPersonId createOrderReq createOrderCall >>= fromMaybeM (InternalError "Order expired please try again")
+  DPayment.createOrderService commonMerchantId (Just $ cast person.merchantOperatingCityId) commonPersonId Nothing createOrderReq createOrderCall >>= fromMaybeM (InternalError "Order expired please try again")
 
 -- order status -----------------------------------------------------
 
@@ -184,12 +186,13 @@ juspayWebhookHandler merchantShortId mbCity mbServiceType mbPlaceId authData val
   osr <- case orderWebhookResponse of
     Nothing -> throwError $ InternalError "Order Contents not found."
     Just osr' -> pure osr'
-  (orderShortId, status) <- getOrderData osr
+  (orderShortId, status, refunds) <- getOrderData osr
   logDebug $ "order short Id from Response bap webhook: " <> show orderShortId
   Redis.whenWithLockRedis (mkOrderStatusCheckKey orderShortId status) 60 $ do
     case mbServiceType of
-      Just Payment.FRFSBooking -> void $ FRFSTicketService.webhookHandlerFRFSTicket (ShortId orderShortId) merchantId
-      Just Payment.FRFSBusBooking -> void $ FRFSTicketService.webhookHandlerFRFSTicket (ShortId orderShortId) merchantId
+      Just Payment.FRFSBooking -> void $ FRFSTicketService.webhookHandlerFRFSTicket (ShortId orderShortId) merchantId refunds
+      Just Payment.FRFSBusBooking -> void $ FRFSTicketService.webhookHandlerFRFSTicket (ShortId orderShortId) merchantId refunds
+      Just Payment.FRFSMultiModalBooking -> void $ FRFSTicketService.webhookHandlerFRFSTicket (ShortId orderShortId) merchantId refunds
       Just Payment.BBPS -> void $ BBPS.webhookHandlerBBPS (ShortId orderShortId) merchantId
       _ -> pure ()
   pure Ack
@@ -202,7 +205,7 @@ juspayWebhookHandler merchantShortId mbCity mbServiceType mbPlaceId authData val
       Just Payment.FRFSMultiModalBooking -> DMSC.MultiModalPaymentService Payment.Juspay
       Nothing -> DMSC.PaymentService Payment.Juspay
     getOrderData osr = case osr of
-      Payment.OrderStatusResp {..} -> pure (orderShortId, transactionStatus)
+      Payment.OrderStatusResp {..} -> pure (orderShortId, transactionStatus, refunds)
       _ -> throwError $ InternalError "Order Id not found in response."
 
 mkOrderStatusCheckKey :: Text -> Payment.TransactionStatus -> Text

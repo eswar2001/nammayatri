@@ -80,14 +80,14 @@ import qualified Tools.Ticket as TT
 import qualified Tools.Whatsapp as Whatsapp
 import Utils.Common.Cac.KeyNameConstants
 
-driverDocumentTypes :: [DVC.DocumentType]
-driverDocumentTypes = [DVC.DriverLicense, DVC.AadhaarCard, DVC.PanCard, DVC.Permissions, DVC.ProfilePhoto, DVC.UploadProfile, DVC.SocialSecurityNumber, DVC.BackgroundVerification, DVC.GSTCertificate, DVC.BusinessLicense]
+defaultDriverDocumentTypes :: [DVC.DocumentType]
+defaultDriverDocumentTypes = [DVC.DriverLicense, DVC.AadhaarCard, DVC.PanCard, DVC.Permissions, DVC.ProfilePhoto, DVC.UploadProfile, DVC.SocialSecurityNumber, DVC.BackgroundVerification, DVC.GSTCertificate, DVC.BusinessLicense]
 
-fleetDocumentTypes :: [DVC.DocumentType]
-fleetDocumentTypes = [DVC.AadhaarCard, DVC.PanCard, DVC.GSTCertificate, DVC.BusinessLicense]
+defaultFleetDocumentTypes :: [DVC.DocumentType]
+defaultFleetDocumentTypes = [DVC.AadhaarCard, DVC.PanCard, DVC.GSTCertificate, DVC.BusinessLicense]
 
-vehicleDocumentTypes :: [DVC.DocumentType]
-vehicleDocumentTypes = [DVC.VehicleRegistrationCertificate, DVC.VehiclePermit, DVC.VehicleFitnessCertificate, DVC.VehicleInsurance, DVC.VehiclePUC, DVC.VehicleInspectionForm, DVC.SubscriptionPlan, DVC.VehicleLeft, DVC.VehicleRight, DVC.VehicleFrontInterior, DVC.VehicleBackInterior, DVC.VehicleFront, DVC.VehicleBack, DVC.Odometer]
+defaultVehicleDocumentTypes :: [DVC.DocumentType]
+defaultVehicleDocumentTypes = [DVC.VehicleRegistrationCertificate, DVC.VehiclePermit, DVC.VehicleFitnessCertificate, DVC.VehicleInsurance, DVC.VehiclePUC, DVC.VehicleInspectionForm, DVC.SubscriptionPlan, DVC.VehicleLeft, DVC.VehicleRight, DVC.VehicleFrontInterior, DVC.VehicleBackInterior, DVC.VehicleFront, DVC.VehicleBack, DVC.Odometer]
 
 notifyErrorToSupport ::
   Person ->
@@ -596,7 +596,7 @@ toMaybe xs = Kernel.Prelude.Just xs
 filterVehicleDocuments :: [Domain.Types.DocumentVerificationConfig.DocumentVerificationConfig] -> Maybe Bool -> [Domain.Types.DocumentVerificationConfig.DocumentVerificationConfig]
 filterVehicleDocuments docs onlyVehicle =
   if onlyVehicle == Just True
-    then filter (\Domain.Types.DocumentVerificationConfig.DocumentVerificationConfig {..} -> documentType `elem` vehicleDocumentTypes) docs
+    then filter (\Domain.Types.DocumentVerificationConfig.DocumentVerificationConfig {..} -> documentType `elem` defaultVehicleDocumentTypes) docs
     else docs
 
 filterInCompatibleFlows ::
@@ -619,6 +619,7 @@ mkFleetOwnerDocumentVerificationConfigAPIEntity language Domain.Types.FleetOwner
         documentType = castDocumentType documentType,
         dependencyDocumentType = map castDocumentType dependencyDocumentType,
         documentCategory = castDocumentCategory <$> documentCategory,
+        isMandatoryForEnabling = isMandatory,
         ..
       }
 
@@ -658,3 +659,18 @@ castDocumentType = \case
   Domain.Types.DocumentVerificationConfig.VehicleBackInterior -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.VehicleBackInterior
   Domain.Types.DocumentVerificationConfig.Odometer -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.Odometer
   Domain.Types.DocumentVerificationConfig.InspectionHub -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.InspectionHub
+  -- Netherlands Document Types
+  Domain.Types.DocumentVerificationConfig.KIWADriverCard -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.KIWADriverCard
+  Domain.Types.DocumentVerificationConfig.KIWATaxiPermit -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.KIWATaxiPermit
+  Domain.Types.DocumentVerificationConfig.KvKChamberOfCommerceRegistration -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.KvKChamberOfCommerceRegistration
+  Domain.Types.DocumentVerificationConfig.TAXDetails -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.TAXDetails
+  Domain.Types.DocumentVerificationConfig.BankingDetails -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.BankingDetails
+  Domain.Types.DocumentVerificationConfig.VehicleDetails -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.VehicleDetails
+  Domain.Types.DocumentVerificationConfig.SchipolAirportAgreement -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.SchipolAirportAgreement
+  Domain.Types.DocumentVerificationConfig.SchipolSmartcardProof -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.SchipolSmartcardProof
+  Domain.Types.DocumentVerificationConfig.TXQualityMark -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.TXQualityMark
+  -- Finland Document Types
+  Domain.Types.DocumentVerificationConfig.TaxiDriverPermit -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.TaxiDriverPermit
+  Domain.Types.DocumentVerificationConfig.TaxiTransportLicense -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.TaxiTransportLicense
+  Domain.Types.DocumentVerificationConfig.FinnishIDResidencePermit -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.FinnishIDResidencePermit
+  Domain.Types.DocumentVerificationConfig.BusinessRegistrationExtract -> API.Types.ProviderPlatform.Management.Endpoints.DriverRegistration.BusinessRegistrationExtract

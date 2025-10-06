@@ -539,7 +539,17 @@ handleDeepLinks mBGlobalPayload skipDefaultCase = do
               , data {fareProductType = FPT.DELIVERY, source="", locationList = updatedState.data.recentSearchs.predictionArray}
               })
               homeScreenFlow
+        "ambulance" -> do
+          void $ pure $ updateLocalStage SearchLocationModel
+          modifyScreenState $ HomeScreenStateType (\updatedState-> updatedState {
+            props { homeScreenPrimaryButtonLottie = false, isSource = Just false, currentStage = SearchLocationModel, isSearchLocation = SearchLocation, searchLocationModelProps{crossBtnSrcVisibility = false},  rideSearchProps{ sessionId = generateSessionId unit } , firstTimeAmbulanceSearch = true , searchType = Just "hospital"}
+          , data { source= if updatedState.data.source == "" then getString STR.CURRENT_LOCATION else updatedState.data.source, fareProductType = FPT.AMBULANCE}
+          })
+          homeScreenFlow
         "bt" -> do
+          logField_ <- lift $ lift $ getLogFields
+          let _ = unsafePerformEffect $ Events.addEventAggregate "bus_ticketing_clicked"
+              _ = unsafePerformEffect $ logEvent logField_ "bus_ticketing_clicked"
           modifyScreenState $ HomeScreenStateType (\homeScreen -> homeScreen { props { sourceLong =  (fromMaybe 0.0 $ fromString $ getValueToLocalNativeStore LAST_KNOWN_LON) ,sourceLat =  (fromMaybe 0.0 $ fromString $ getValueToLocalNativeStore LAST_KNOWN_LAT)  } })
           (GlobalState getstate)<- getState
           setValueToLocalStore SESSION_ID (generateSessionId unit)
@@ -899,6 +909,8 @@ riderRideCompletedScreenFlow = do
                   , ride_status: Nothing
                   , screen: Just "RiderRideCompletedScreenState"
                   , exit_app: false
+                  , delete_account_req: Nothing
+                  , call_support_req: Nothing
                   }
             }
       (GlobalState globalState) <- getState
@@ -4973,6 +4985,7 @@ metroTicketBookingFlow :: FlowBT String Unit
 metroTicketBookingFlow = do
   (GlobalState currentState) <- getState
   config <- getAppConfigFlowBT appConfig
+  logField_ <- lift $ lift $ getLogFields
   metroStationsList <-  lift $ lift $ getMetroStationsObjFromLocal ""
   let
     -- metroStationsList = []
@@ -5015,6 +5028,8 @@ metroTicketBookingFlow = do
     --  metroTicketBookingFlow
     METRO_FARE_AND_PAYMENT state -> do
       -- when (state.props.ticketServiceType == API.BUS) $ setValueToLocalStore CAN_HAVE_ACTIVE_TICKETS "true"
+      let _ = unsafePerformEffect $ logEvent logField_ "ny_bus_user_book_ticket_initiated"
+      let _ = unsafePerformEffect $ Events.addEventAggregate "ny_bus_user_book_ticket_initiated"
       modifyScreenState $ BusTicketBookingScreenStateType (\_ -> BusTicketBookingScreenData.initData)
       if state.props.currentStage == MetroTicketSelection || state.props.currentStage == BusTicketSelection then do
         if state.data.srcCode == state.data.destCode then do
@@ -5027,7 +5042,7 @@ metroTicketBookingFlow = do
           modifyScreenState $ MetroTicketBookingScreenStateType (\state -> state { data { searchId = searchMetroResp.searchId }, props { currentStage = GetMetroQuote, isButtonActive = false} })
       else if state.props.currentStage == ConfirmMetroQuote then do
         -- metroBookingStatus <- lift $ lift $ Remote.confirmMetroQuote state.data.quoteId
-        metroBookingStatus <- lift $ lift $ Remote.confirmMetroQuoteV2 state.data.quoteId $ API.FRFSQuoteConfirmReq {discounts: fromMaybe [] state.data.applyDiscounts}
+        metroBookingStatus <- lift $ lift $ Remote.confirmMetroQuoteV2 state.data.quoteId $ API.FRFSQuoteConfirmReq {offered: []}
         updateMetroBookingQuoteInfo metroBookingStatus
       else
         pure unit
@@ -5071,7 +5086,7 @@ metroTicketBookingFlow = do
                 { code: offerType
                 , quantity: 1
                 } ]
-        metroBookingStatus <- lift $ lift $ Remote.confirmMetroQuoteV2 state.data.quoteId $ API.FRFSQuoteConfirmReq {discounts: fromMaybe [] appliedDiscountItem}
+        metroBookingStatus <- lift $ lift $ Remote.confirmMetroQuoteV2 state.data.quoteId $ API.FRFSQuoteConfirmReq {offered: []}
         updateMetroBookingQuoteInfo metroBookingStatus
         modifyScreenState $ MetroTicketBookingScreenStateType (\state -> state { data {applyDiscounts = appliedDiscountItem}, props { currentStage = GetMetroQuote} })
         metroTicketBookingFlow
@@ -6090,6 +6105,7 @@ searchLocationFlow = do
 predictionClickedFlow :: LocationListItemState -> SearchLocationScreenState -> FlowBT String Unit
 predictionClickedFlow prediction state = do
   (GlobalState currentState) <- getState
+  logField_ <- lift $ lift $ getLogFields
   if state.props.actionType == AddingStopAction then do
     void $ lift $ lift $ loaderText (getString STR.LOADING) (getString STR.PLEASE_WAIT_WHILE_IN_PROGRESS) -- TODO : Handlde Loader in IOS Side
     void $ lift $ lift $ toggleLoader true
@@ -6120,7 +6136,7 @@ predictionClickedFlow prediction state = do
                 _ = spy "searchRideType = " state.data.searchRideType
                 -- srcLocation = Just $ SearchLocationScreenData.dummyLocationInfo { busStopInfo = Just { stationName : state.props.stopNameSelected, stationCode : state.props.stopCodeSelected }, address =  state.props.stopNameSelected, stationCode = state.props.stopCodeSelected }
                 -- destLocation = Just $ SearchLocationScreenData.dummyLocationInfo { busStopInfo = Just { stationName : state.props.stopNameSelected, stationCode : "" }, address = "", stationCode = "" }
-              void $ pure $ firebaseLogEvent "ny_bus_user_route_based_flow"
+              void $ liftFlowBT $ logEvent logField_ "ny_bus_user_route_based_flow"
 
               (GetMetroStationResponse getBusStopResp) <- Remote.getMetroStationBT (show state.data.ticketServiceType) currentCity state.props.routeSelected "" (show currentState.homeScreen.props.sourceLat <> "," <> show currentState.homeScreen.props.sourceLong)
               pure $ setText (getNewIDWithTag (show SearchLocPickup)) ""
@@ -8056,7 +8072,7 @@ aadhaarVerificationFlow offerType = do
                 { code: offerType
                 , quantity: 1
                 } ]
-              metroBookingStatus <- lift $ lift $ Remote.confirmMetroQuoteV2 currentGlobalState.metroTicketBookingScreen.data.quoteId $ API.FRFSQuoteConfirmReq $ {discounts: fromMaybe [] appliedDiscountItem}
+              metroBookingStatus <- lift $ lift $ Remote.confirmMetroQuoteV2 currentGlobalState.metroTicketBookingScreen.data.quoteId $ API.FRFSQuoteConfirmReq $ {offered: []}
               updateMetroBookingQuoteInfo metroBookingStatus
               modifyScreenState $ MetroTicketBookingScreenStateType (\state -> state { data {applyDiscounts = appliedDiscountItem}, props { currentStage = GetMetroQuote} })
               metroTicketBookingFlow
@@ -8219,10 +8235,9 @@ clearLocalStoreAuthDataFlow = do
   void $ pure $ clearCache ""
   logField_ <- lift $ lift $ getLogFields
   void $ lift $ lift $ liftFlow $ logEvent logField_ "ny_user_logout"
-  void $ pure $ (setText (getNewIDWithTag "EnterMobileNumberEditText") "")
+  if (HU.isParentView FunctionCall) then do pure $ HU.terminateWithPayload (HU.defaultTerminatePayload { delete_account_req = Just true }) else pure unit
   modifyScreenState $ EnterMobileNumberScreenType (\enterMobileNumber -> EnterMobileNumberScreenData.initData)
   modifyScreenState $ HomeScreenStateType (\homeScreen -> HomeScreenData.initData)
-  enterMobileNumberScreenFlow -- Removed choose langauge screen
 
 
 updateMapReady :: Boolean -> FlowBT String Unit

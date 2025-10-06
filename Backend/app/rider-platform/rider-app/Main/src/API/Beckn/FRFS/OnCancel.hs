@@ -27,6 +27,7 @@ import Kernel.Types.Error
 import Kernel.Types.Id
 import Kernel.Utils.Common
 import Kernel.Utils.Servant.SignatureAuth
+import qualified SharedLogic.FRFSUtils as FRFSUtils
 import Storage.Beam.SystemConfigs ()
 import qualified Storage.Queries.FRFSTicketBooking as QTBooking
 import TransactionLogs.PushLogs
@@ -62,7 +63,7 @@ onCancel _ req = withFlowHandlerAPI $ do
               fork "FRFS onCancel received pushing ondc logs" do
                 void $ pushLogs "on_cancel" (toJSON req) merchant.id.getId "PUBLIC_TRANSPORT"
           else do
-            void $ Redis.del (DOnCancel.makecancelledTtlKey ticketBooking.id)
+            void $ Redis.del (FRFSUtils.makecancelledTtlKey ticketBooking.id)
     pure Utils.ack
 
 onCancelLockKey :: Text -> Text

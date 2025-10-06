@@ -5,8 +5,8 @@ module ExternalBPP.ExternalAPI.Metro.CMRL.TicketStatus where
 
 import Data.Aeson
 import qualified Data.Text as T
-import qualified Domain.Types.FRFSTicket as Ticket
 import Domain.Types.FRFSTicketBooking
+import qualified Domain.Types.FRFSTicketStatus as Ticket
 import Domain.Types.IntegratedBPPConfig
 import EulerHS.Types as ET
 import ExternalBPP.ExternalAPI.Metro.CMRL.Auth
@@ -84,7 +84,8 @@ getTicketStatus config booking = do
                       qrStatus,
                       qrValidity = ticket.validTill,
                       description = ticket.description,
-                      qrRefreshAt = ticket.qrRefreshAt
+                      qrRefreshAt = ticket.qrRefreshAt,
+                      commencingHours = ticket.commencingHours
                     }
             else pure Nothing
       )

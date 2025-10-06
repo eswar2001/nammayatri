@@ -21,6 +21,7 @@ module Domain.Action.UI.Profile
     UpdateProfileDefaultEmergencyNumbersResp,
     GetProfileDefaultEmergencyNumbersResp (..),
     UpdateEmergencySettingsReq (..),
+    MarketEventReq (..),
     UpdateEmergencySettingsResp,
     EmergencySettingsRes,
     getPersonDetails,
@@ -29,6 +30,7 @@ module Domain.Action.UI.Profile
     getDefaultEmergencyNumbers,
     updateEmergencySettings,
     getEmergencySettings,
+    marketingEvents,
   )
 where
 
@@ -88,6 +90,7 @@ import SharedLogic.PersonDefaultEmergencyNumber as SPDEN
 import qualified SharedLogic.Referral as Referral
 import qualified Storage.CachedQueries.Merchant.PayoutConfig as CPC
 import qualified Storage.CachedQueries.Merchant.RiderConfig as QRC
+import qualified Storage.CachedQueries.OTPRest.OTPRest as OTPRest
 import Storage.Queries.Booking as QBooking
 import qualified Storage.Queries.ClientPersonInfo as QCP
 import qualified Storage.Queries.Disability as QD
@@ -96,8 +99,17 @@ import qualified Storage.Queries.PersonDefaultEmergencyNumber as QPersonDEN
 import qualified Storage.Queries.PersonDisability as PDisability
 import qualified Storage.Queries.PersonStats as QPersonStats
 import qualified Storage.Queries.SafetySettings as QSafety
+import Text.Regex.Posix ((=~))
 import Tools.Error
 import Tools.Event
+
+-- Email validation function
+isValidEmail :: Maybe Text -> Bool
+isValidEmail Nothing = False
+isValidEmail (Just email) =
+  let trimmedEmail = T.strip email
+      emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$" :: String
+   in T.unpack trimmedEmail =~ emailRegex
 
 data ProfileRes = ProfileRes
   { id :: Id Person.Person,
@@ -140,7 +152,8 @@ data ProfileRes = ProfileRes
     cancellationRate :: Maybe Int,
     isPayoutEnabled :: Maybe Bool,
     publicTransportVersion :: Maybe Text,
-    isMultimodalRider :: Bool
+    isMultimodalRider :: Bool,
+    customerTags :: DA.Value
   }
   deriving (Generic, Show, FromJSON, ToJSON, ToSchema)
 
@@ -173,6 +186,11 @@ data UpdateProfileReq = UpdateProfileReq
   }
   deriving (Generic, ToJSON, FromJSON, ToSchema)
 
+data MarketEventReq = MarketEventReq
+  { marketingParams :: MarketingParams
+  }
+  deriving (Generic, ToJSON, FromJSON, ToSchema)
+
 data MarketingParams = MarketingParams
   { gclId :: Maybe Text,
     utmCampaign :: Maybe Text,
@@ -180,7 +198,9 @@ data MarketingParams = MarketingParams
     utmCreativeFormat :: Maybe Text,
     utmMedium :: Maybe Text,
     utmSource :: Maybe Text,
-    utmTerm :: Maybe Text
+    utmTerm :: Maybe Text,
+    userType :: Maybe UserType,
+    appName :: Maybe Text
   }
   deriving (Generic, ToJSON, FromJSON, ToSchema)
 
@@ -242,7 +262,7 @@ getIsMultimodalRider enableMultiModalForAllUsers mbTags integratedBPPConfigs =
        in any (isMultimodalRiderTag multimodalTagName) currentTags && not (null integratedBPPConfigs)
 
 getPersonDetails ::
-  (HasFlowEnv m r '["internalEndPointHashMap" ::: HM.HashMap BaseUrl BaseUrl, "version" ::: DeploymentVersion], CacheFlow m r, EsqDBFlow m r, EsqDBReplicaFlow m r, EncFlow m r) =>
+  (HasFlowEnv m r '["internalEndPointHashMap" ::: HM.HashMap BaseUrl BaseUrl, "version" ::: DeploymentVersion], CacheFlow m r, EsqDBFlow m r, EsqDBReplicaFlow m r, EncFlow m r, HasShortDurationRetryCfg r c) =>
   (Id Person.Person, Id Merchant.Merchant) ->
   Maybe Int ->
   Maybe Text ->
@@ -255,6 +275,7 @@ getPersonDetails ::
   m ProfileRes
 getPersonDetails (personId, _) toss tenant' context mbBundleVersion mbRnVersion mbClientVersion mbClientConfigVersion mbDevice = do
   person <- runInReplica $ QPerson.findById personId >>= fromMaybeM (PersonNotFound personId.getId)
+  decPerson <- decrypt person
   personStats <- QPersonStats.findByPersonId personId >>= fromMaybeM (PersonStatsNotFound personId.getId)
   riderConfig <- QRC.findByMerchantOperatingCityId person.merchantOperatingCityId Nothing >>= fromMaybeM (RiderConfigDoesNotExist person.merchantOperatingCityId.getId)
   let device = getDeviceFromText mbDevice
@@ -265,10 +286,14 @@ getPersonDetails (personId, _) toss tenant' context mbBundleVersion mbRnVersion 
   tag <- case person.hasDisability of
     Just True -> B.runInReplica $ fmap (.tag) <$> PDisability.findByPersonId personId
     _ -> return Nothing
-  decPerson <- decrypt person
+
   when ((decPerson.clientBundleVersion /= mbBundleVersion || decPerson.clientSdkVersion /= mbClientVersion || decPerson.clientConfigVersion /= mbClientConfigVersion || decPerson.clientReactNativeVersion /= mbRnVersion || decPerson.clientDevice /= device) && isJust device) do
     deploymentVersion <- asks (.version)
     void $ QPerson.updatePersonVersions person mbBundleVersion mbClientVersion mbClientConfigVersion device deploymentVersion.getDeploymentVersion mbRnVersion
+  when (isJust decPerson.email && not (isValidEmail decPerson.email)) do
+    logDebug $ "Invalid email, updating person email to nothing , Previous emailId: " <> show decPerson.email <> " for person id " <> show personId
+    let updatedPerson = person {Person.email = Nothing}
+    void $ QPerson.updateByPrimaryKey updatedPerson
   systemConfigs <- L.getOption KBT.Tables
   let useCACConfig = maybe False (.useCACForFrontend) systemConfigs
   let context' = fromMaybe DAKM.empty (DA.decode $ BSL.pack $ T.unpack $ fromMaybe "{}" context)
@@ -303,43 +328,57 @@ getPersonDetails (personId, _) toss tenant' context mbBundleVersion mbRnVersion 
       )
       vehicleTypes
   let isMultimodalRider = getIsMultimodalRider riderConfig.enableMultiModalForAllUsers decPerson.customerNammaTags integratedBPPConfigs
-  return $ makeProfileRes decPerson tag mbMd5Digest isSafetyCenterDisabled_ newCustomerReferralCode hasTakenValidFirstCabRide hasTakenValidFirstAutoRide hasTakenValidFirstBikeRide hasTakenValidAmbulanceRide hasTakenValidTruckRide hasTakenValidBusRide safetySettings personStats cancellationPerc mbPayoutConfig integratedBPPConfigs isMultimodalRider
+  makeProfileRes riderConfig decPerson tag mbMd5Digest isSafetyCenterDisabled_ newCustomerReferralCode hasTakenValidFirstCabRide hasTakenValidFirstAutoRide hasTakenValidFirstBikeRide hasTakenValidAmbulanceRide hasTakenValidTruckRide hasTakenValidBusRide safetySettings personStats cancellationPerc mbPayoutConfig integratedBPPConfigs isMultimodalRider
   where
-    makeProfileRes Person.Person {..} disability md5DigestHash isSafetyCenterDisabled_ newCustomerReferralCode hasTakenCabRide hasTakenAutoRide hasTakenValidFirstBikeRide hasTakenValidAmbulanceRide hasTakenValidTruckRide hasTakenValidBusRide safetySettings personStats cancellationPerc mbPayoutConfig integratedBPPConfigs isMultimodalRider = do
-      ProfileRes
-        { maskedMobileNumber = maskText <$> mobileNumber,
-          maskedDeviceToken = maskText <$> deviceToken,
-          hasTakenRide = hasTakenValidRide,
-          frontendConfigHash = md5DigestHash,
-          hasTakenValidAutoRide = hasTakenAutoRide,
-          hasTakenValidCabRide = hasTakenCabRide,
-          hasTakenValidBikeRide = hasTakenValidFirstBikeRide,
-          hasTakenValidAmbulanceRide = hasTakenValidAmbulanceRide,
-          hasTakenValidTruckRide = hasTakenValidTruckRide,
-          hasTakenValidBusRide = hasTakenValidBusRide,
-          isSafetyCenterDisabled = isSafetyCenterDisabled_,
-          customerReferralCode = newCustomerReferralCode,
-          bundleVersion = clientBundleVersion,
-          clientVersion = clientSdkVersion,
-          deviceId = maskText <$> deviceId,
-          androidId = maskText <$> androidId,
-          hasCompletedMockSafetyDrill = safetySettings.hasCompletedMockSafetyDrill,
-          hasCompletedSafetySetup = safetySettings.hasCompletedSafetySetup,
-          isBlocked = blocked,
-          referralEarnings = Just personStats.referralEarnings,
-          referredByEarnings = Just personStats.referredByEarnings,
-          referralAmountPaid = Just personStats.referralAmountPaid,
-          isPayoutEnabled = mbPayoutConfig <&> (.isPayoutEnabled),
-          cancellationRate = cancellationPerc,
-          publicTransportVersion = if null integratedBPPConfigs then Nothing else Just (T.intercalate (T.pack "#") $ map (.feedKey) integratedBPPConfigs),
-          ..
-        }
+    makeProfileRes riderConfig Person.Person {..} disability md5DigestHash isSafetyCenterDisabled_ newCustomerReferralCode hasTakenCabRide hasTakenAutoRide hasTakenValidFirstBikeRide hasTakenValidAmbulanceRide hasTakenValidTruckRide hasTakenValidBusRide safetySettings personStats cancellationPerc mbPayoutConfig integratedBPPConfigs isMultimodalRider = do
+      gtfsVersion <-
+        try @_ @SomeException (mapM OTPRest.getGtfsVersion integratedBPPConfigs) >>= \case
+          Left _ -> return (map (.feedKey) integratedBPPConfigs)
+          Right gtfsVersions -> return gtfsVersions
+      return $
+        ProfileRes
+          { maskedMobileNumber = maskText <$> mobileNumber,
+            maskedDeviceToken = maskText <$> deviceToken,
+            hasTakenRide = hasTakenValidRide,
+            frontendConfigHash = md5DigestHash,
+            hasTakenValidAutoRide = hasTakenAutoRide,
+            hasTakenValidCabRide = hasTakenCabRide,
+            hasTakenValidBikeRide = hasTakenValidFirstBikeRide,
+            hasTakenValidAmbulanceRide = hasTakenValidAmbulanceRide,
+            hasTakenValidTruckRide = hasTakenValidTruckRide,
+            hasTakenValidBusRide = hasTakenValidBusRide,
+            isSafetyCenterDisabled = isSafetyCenterDisabled_,
+            customerReferralCode = newCustomerReferralCode,
+            bundleVersion = clientBundleVersion,
+            clientVersion = clientSdkVersion,
+            deviceId = maskText <$> deviceId,
+            androidId = maskText <$> androidId,
+            hasCompletedMockSafetyDrill = safetySettings.hasCompletedMockSafetyDrill,
+            hasCompletedSafetySetup = safetySettings.hasCompletedSafetySetup,
+            isBlocked = blocked,
+            referralEarnings = Just personStats.referralEarnings,
+            referredByEarnings = Just personStats.referredByEarnings,
+            referralAmountPaid = Just personStats.referralAmountPaid,
+            isPayoutEnabled = mbPayoutConfig <&> (.isPayoutEnabled),
+            cancellationRate = cancellationPerc,
+            publicTransportVersion = if null gtfsVersion then Nothing else Just (T.intercalate (T.pack "#") gtfsVersion <> (maybe "" (\version -> "#" <> show version) riderConfig.domainPublicTransportDataVersion)),
+            customerTags = YUtils.convertTags $ fromMaybe [] customerNammaTags,
+            ..
+          }
 
 validRideCount :: [DCP.ClientPersonInfo] -> BecknEnums.VehicleCategory -> Bool
 validRideCount hasTakenValidRide vehicleCategory =
   case find (\info -> info.vehicleCategory == Just vehicleCategory) hasTakenValidRide of
     Just info -> info.rideCount == 1
     Nothing -> False
+
+marketingEvents :: (HasFlowEnv m r '["internalEndPointHashMap" ::: HM.HashMap BaseUrl BaseUrl, "version" ::: DeploymentVersion], CacheFlow m r, EsqDBFlow m r, EsqDBReplicaFlow m r, EncFlow m r, HasFlowEnv m r '["kafkaProducerTools" ::: KafkaProducerTools], EventStreamFlow m r) => MarketEventReq -> m APISuccess.APISuccess
+marketingEvents req = do
+  let params = req.marketingParams
+  now <- getCurrentTime
+  let marketingParams = MarketingParamsEventPreLoginData params.gclId params.utmCampaign params.utmContent params.utmCreativeFormat params.utmMedium params.utmSource params.utmTerm params.appName params.userType now now
+  triggerMarketingParamEventPreLogin marketingParams
+  pure APISuccess.Success
 
 updatePerson :: (CacheFlow m r, EsqDBFlow m r, EncFlow m r, EventStreamFlow m r, HasFlowEnv m r '["internalEndPointHashMap" ::: HM.HashMap BaseUrl BaseUrl, "version" ::: DeploymentVersion], HasFlowEnv m r '["kafkaProducerTools" ::: KafkaProducerTools]) => Id Person.Person -> Id Merchant.Merchant -> UpdateProfileReq -> Maybe Text -> Maybe Version -> Maybe Version -> Maybe Version -> Maybe Text -> m APISuccess.APISuccess
 updatePerson personId merchantId req mbRnVersion mbBundleVersion mbClientVersion mbClientConfigVersion mbDevice = do
@@ -349,13 +388,12 @@ updatePerson personId merchantId req mbRnVersion mbBundleVersion mbClientVersion
   deploymentVersion <- asks (.version)
   person <- QPerson.findById personId >>= fromMaybeM (PersonNotFound personId.getId)
   fork "Triggering kafka marketing params event for person" $
-    when (isNothing person.firstName) $ do
-      case req.marketingParams of
-        Just params -> do
-          now <- getCurrentTime
-          let marketingParams = MarketingParamsEventData person.id params.gclId params.utmCampaign params.utmContent params.utmCreativeFormat params.utmMedium params.utmSource params.utmTerm merchantId person.merchantOperatingCityId now now
-          triggerMarketingParamEvent marketingParams
-        Nothing -> pure ()
+    case req.marketingParams of
+      Just params -> do
+        now <- getCurrentTime
+        let marketingParams = MarketingParamsEventData person.id params.gclId params.utmCampaign params.utmContent params.utmCreativeFormat params.utmMedium params.utmSource params.utmTerm params.appName merchantId person.merchantOperatingCityId params.userType now now
+        triggerMarketingParamEvent marketingParams
+      Nothing -> pure ()
   -- TODO: Remove this part from here once UI stops using updatePerson api to apply referral code
   void $ mapM (\refCode -> Referral.applyReferralCode person False refCode Nothing) req.referralCode
   void $

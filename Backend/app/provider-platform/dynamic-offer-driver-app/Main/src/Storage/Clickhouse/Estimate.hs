@@ -41,8 +41,6 @@ data EstimateT f = EstimateT
 
 deriving instance Show Estimate
 
-instance CH.ClickhouseValue Common.Meters
-
 instance CH.ClickhouseValue Common.Seconds
 
 estimateTTable :: EstimateT (FieldModification EstimateT)
@@ -94,7 +92,7 @@ calulateCongestionByGeohashAndDistanceBin from to = do
             (fromLocGeohash, congestion, tripDistanceBin')
       )
       $ CH.filter_
-        ( \estimate _ ->
+        ( \estimate ->
             estimate.createdAt >=. CH.DateTime from
               CH.&&. estimate.createdAt <=. CH.DateTime to
               CH.&&. estimate.vehicleServiceTier `in_` [DServiceTierType.TAXI]
@@ -116,7 +114,7 @@ calulateCongestionByGeohash from to = do
             (fromLocGeohash, congestion)
       )
       $ CH.filter_
-        ( \estimate _ ->
+        ( \estimate ->
             estimate.createdAt >=. CH.DateTime from
               CH.&&. estimate.createdAt <=. CH.DateTime to
               CH.&&. estimate.vehicleServiceTier `in_` [DServiceTierType.TAXI]
@@ -138,7 +136,7 @@ calulateCongestionByCity from to = do
             (merchantOperatingCityId, congestion)
       )
       $ CH.filter_
-        ( \estimate _ ->
+        ( \estimate ->
             estimate.createdAt >=. CH.DateTime from
               CH.&&. estimate.createdAt <=. CH.DateTime to
               CH.&&. estimate.vehicleServiceTier `in_` [DServiceTierType.TAXI]

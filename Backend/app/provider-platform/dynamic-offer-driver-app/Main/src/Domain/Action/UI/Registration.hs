@@ -32,9 +32,11 @@ where
 
 import Data.OpenApi hiding (email, info, name, url)
 import Data.Text hiding (elem)
+import qualified Domain.Action.Internal.DriverMode as DDriverMode
 import Domain.Action.UI.DriverReferral
 import qualified Domain.Action.UI.Person as SP
 import qualified Domain.Types.Common as DriverInfo
+import qualified Domain.Types.DriverFlowStatus as DriverFlowStatus
 import qualified Domain.Types.DriverInformation as DriverInfo
 import qualified Domain.Types.Extra.Plan as DEP
 import qualified Domain.Types.Merchant as DO
@@ -52,6 +54,7 @@ import Kernel.External.Encryption
 import Kernel.External.Notification.FCM.Types (FCMRecipientToken)
 import Kernel.External.Whatsapp.Interface.Types as Whatsapp
 import Kernel.Sms.Config
+import qualified Kernel.Storage.Clickhouse.Config as CH
 import Kernel.Storage.Esqueleto.Config (EsqDBReplicaFlow)
 import qualified Kernel.Storage.Hedis as Redis
 import Kernel.Streaming.Kafka.Producer.Types (HasKafkaProducer)
@@ -76,6 +79,7 @@ import qualified Storage.Cac.TransporterConfig as SCTC
 import Storage.CachedQueries.Merchant as QMerchant
 import qualified Storage.CachedQueries.Merchant.MerchantOperatingCity as CQMOC
 import qualified Storage.Queries.DriverInformation as QD
+import qualified Storage.Queries.DriverInformation as QDI
 import qualified Storage.Queries.DriverLicense as QDL
 import qualified Storage.Queries.DriverStats as QDriverStats
 import qualified Storage.Queries.Person as QP
@@ -152,9 +156,10 @@ auth ::
   Maybe Version ->
   Maybe Text ->
   Maybe Text ->
+  Maybe Text ->
   Flow AuthRes
-auth isDashboard req' mbBundleVersion mbClientVersion mbClientConfigVersion mbClientId mbDevice = do
-  authRes <- authWithOtp isDashboard req' mbBundleVersion mbClientVersion mbClientConfigVersion mbClientId mbDevice
+auth isDashboard req' mbBundleVersion mbClientVersion mbClientConfigVersion mbReactBundleVersion mbClientId mbDevice = do
+  authRes <- authWithOtp isDashboard req' mbBundleVersion mbClientVersion mbClientConfigVersion mbReactBundleVersion mbClientId mbDevice
   return $ AuthRes {attempts = authRes.attempts, authId = authRes.authId}
 
 authWithOtp ::
@@ -165,8 +170,9 @@ authWithOtp ::
   Maybe Version ->
   Maybe Text ->
   Maybe Text ->
+  Maybe Text ->
   Flow AuthWithOtpRes
-authWithOtp isDashboard req' mbBundleVersion mbClientVersion mbClientConfigVersion mbClientId mbDevice = do
+authWithOtp isDashboard req' mbBundleVersion mbClientVersion mbClientConfigVersion mbReactBundleVersion mbClientId mbDevice = do
   let req = if req'.merchantId == "2e8eac28-9854-4f5d-aea6-a2f6502cfe37" then req' {merchantId = "7f7896dd-787e-4a0b-8675-e9e6fe93bb8f", merchantOperatingCity = Just City.Kochi} :: AuthReq else req' ---   "2e8eac28-9854-4f5d-aea6-a2f6502cfe37" -> YATRI_PARTNER_MERCHANT_ID  , "7f7896dd-787e-4a0b-8675-e9e6fe93bb8f" -> NAMMA_YATRI_PARTNER_MERCHANT_ID
   deploymentVersion <- asks (.version)
   runRequestValidation validateInitiateLoginReq req
@@ -187,13 +193,13 @@ authWithOtp isDashboard req' mbBundleVersion mbClientVersion mbClientConfigVersi
         mobileNumberHash <- getDbHash mobileNumber
         person <-
           QP.findByMobileNumberAndMerchantAndRole countryCode mobileNumberHash merchant.id SP.DRIVER
-            >>= maybe (createDriverWithDetails req mbBundleVersion mbClientVersion mbClientConfigVersion mbDevice (Just deploymentVersion.getDeploymentVersion) merchant.id merchantOpCityId isDashboard) return
+            >>= maybe (createDriverWithDetails req mbBundleVersion mbClientVersion mbClientConfigVersion mbReactBundleVersion mbDevice (Just deploymentVersion.getDeploymentVersion) merchant.id merchantOpCityId isDashboard) return
         return (person, SP.MOBILENUMBER)
       SP.EMAIL -> do
         email <- req.email & fromMaybeM (InvalidRequest "Email is required for email auth")
         person <-
           QP.findByEmailAndMerchant (Just email) merchant.id
-            >>= maybe (createDriverWithDetails req mbBundleVersion mbClientVersion mbClientConfigVersion mbDevice (Just deploymentVersion.getDeploymentVersion) merchant.id merchantOpCityId isDashboard) return
+            >>= maybe (createDriverWithDetails req mbBundleVersion mbClientVersion mbClientConfigVersion mbReactBundleVersion mbDevice (Just deploymentVersion.getDeploymentVersion) merchant.id merchantOpCityId isDashboard) return
         return (person, SP.EMAIL)
       SP.AADHAAR -> throwError $ InvalidRequest "Not implemented yet"
 
@@ -204,7 +210,7 @@ authWithOtp isDashboard req' mbBundleVersion mbClientVersion mbClientConfigVersi
   let mkId = getId merchantId
   token <- makeSession scfg entityId mkId SR.USER useFakeOtpM merchantOpCityId.getId
   _ <- QR.create token
-  QP.updatePersonVersionsAndMerchantOperatingCity person mbBundleVersion mbClientVersion mbClientConfigVersion mbClientId mbDevice (Just deploymentVersion.getDeploymentVersion) merchantOpCityId
+  QP.updatePersonVersionsAndMerchantOperatingCity person mbBundleVersion mbClientVersion mbClientConfigVersion mbReactBundleVersion mbClientId mbDevice (Just deploymentVersion.getDeploymentVersion) merchantOpCityId
   let otpHash = smsCfg.credConfig.otpHash
       otpCode = SR.authValueHash token
   whenNothing_ useFakeOtpM $ do
@@ -314,9 +320,20 @@ createDriverDetails personId merchantId merchantOpCityId transporterConfig = do
             isBlockedForReferralPayout = Nothing,
             onboardingVehicleCategory = Nothing,
             servicesEnabledForSubscription = [DEP.YATRI_SUBSCRIPTION],
+            driverFlowStatus = Just DriverFlowStatus.OFFLINE,
+            onlineDurationRefreshedAt = Just now,
             panNumber = Nothing,
             aadhaarNumber = Nothing,
-            dlNumber = Nothing
+            dlNumber = Nothing,
+            planExpiryDate = Nothing,
+            prepaidSubscriptionBalance = Nothing,
+            walletBalance = Nothing,
+            maxPickupRadius = Nothing,
+            tripDistanceMaxThreshold = Nothing,
+            tripDistanceMinThreshold = Nothing,
+            rideRequestVolume = Nothing,
+            isSilentModeEnabled = Nothing,
+            isTTSEnabled = Nothing
           }
   QDriverStats.createInitialDriverStats merchantOperatingCity.currency merchantOperatingCity.distanceUnit driverId
   QD.create driverInfo
@@ -334,12 +351,13 @@ makePerson ::
   Maybe Version ->
   Maybe Text ->
   Maybe Text ->
+  Maybe Text ->
   Id DO.Merchant ->
   Id DMOC.MerchantOperatingCity ->
   Bool ->
   Maybe SP.Role ->
   m SP.Person
-makePerson req transporterConfig mbBundleVersion mbClientVersion mbClientConfigVersion mbDevice mbBackendApp merchantId merchantOperatingCityId isDashboard mbRole = do
+makePerson req transporterConfig mbBundleVersion mbClientVersion mbClientConfigVersion mbReactBundleVersion mbDevice mbBackendApp merchantId merchantOperatingCityId isDashboard mbRole = do
   pid <- BC.generateGUID
   now <- getCurrentTime
   let identifierType = fromMaybe SP.MOBILENUMBER req.identifierType
@@ -403,7 +421,8 @@ makePerson req transporterConfig mbBundleVersion mbClientVersion mbClientConfigV
         clientId = Nothing,
         driverTag = Just [safetyCohortNewTag],
         maskedMobileDigits = fmap (takeEnd 4) req.mobileNumber,
-        nyClubConsent = Just False
+        nyClubConsent = Just False,
+        reactBundleVersion = mbReactBundleVersion
       }
 
 makeSession ::
@@ -449,10 +468,10 @@ makeSession SmsSessionConfig {..} entityId merchantId entityType fakeOtp merchan
 verifyHitsCountKey :: Id SP.Person -> Text
 verifyHitsCountKey id = "BPP:Registration:verify:" <> getId id <> ":hitsCount"
 
-createDriverWithDetails :: (EncFlow m r, EsqDBFlow m r, CacheFlow m r) => AuthReq -> Maybe Version -> Maybe Version -> Maybe Version -> Maybe Text -> Maybe Text -> Id DO.Merchant -> Id DMOC.MerchantOperatingCity -> Bool -> m SP.Person
-createDriverWithDetails req mbBundleVersion mbClientVersion mbClientConfigVersion mbDevice mbBackendApp merchantId merchantOpCityId isDashboard = do
+createDriverWithDetails :: (EncFlow m r, EsqDBFlow m r, CacheFlow m r) => AuthReq -> Maybe Version -> Maybe Version -> Maybe Version -> Maybe Text -> Maybe Text -> Maybe Text -> Id DO.Merchant -> Id DMOC.MerchantOperatingCity -> Bool -> m SP.Person
+createDriverWithDetails req mbBundleVersion mbClientVersion mbClientConfigVersion mbReactBundleVersion mbDevice mbBackendApp merchantId merchantOpCityId isDashboard = do
   transporterConfig <- SCTC.findByMerchantOpCityId merchantOpCityId Nothing >>= fromMaybeM (TransporterConfigNotFound merchantOpCityId.getId)
-  person <- makePerson req transporterConfig mbBundleVersion mbClientVersion mbClientConfigVersion mbDevice mbBackendApp merchantId merchantOpCityId isDashboard Nothing
+  person <- makePerson req transporterConfig mbBundleVersion mbClientVersion mbClientConfigVersion mbReactBundleVersion mbDevice mbBackendApp merchantId merchantOpCityId isDashboard Nothing
   void $ QP.create person
   createDriverDetails (person.id) merchantId merchantOpCityId transporterConfig
   pure person
@@ -571,16 +590,22 @@ cleanCachedTokens personId = do
 logout ::
   ( EsqDBFlow m r,
     CacheFlow m r,
-    Redis.HedisFlow m r
+    Redis.HedisFlow m r,
+    HasField "serviceClickhouseCfg" r CH.ClickhouseCfg,
+    HasField "serviceClickhouseEnv" r CH.ClickhouseEnv
   ) =>
   (Id SP.Person, Id DO.Merchant, Id DMOC.MerchantOperatingCity) ->
   m APISuccess
-logout (personId, _, _) = do
+logout (personId, _, merchantOpCityId) = do
+  transporterConfig <- SCTC.findByMerchantOpCityId merchantOpCityId Nothing >>= fromMaybeM (TransporterConfigNotFound merchantOpCityId.getId)
   cleanCachedTokens personId
   uperson <-
     QP.findById personId
       >>= fromMaybeM (PersonNotFound personId.getId)
   _ <- QP.updateDeviceToken Nothing uperson.id
   QR.deleteByPersonId personId.getId
-  when (uperson.role == SP.DRIVER) $ void (QD.updateActivity False (Just DriverInfo.OFFLINE) (cast uperson.id))
+  when (uperson.role == SP.DRIVER) $ do
+    driverInfo <- QDI.findById personId >>= fromMaybeM DriverInfoNotFound
+    let newFlowStatus = DDriverMode.getDriverFlowStatus (Just DriverInfo.OFFLINE) False
+    DDriverMode.updateDriverModeAndFlowStatus uperson.id transporterConfig False (Just DriverInfo.OFFLINE) newFlowStatus driverInfo
   pure Success

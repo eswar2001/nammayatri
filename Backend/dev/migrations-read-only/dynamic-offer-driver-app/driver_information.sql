@@ -223,3 +223,44 @@ ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN dl_number_hash 
 ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN dl_number_encrypted text ;
 ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN aadhaar_number_hash text ;
 ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN aadhaar_number_encrypted text ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN prepaid_subscription_balance double precision ;
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN plan_expiry_date timestamp with time zone ;
+
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN driver_flow_status text ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN wallet_balance double precision ;
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN online_duration_refreshed_at timestamp with time zone  default CURRENT_TIMESTAMP;
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN trip_distance_min_threshold integer ;
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN trip_distance_max_threshold integer ;
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN ride_request_volume integer ;
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN max_pickup_radius integer ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN is_silent_mode_enabled boolean ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.driver_information ADD COLUMN is_tts_enabled boolean default true;

@@ -25,6 +25,10 @@ getRouteByRouteId baseUrl gtfsId routeId = do
         logError $ "Error getting route by route id: " <> show err
         pure Nothing
 
+getRoutesByRouteIds :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> [Text] -> m [RouteInfoNandi]
+getRoutesByRouteIds baseUrl gtfsId routeIds = do
+  withShortRetry $ callAPI baseUrl (NandiAPI.getNandiRoutesByRouteIds gtfsId routeIds) "getRoutesByRouteIds" NandiAPI.nandiRoutesByRouteIdsAPI >>= fromEitherM (ExternalAPICallError (Just "UNABLE_TO_CALL_NANDI_GET_ROUTES_BY_ROUTE_IDS_API") baseUrl)
+
 getRouteByFuzzySearch :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> Text -> m [RouteInfoNandi]
 getRouteByFuzzySearch baseUrl gtfsId query = do
   withShortRetry $ callAPI baseUrl (NandiAPI.getNandiRouteFuzzySearch gtfsId query) "getRouteByFuzzySearch" NandiAPI.nandiRouteFuzzySearchAPI >>= fromEitherM (ExternalAPICallError (Just "UNABLE_TO_CALL_NANDI_GET_ROUTE_FUZZY_SEARCH_API") baseUrl)
@@ -45,7 +49,7 @@ getRouteStopMappingInMemoryServer baseUrl gtfsId routeCode' stopCode' = do
       logError $ "routeCode or stopCode is not provided, skipping gtfs inmemory server rest api calls" <> show (baseUrl, gtfsId)
       throwError $ InternalError "routeCode or stopCode is not provided, skipping gtfs inmemory server rest api calls"
 
-getStationsByGtfsId :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> m [RouteStopMappingInMemoryServer]
+getStationsByGtfsId :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> m [RouteStopMappingInMemoryServerWithPublicData]
 getStationsByGtfsId baseUrl gtfsId = do
   withShortRetry $ callAPI baseUrl (NandiAPI.getNandiStopsByGtfsId gtfsId) "getStationsByGtfsId" NandiAPI.nandiStopsByGtfsIdAPI >>= fromEitherM (ExternalAPICallError (Just "UNABLE_TO_CALL_NANDI_GET_STATIONS_BY_GTFS_ID_API") baseUrl)
 
@@ -59,7 +63,7 @@ getStationsByGtfsIdFuzzySearch baseUrl gtfsId query = do
 
 getGtfsVersion :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> m Text
 getGtfsVersion baseUrl gtfsId = do
-  withShortRetry $ callAPI baseUrl (NandiAPI.getNandiGtfsVersion gtfsId) "getGtfsVersion" NandiAPI.nandiGtfsVersionAPI >>= fromEitherM (ExternalAPICallError (Just "UNABLE_TO_CALL_NANDI_GET_GTFS_VERSION_API") baseUrl)
+  withShortRetry $ callAPI baseUrl (NandiAPI.getNandiGtfsVersion gtfsId) "getGtfsVersion" NandiAPI.nandiGtfsVersionAPI >>= fromEitherM (ExternalAPICallError (Just ("UNABLE_TO_CALL_NANDI_GET_GTFS_VERSION_API:" <> show gtfsId)) baseUrl)
 
 getStopChildren :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> Text -> m [Text]
 getStopChildren baseUrl gtfsId stopCode = do
@@ -71,10 +75,10 @@ caseTextToVehicleCategory "TRAIN" = BecknV2.FRFS.Enums.METRO
 caseTextToVehicleCategory "SUBWAY" = BecknV2.FRFS.Enums.SUBWAY
 caseTextToVehicleCategory _ = BecknV2.FRFS.Enums.BUS
 
-getVehicleServiceType :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> m (Maybe VehicleServiceTypeResponse)
-getVehicleServiceType baseUrl vehicleNumber = do
+getVehicleServiceType :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> Text -> m (Maybe VehicleServiceTypeResponse)
+getVehicleServiceType baseUrl gtfsId vehicleNumber = do
   withShortRetry $
-    callAPI baseUrl (NandiAPI.getNandiVehicleServiceType vehicleNumber) "getVehicleServiceType" NandiAPI.nandiVehicleServiceTypeAPI >>= \case
+    callAPI baseUrl (NandiAPI.getNandiVehicleServiceType gtfsId vehicleNumber) "getVehicleServiceType" NandiAPI.nandiVehicleServiceTypeAPI >>= \case
       Right response -> pure (Just response)
       Left err -> do
         logError $ "Error getting vehicle service type: " <> show err
@@ -91,4 +95,26 @@ getStopCode baseUrl gtfsId providerStopCode = do
       Right response -> pure (Just response)
       Left err -> do
         logError $ "Error getting stop code: " <> show err
+        pure Nothing
+
+getNandiTripInfo :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> m (Maybe TripInfoResponse)
+getNandiTripInfo baseUrl tripId = do
+  withShortRetry $
+    callAPI baseUrl (NandiAPI.getNandiTripInfo tripId) "getNandiTripInfo" NandiAPI.nandiTripInfoAPI >>= \case
+      Right response -> pure (Just response)
+      Left err -> do
+        logError $ "Error getting trip info: " <> show err
+        pure Nothing
+
+postRouteStopMappingByStopCodes :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> [Text] -> m [RouteStopMappingInMemoryServer]
+postRouteStopMappingByStopCodes baseUrl gtfsId stopCodes = do
+  withShortRetry $ callAPI baseUrl (NandiAPI.postNandiRouteStopMappingByStopCodes (RouteStopMappingByStopCodesReq {..})) "postRouteStopMappingByStopCodes" NandiAPI.nandiRouteStopMappingByStopCodesAPI >>= fromEitherM (ExternalAPICallError (Just "UNABLE_TO_CALL_NANDI_POST_ROUTE_STOP_MAPPING_BY_STOP_CODES_API") baseUrl)
+
+getExampleTrip :: (CoreMetrics m, MonadFlow m, MonadReader r m, HasShortDurationRetryCfg r c) => BaseUrl -> Text -> Text -> m (Maybe TripDetails)
+getExampleTrip baseUrl gtfsId routeId = do
+  withShortRetry $
+    callAPI baseUrl (NandiAPI.getNandiExampleTrip gtfsId routeId) "getExampleTrip" NandiAPI.nandiExampleTripAPI >>= \case
+      Right response -> pure (Just response)
+      Left err -> do
+        logError $ "Error getting example trip: " <> show err
         pure Nothing

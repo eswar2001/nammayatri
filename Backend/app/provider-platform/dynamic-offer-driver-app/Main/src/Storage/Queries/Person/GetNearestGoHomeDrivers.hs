@@ -44,6 +44,8 @@ data NearestGoHomeDriversReq = NearestGoHomeDriversReq
     homeRadius :: Meters,
     merchantId :: Id Merchant,
     driverPositionInfoExpiry :: Maybe Seconds,
+    prepaidSubscriptionThreshold :: Maybe HighPrecMoney,
+    rideFare :: Maybe HighPrecMoney,
     isRental :: Bool,
     isInterCity :: Bool,
     onlinePayment :: Bool,
@@ -67,6 +69,7 @@ data NearestGoHomeDriversResult = NearestGoHomeDriversResult
     mode :: Maybe DriverInfo.DriverMode,
     clientSdkVersion :: Maybe Version,
     clientBundleVersion :: Maybe Version,
+    reactBundleVersion :: Maybe Text,
     clientConfigVersion :: Maybe Version,
     clientDevice :: Maybe Device,
     vehicleAge :: Maybe Months,
@@ -75,7 +78,9 @@ data NearestGoHomeDriversResult = NearestGoHomeDriversResult
     latestScheduledBooking :: Maybe UTCTime,
     latestScheduledPickup :: Maybe LatLong,
     driverTags :: A.Value,
-    score :: Maybe A.Value
+    score :: Maybe A.Value,
+    tripDistanceMinThreshold :: Maybe Meters,
+    tripDistanceMaxThreshold :: Maybe Meters
   }
   deriving (Generic, Show, HasCoordinates)
 
@@ -89,7 +94,7 @@ getNearestGoHomeDrivers NearestGoHomeDriversReq {..} = do
   driverLocs <- Int.getDriverLocsWithCond merchantId driverPositionInfoExpiry fromLocation nearestRadius (Just allowedVehicleVariant)
   specialLocWarriorDriverInfos <- Int.getSpecialLocWarriorDriverInfoWithCond (driverLocs <&> (.driverId)) True False isRental isInterCity
   driverHomeLocs <- Int.getDriverGoHomeReqNearby (driverLocs <&> (.driverId))
-  driverInfoWithoutSpecialLocWarrior <- Int.getDriverInfosWithCond (driverHomeLocs <&> (.driverId)) True False isRental isInterCity
+  driverInfoWithoutSpecialLocWarrior <- Int.getDriverInfosWithCond (driverHomeLocs <&> (.driverId)) True False isRental isInterCity prepaidSubscriptionThreshold rideFare
   let driverInfos = specialLocWarriorDriverInfos <> driverInfoWithoutSpecialLocWarrior
   logDebug $ "MetroWarriorDebugging getNearestGoHomeDrivers" <> show (DIAPI.convertToDriverInfoAPIEntity <$> specialLocWarriorDriverInfos)
   vehicle <- Int.getVehicles driverInfos
@@ -166,6 +171,7 @@ getNearestGoHomeDrivers NearestGoHomeDriversReq {..} = do
                 mode = info.mode,
                 clientSdkVersion = person.clientSdkVersion,
                 clientBundleVersion = person.clientBundleVersion,
+                reactBundleVersion = person.reactBundleVersion,
                 clientConfigVersion = person.clientConfigVersion,
                 clientDevice = person.clientDevice,
                 vehicleAge = getVehicleAge vehicle.mYManufacturing now,
@@ -174,5 +180,7 @@ getNearestGoHomeDrivers NearestGoHomeDriversReq {..} = do
                 latestScheduledBooking = info.latestScheduledBooking,
                 latestScheduledPickup = info.latestScheduledPickup,
                 driverTags = Yudhishthira.convertTags $ fromMaybe [] person.driverTag,
-                score = Nothing
+                score = Nothing,
+                tripDistanceMinThreshold = Nothing,
+                tripDistanceMaxThreshold = Nothing
               }

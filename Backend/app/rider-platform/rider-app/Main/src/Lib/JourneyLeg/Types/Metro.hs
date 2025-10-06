@@ -14,7 +14,7 @@ import Kernel.External.Maps.Google.MapsClient.Types
 import Kernel.Prelude
 import qualified Kernel.Types.Beckn.Context as Context
 import Kernel.Types.Id
-import Kernel.Utils.Common
+import qualified Lib.JourneyModule.Types as JL
 
 data MetroLegRequestSearchData = MetroLegRequestSearchData
   { quantity :: Int,
@@ -22,7 +22,9 @@ data MetroLegRequestSearchData = MetroLegRequestSearchData
     merchantId :: Id DMerchant.Merchant,
     city :: Context.City,
     journeyLeg :: DJourneyLeg.JourneyLeg,
-    recentLocationId :: Maybe (Id DRecentLocation.RecentLocation)
+    multimodalSearchRequestId :: Maybe Text,
+    recentLocationId :: Maybe (Id DRecentLocation.RecentLocation),
+    upsertJourneyLegAction :: forall m r c. JL.SearchRequestFlow m r c => Text -> m ()
   }
 
 data MetroLegRequestUpdateData = MetroLegRequestUpdateData
@@ -30,38 +32,30 @@ data MetroLegRequestUpdateData = MetroLegRequestUpdateData
 data MetroLegRequestConfirmData = MetroLegRequestConfirmData
   { quoteId :: Maybe (Id FRFSQuote),
     searchId :: Id FRFSSearch.FRFSSearch,
-    skipBooking :: Bool,
+    bookLater :: Bool,
     bookingAllowed :: Bool,
     personId :: Id DPerson.Person,
     merchantId :: Id DMerchant.Merchant,
     merchantOperatingCityId :: Id DMOC.MerchantOperatingCity,
     quantity :: Maybe Int,
-    childTicketQuantity :: Maybe Int
+    childTicketQuantity :: Maybe Int,
+    isSingleMode :: Maybe Bool
   }
 
 data MetroLegRequestCancelData = MetroLegRequestCancelData
   { searchId :: Id FRFSSearch.FRFSSearch,
-    cancellationType :: Spec.CancellationType,
-    isSkipped :: Bool
-  }
-
-data MetroLegRequestIsCancellableData = MetroLegRequestIsCancellableData
-  { searchId :: Id FRFSSearch.FRFSSearch
+    cancellationType :: Spec.CancellationType
   }
 
 data MetroLegRequestGetStateData = MetroLegRequestGetStateData
   { searchId :: Id FRFSSearch.FRFSSearch,
     riderLastPoints :: [ApiTypes.RiderLocationReq],
-    isLastCompleted :: Bool
+    journeyLeg :: DJourneyLeg.JourneyLeg
   }
 
 data MetroLegRequestGetInfoData = MetroLegRequestGetInfoData
   { searchId :: Id FRFSSearch.FRFSSearch,
-    fallbackFare :: Maybe HighPrecMoney,
-    distance :: Maybe Distance,
-    duration :: Maybe Seconds,
-    journeyLeg :: DJourneyLeg.JourneyLeg,
-    ignoreOldSearchRequest :: Bool
+    journeyLeg :: DJourneyLeg.JourneyLeg
   }
 
 data MetroLegRequest
@@ -69,7 +63,6 @@ data MetroLegRequest
   | MetroLegRequestConfirm MetroLegRequestConfirmData
   | MetroLegRequestUpdate MetroLegRequestUpdateData
   | MetroLegRequestCancel MetroLegRequestCancelData
-  | MetroLegRequestIsCancellable MetroLegRequestIsCancellableData
   | MetroLegRequestGetFare MetroLegRequestGetFareData
   | MetroLegRequestGetState MetroLegRequestGetStateData
   | MetroLegRequestGetInfo MetroLegRequestGetInfoData

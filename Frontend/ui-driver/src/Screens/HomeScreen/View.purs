@@ -524,6 +524,7 @@ view push state =
       , if state.props.showCoinsPopup then PopUpModal.view (push <<< CoinsPopupAC) (introducingCoinsPopup state) else dummyTextView
       , if state.props.showPetRidesPopup then PopUpModal.view (push <<< PetRidesPopupAC) (petRidesPopupConfig state petRidesFeatureConfig) else dummyTextView
       , if state.props.showOptOutPetRidesPopup then PopUpModal.view (push <<< OptOutPetRidesPopupAC) (optOutPetRidesPopup state petRidesFeatureConfig) else dummyTextView
+      , if state.props.showPetRidesInfoPopUp then PopUpModal.view (push <<< PetRidesInfoPopupAC) (petRidesInfoPopupConfig state petRidesFeatureConfig) else dummyTextView
       , if state.props.coinPopupType /= ST.NO_COIN_POPUP then PopUpModal.view (push <<< CoinEarnedPopupAC) (coinEarnedPopup state) else dummyTextView
       , if state.data.driverGotoState.showGoto then gotoListView push state else dummyTextView
       , if state.data.driverGotoState.goToPopUpType /= ST.NO_POPUP_VIEW then gotoRequestPopupView push state else dummyTextView
@@ -1441,12 +1442,13 @@ driverProfile push state =
       showShield = state.props.nyClubConsent == Just true && (state.data.nyClubTag == Just "ny_member" || state.data.nyClubTag == Just "ny_member_probation")
       configs = cancellationThresholds "cancellation_rate_thresholds" city
       showRingImage = state.data.cancellationRate > configs.warning1 ||(isJust state.data.overchargingTag && state.data.overchargingTag /= Just APITypes.NoOverCharging) || showShield
+      cityConfig = HU.getCityConfig state.data.config.cityConfig city
       ringImage =
         case state.data.overchargingTag of
           Just overchargingTag ->
-            if state.data.cancellationRate > configs.warning2 || overchargingTag `elem` [APITypes.SuperOverCharging, APITypes.HighOverCharging,APITypes.MediumOverCharging] then HU.fetchImage HU.FF_ASSET "ny_ic_red_pfp_ring"
-            else if state.data.cancellationRate > configs.warning1 || overchargingTag == APITypes.ModerateOverCharging then HU.fetchImage HU.FF_ASSET "ny_ic_orange_pfp_ring"
-            else if overchargingTag `elem` [APITypes.LowOverCharging, APITypes.VeryLowOverCharging] then HU.fetchImage HU.COMMON_ASSET "ny_ic_yellow_pfp_ring"
+            if state.data.cancellationRate > configs.warning2 || (overchargingTag `elem` [APITypes.SuperOverCharging, APITypes.HighOverCharging,APITypes.MediumOverCharging] && fromMaybe false cityConfig.overChargingFlow) then HU.fetchImage HU.FF_ASSET "ny_ic_red_pfp_ring"
+            else if state.data.cancellationRate > configs.warning1 || (overchargingTag == APITypes.ModerateOverCharging && fromMaybe false cityConfig.overChargingFlow) then HU.fetchImage HU.FF_ASSET "ny_ic_orange_pfp_ring"
+            else if overchargingTag `elem` [APITypes.LowOverCharging, APITypes.VeryLowOverCharging] && fromMaybe false cityConfig.overChargingFlow then HU.fetchImage HU.COMMON_ASSET "ny_ic_yellow_pfp_ring"
             else ""
           Nothing ->  if state.data.cancellationRate > configs.warning2 then HU.fetchImage HU.FF_ASSET "ny_ic_red_pfp_ring"
             else if showShield then HU.fetchImage HU.FF_ASSET "ny_ic_ring_blue"
@@ -1461,7 +1463,7 @@ driverProfile push state =
         width $ V 64
       , height $ V 64
       , onClick push $ const GoToProfile
-    ][  relativeLayout 
+    ][  relativeLayout
         [  width $ V 58
         , height $ V 58
         , alignParentBottom "true,-1"
@@ -3697,9 +3699,9 @@ driverConsentPopup push state =
                     , linearLayout
                       [ height WRAP_CONTENT
                       , width MATCH_PARENT
-                      , orientation VERTICAL 
+                      , orientation VERTICAL
                       , margin $ Margin 8 0 16 0
-                      ](map (\item-> 
+                      ](map (\item->
                           linearLayout
                           [ height WRAP_CONTENT
                           , width MATCH_PARENT
@@ -3715,7 +3717,7 @@ driverConsentPopup push state =
                               [ width WRAP_CONTENT
                               , height WRAP_CONTENT
                               , margin $ MarginLeft 8
-                              , text item 
+                              , text item
                               , accessibility ENABLE
                               , accessibilityHint item
                               ] <> (FontStyle.getFontStyle FontStyle.Body5 TypoGraphy)
@@ -3735,7 +3737,7 @@ driverConsentPopup push state =
                       , onClick push $ const $ ConsentPopupTnC
                       ] <> (FontStyle.getFontStyle FontStyle.Body5 TypoGraphy)
                     , PrimaryButton.view (push <<< ConsentPopupAccept) (consentAcceptButton state)
-                    , 
+                    ,
                     linearLayout
                       [ width MATCH_PARENT
                       , height WRAP_CONTENT

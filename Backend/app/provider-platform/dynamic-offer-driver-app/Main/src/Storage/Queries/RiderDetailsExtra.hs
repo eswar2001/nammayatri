@@ -14,6 +14,7 @@ import Kernel.Utils.Common
 import qualified Sequelize as Se
 import qualified Storage.Beam.RiderDetails as BeamRD
 import Storage.Queries.OrphanInstances.RiderDetails ()
+import Tools.Error (RiderDetailsError (..))
 
 -- Extra code goes here --
 
@@ -21,6 +22,11 @@ findByMobileNumberAndMerchant :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r, Enc
 findByMobileNumberAndMerchant mobileNumber_ (Id merchantId) = do
   mobileNumberDbHash <- getDbHash mobileNumber_
   findOneWithKV [Se.And [Se.Is BeamRD.mobileNumberHash $ Se.Eq mobileNumberDbHash, Se.Is BeamRD.merchantId $ Se.Eq merchantId]]
+
+findByMobileNumberAndMerchantAndBapId :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r, EncFlow m r) => Text -> Id Merchant -> Text -> m (Maybe RiderDetails)
+findByMobileNumberAndMerchantAndBapId mobileNumber_ (Id merchantId) bapId_ = do
+  mobileNumberDbHash <- getDbHash mobileNumber_
+  findOneWithKV [Se.And [Se.Is BeamRD.mobileNumberHash $ Se.Eq mobileNumberDbHash, Se.Is BeamRD.merchantId $ Se.Eq merchantId, Se.Is BeamRD.bapId $ Se.Eq (Just bapId_)]]
 
 findByMobileNumberHashAndMerchant :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => DbHash -> Id Merchant -> m (Maybe RiderDetails)
 findByMobileNumberHashAndMerchant mobileNumberDbHash (Id merchantId) = findOneWithKV [Se.And [Se.Is BeamRD.mobileNumberHash $ Se.Eq mobileNumberDbHash, Se.Is BeamRD.merchantId $ Se.Eq merchantId]]
@@ -51,3 +57,53 @@ findAllRiderDetailsWithOptions merchantId limit offset mbFrom mbTo areActivatedR
     (Se.Desc BeamRD.createdAt)
     (Just limit)
     (Just offset)
+
+updateCancelledRidesCount :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Text -> m ()
+updateCancelledRidesCount riderId = do
+  now <- getCurrentTime
+  riderDetails <- findOneWithKV [Se.Is BeamRD.id (Se.Eq riderId)] >>= fromMaybeM (RiderDetailsNotFound riderId)
+  updateOneWithKV
+    [ Se.Set BeamRD.cancelledRides (Just (riderDetails.cancelledRides + 1)),
+      Se.Set BeamRD.updatedAt now
+    ]
+    [Se.Is BeamRD.id (Se.Eq riderId)]
+
+updateValidCancellationsCount :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Text -> m ()
+updateValidCancellationsCount riderId = do
+  now <- getCurrentTime
+  riderDetails <- findOneWithKV [Se.Is BeamRD.id (Se.Eq riderId)] >>= fromMaybeM (RiderDetailsNotFound riderId)
+  updateOneWithKV
+    [ Se.Set BeamRD.validCancellations (Just (riderDetails.validCancellations + 1)),
+      Se.Set BeamRD.updatedAt now
+    ]
+    [Se.Is BeamRD.id (Se.Eq riderId)]
+
+updateCancellationDueRidesCount :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Text -> m ()
+updateCancellationDueRidesCount riderId = do
+  now <- getCurrentTime
+  riderDetails <- findOneWithKV [Se.Is BeamRD.id (Se.Eq riderId)] >>= fromMaybeM (RiderDetailsNotFound riderId)
+  updateOneWithKV
+    [ Se.Set BeamRD.cancellationDueRides (Just (riderDetails.cancellationDueRides + 1)),
+      Se.Set BeamRD.updatedAt now
+    ]
+    [Se.Is BeamRD.id (Se.Eq riderId)]
+
+updateTotalBookingsCount :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Text -> m ()
+updateTotalBookingsCount riderId = do
+  now <- getCurrentTime
+  riderDetails <- findOneWithKV [Se.Is BeamRD.id (Se.Eq riderId)] >>= fromMaybeM (RiderDetailsNotFound riderId)
+  updateOneWithKV
+    [ Se.Set BeamRD.totalBookings (Just (riderDetails.totalBookings + 1)),
+      Se.Set BeamRD.updatedAt now
+    ]
+    [Se.Is BeamRD.id (Se.Eq riderId)]
+
+updateCompletedRidesCount :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Text -> m ()
+updateCompletedRidesCount riderId = do
+  now <- getCurrentTime
+  riderDetails <- findOneWithKV [Se.Is BeamRD.id (Se.Eq riderId)] >>= fromMaybeM (RiderDetailsNotFound riderId)
+  updateOneWithKV
+    [ Se.Set BeamRD.completedRides (Just (riderDetails.completedRides + 1)),
+      Se.Set BeamRD.updatedAt now
+    ]
+    [Se.Is BeamRD.id (Se.Eq riderId)]

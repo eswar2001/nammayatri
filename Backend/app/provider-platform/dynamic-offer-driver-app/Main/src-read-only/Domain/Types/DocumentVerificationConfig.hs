@@ -27,6 +27,7 @@ data DocumentVerificationConfig = DocumentVerificationConfig
     isHidden :: Kernel.Prelude.Bool,
     isImageValidationRequired :: Kernel.Prelude.Bool,
     isMandatory :: Kernel.Prelude.Bool,
+    isMandatoryForEnabling :: Kernel.Prelude.Maybe Kernel.Prelude.Bool,
     maxRetryCount :: Kernel.Prelude.Int,
     merchantId :: Kernel.Types.Id.Id Domain.Types.Merchant.Merchant,
     merchantOperatingCityId :: Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity,
@@ -71,6 +72,19 @@ data DocumentType
   | BusinessLicense
   | Odometer
   | InspectionHub
+  | KIWADriverCard
+  | KIWATaxiPermit
+  | KvKChamberOfCommerceRegistration
+  | TAXDetails
+  | BankingDetails
+  | VehicleDetails
+  | SchipolAirportAgreement
+  | SchipolSmartcardProof
+  | TXQualityMark
+  | TaxiDriverPermit
+  | TaxiTransportLicense
+  | FinnishIDResidencePermit
+  | BusinessRegistrationExtract
   deriving (Eq, Ord, Show, Read, Generic, ToJSON, FromJSON, ToSchema)
 
 data SupportedVehicleClasses
@@ -91,12 +105,12 @@ data VehicleClassVariantMap = VehicleClassVariantMap
     vehicleModel :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     vehicleVariant :: Domain.Types.VehicleVariant.VehicleVariant
   }
-  deriving (Generic, Show, ToJSON, FromJSON, ToSchema, Eq, Ord, Read)
+  deriving (Generic, Show, ToJSON, FromJSON, ToSchema, Eq, (Ord), (Read))
 
-$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''DocumentCategory)
+$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList (''DocumentCategory))
 
-$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''DocumentType)
+$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList (''DocumentType))
 
-$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''SupportedVehicleClasses)
+$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList (''SupportedVehicleClasses))
 
-$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''VehicleClassCheckType)
+$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList (''VehicleClassCheckType))

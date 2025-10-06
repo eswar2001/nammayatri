@@ -6,6 +6,7 @@ imports:
   UTCTime: Kernel.Prelude
   LatLong: Kernel.External.Maps
   DriverMode: Domain.Types.Common
+  DriverFlowStatus: Domain.Types.DriverFlowStatus
   TripCategory: Domain.Types.Common
   BlockReasonFlag: Tools.Error
   SpecialLocationWarrior: Lib.Queries.SpecialLocation
@@ -17,7 +18,7 @@ imports:
   ServiceNames : Domain.Types.Extra.Plan
   EncryptedHashedField: Kernel.External.Encryption
   DbHash: Kernel.External.Encryption
-
+  Meters: Kernel.Types.Common
 DriverInformation:
   tableName: driver_information
   types:
@@ -80,6 +81,8 @@ DriverInformation:
     mode: Maybe DriverMode
     aadhaarVerified: Bool
     autoPayStatus: Maybe DriverAutoPayStatus
+    prepaidSubscriptionBalance: Maybe HighPrecMoney
+    planExpiryDate: Maybe UTCTime
     blockedReason: Maybe Text
     blockExpiryTime: Maybe UTCTime
     payerVpa: Maybe Text
@@ -121,6 +124,15 @@ DriverInformation:
     panNumber: Maybe (EncryptedHashedField e Text)
     aadhaarNumber: Maybe (EncryptedHashedField e Text)
     dlNumber: Maybe (EncryptedHashedField e Text)
+    driverFlowStatus: Maybe DriverFlowStatus
+    walletBalance: Maybe HighPrecMoney
+    onlineDurationRefreshedAt: Maybe UTCTime
+    maxPickupRadius: Maybe Meters
+    tripDistanceMaxThreshold: Maybe Meters
+    tripDistanceMinThreshold: Maybe Meters
+    rideRequestVolume: Maybe Int
+    isSilentModeEnabled: Maybe Bool
+    isTTSEnabled: Maybe Bool
 
   default:
     active: "false"
@@ -143,6 +155,7 @@ DriverInformation:
     acRestrictionLiftCount: "0"
     hasAdvanceBooking: "false"
     isInteroperable: "false"
+    onlineDurationRefreshedAt: 'CURRENT_TIMESTAMP'
   constraints:
     driverId: PrimaryKey
 
@@ -269,6 +282,12 @@ DriverInformation:
           canSwitchToIntraCity,
           availableUpiApps,
           isPetModeEnabled,
+          tripDistanceMaxThreshold,
+          tripDistanceMinThreshold,
+          maxPickupRadius,
+          isSilentModeEnabled,
+          rideRequestVolume,
+          isTTSEnabled,
         ]
       where: driverId
     updateRentalInterCityAndIntraCitySwitch:
@@ -294,7 +313,7 @@ DriverInformation:
       where: driverId
     updateActivity:
       kvFunction: updateOneWithKV
-      params: [active, mode]
+      params: [active, mode, driverFlowStatus]
       where: driverId
     addReferralCode: #check
       kvFunction: updateOneWithKV
@@ -401,4 +420,8 @@ DriverInformation:
     updateDrunkAndDriveViolationCount:
       kvFunction: updateOneWithKV
       params: [drunkAndDriveViolationCount]
+      where: driverId
+    updateWalletBalance:
+      kvFunction: updateOneWithKV
+      params: [walletBalance]
       where: driverId

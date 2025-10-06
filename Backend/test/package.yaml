@@ -104,6 +104,8 @@ dependencies:
   - sequelize
   - fdep
   - fieldInspector
+  - beckn-spec
+
 ghc-options:
   - -fwrite-ide-info
   - -hiedir=.hie
@@ -149,6 +151,7 @@ tests:
       - app
     dependencies:
       - beckn-test
+      - beckn-spec
     when:
     - condition: flag(Local)
       then:

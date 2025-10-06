@@ -22,7 +22,7 @@ import Servant
 import Storage.Beam.SystemConfigs ()
 import Tools.Auth
 
-type API = (TokenAuth :> "cityConfigs" :> Get ('[JSON]) API.Types.UI.Merchant.CityConfigs)
+type API = (TokenAuth :> "cityConfigs" :> Get '[JSON] API.Types.UI.Merchant.CityConfigs)
 
 handler :: Environment.FlowServer API
 handler = getCityConfigs

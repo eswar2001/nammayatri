@@ -83,6 +83,7 @@ library
     , fdep
     , fieldInspector
     , generic-lens
+    , haskell-cac
     , hspec
     , mobility-core
     , openapi3
@@ -171,6 +172,7 @@ executable rider-app-scheduler-exe
     , fdep
     , fieldInspector
     , generic-lens
+    , haskell-cac
     , hspec
     , mobility-core
     , openapi3

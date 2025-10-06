@@ -4,13 +4,12 @@ imports:
   Station: Domain.Types.Station
   StationType: Domain.Types.StationType
   FRFSQuoteType: Domain.Types.FRFSQuote
-  DiscountValue: Domain.Types.FRFSTicketDiscount
-  FRFSTicketDiscount: Domain.Types.FRFSTicketDiscount
+  FRFSTicketCategoryMetadataConfig: Domain.Types.FRFSTicketCategoryMetadataConfig
   FRFSQuote: Domain.Types.FRFSQuote
-  FRFSTicketBookingStatus: Domain.Types.FRFSTicketBooking
+  FRFSTicketBookingStatus: Domain.Types.FRFSTicketBookingStatus
   FRFSTicketBooking: Domain.Types.FRFSTicketBooking
   TimeBound: Kernel.Types.TimeBound
-  FRFSTicketStatus: Domain.Types.FRFSTicket
+  FRFSTicketStatus: Domain.Types.FRFSTicketStatus
   HighPrecMoney: Kernel.Types.Common
   PriceAPIEntity: Kernel.Types.Common
   FRFSSearch: Domain.Types.FRFSSearch
@@ -22,12 +21,12 @@ imports:
   MerchantOperatingCity: Domain.Types.MerchantOperatingCity
   Meters: Kernel.Types.Common
   LatLong: Kernel.External.Maps.Types
-  JourneySearchData: Lib.JourneyLeg.Types
   RouteStopInfo: SharedLogic.FRFSUtils
   PlatformType: Domain.Types.IntegratedBPPConfig
   IntegratedBPPConfig: Domain.Types.IntegratedBPPConfig
   RecentLocation: Domain.Types.RecentLocation
   TimeOfDay: Date.Time
+  FRFSQuoteCategory: Domain.Types.FRFSQuoteCategory
 
 module: FRFSTicketService
 types:
@@ -39,7 +38,7 @@ types:
     toStationCode: Text
     routeCode: Maybe Text
     quantity: Int
-    journeySearchData: Maybe JourneySearchData
+    searchAsParentStops: Maybe Bool
     recentLocationId: Maybe (Id RecentLocation)
 
   FRFSSearchAPIRes:
@@ -70,14 +69,26 @@ types:
     eligibility: Bool
     derive: "Show"
 
-  FRFSDiscountReq:
-    code: Text
+  FRFSTicketCategoryRes:
+    quoteCategoryId: Id FRFSQuoteCategory
+    category: Text
+    price: PriceAPIEntity
+    offeredPrice: PriceAPIEntity
+    title: Text
+    description: Maybe Text
+    tnc: Maybe Text
+    code: Maybe Text
+    eligibility: Bool
+    derive: "Show"
+
+  FRFSCategorySelectionReq:
+    quoteCategoryId: Id FRFSQuoteCategory
     quantity: Int
 
   FRFSQuoteConfirmReq:
-    discounts: "[FRFSDiscountReq]"
-    ticketQuantity: Maybe Int
-    childTicketQuantity: Maybe Int
+    offered: Maybe "[FRFSCategorySelectionReq]"
+    ticketQuantity: Maybe Int # TODO: To Be Deprecated
+    childTicketQuantity: Maybe Int # TODO: To Be Deprecated
 
   FRFSTicketBookingStatusAPIRes:
     bookingId: Id FRFSTicketBooking
@@ -109,6 +120,7 @@ types:
     shortName: Text
     longName: Text
     description: Text
+    isAirConditioned: Bool
     derive: "Show"
 
   FRFSRouteStationsAPI:
@@ -142,7 +154,7 @@ types:
     derive: "Show"
 
   FRFSBookingPaymentStatusAPI:
-    enum: "NEW, PENDING, SUCCESS, FAILURE, REFUND_PENDING, REFUNDED"
+    enum: "NEW, PENDING, SUCCESS, FAILURE, REFUND_PENDING, REFUNDED, REFUND_FAILED, REFUND_INITIATED"
 
   FRFSStationAPI:
     name: Maybe Text
@@ -158,6 +170,7 @@ types:
     sequenceNum: Maybe Int
     towards: Maybe Text
     integratedBppConfigId: Id IntegratedBPPConfig
+    parentStopCode: Maybe Text
     derive: "Show"
 
   FRFSCanCancelStatus:
@@ -183,6 +196,7 @@ types:
     freeTicketInterval: Maybe Int
     maxFreeTicketCashback: Maybe Int
     ticketsBookedInEvent: Int
+    providerId: Maybe Text
     derive: "Show"
 
   FRFSRouteAPI:
@@ -208,8 +222,11 @@ types:
   BookingFareAcceptedReq:
     isFareAccepted: Bool
 
+  BookingFeedbackReq:
+    feedbackDetails: Text
+
   FRFSBookingFeedbackReq:
-    enum: "BookingFareAccepted BookingFareAcceptedReq"
+    enum: "BookingFareAccepted BookingFareAcceptedReq, BookingFeedback BookingFeedbackReq"
 
 apis:
   # Get FRFS Config

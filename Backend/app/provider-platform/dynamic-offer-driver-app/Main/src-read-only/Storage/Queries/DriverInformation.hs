@@ -5,6 +5,7 @@
 module Storage.Queries.DriverInformation (module Storage.Queries.DriverInformation, module ReExport) where
 
 import qualified Domain.Types.Common
+import qualified Domain.Types.DriverFlowStatus
 import qualified Domain.Types.DriverInformation
 import qualified Domain.Types.Extra.Plan
 import qualified Domain.Types.Person
@@ -78,10 +79,18 @@ updateAcUsageRestrictionAndScore acUsageRestrictionType airConditionScore driver
     ]
     [Se.Is Beam.driverId $ Se.Eq (Kernel.Types.Id.getId driverId)]
 
-updateActivity :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Prelude.Bool -> Kernel.Prelude.Maybe Domain.Types.Common.DriverMode -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
-updateActivity active mode driverId = do
+updateActivity ::
+  (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
+  (Kernel.Prelude.Bool -> Kernel.Prelude.Maybe Domain.Types.Common.DriverMode -> Kernel.Prelude.Maybe Domain.Types.DriverFlowStatus.DriverFlowStatus -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
+updateActivity active mode driverFlowStatus driverId = do
   _now <- getCurrentTime
-  updateOneWithKV [Se.Set Beam.active active, Se.Set Beam.mode mode, Se.Set Beam.updatedAt _now] [Se.Is Beam.driverId $ Se.Eq (Kernel.Types.Id.getId driverId)]
+  updateOneWithKV
+    [ Se.Set Beam.active active,
+      Se.Set Beam.mode mode,
+      Se.Set Beam.driverFlowStatus driverFlowStatus,
+      Se.Set Beam.updatedAt _now
+    ]
+    [Se.Is Beam.driverId $ Se.Eq (Kernel.Types.Id.getId driverId)]
 
 updateAirConditionScore :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Prelude.Maybe Kernel.Prelude.Double -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
 updateAirConditionScore airConditionScore driverId = do
@@ -127,8 +136,8 @@ updateDriverDowngradeForSuv canDowngradeToHatchback canDowngradeToTaxi driverId 
 
 updateDriverInformation ::
   (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
-  (Kernel.Prelude.Bool -> Kernel.Prelude.Bool -> Kernel.Prelude.Bool -> Kernel.Prelude.Bool -> Kernel.Prelude.Bool -> Kernel.Prelude.Bool -> Kernel.Prelude.Maybe Kernel.Prelude.Text -> Kernel.Prelude.Bool -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
-updateDriverInformation canDowngradeToSedan canDowngradeToHatchback canDowngradeToTaxi canSwitchToRental canSwitchToInterCity canSwitchToIntraCity availableUpiApps isPetModeEnabled driverId = do
+  (Kernel.Prelude.Bool -> Kernel.Prelude.Bool -> Kernel.Prelude.Bool -> Kernel.Prelude.Bool -> Kernel.Prelude.Bool -> Kernel.Prelude.Bool -> Kernel.Prelude.Maybe Kernel.Prelude.Text -> Kernel.Prelude.Bool -> Kernel.Prelude.Maybe Kernel.Types.Common.Meters -> Kernel.Prelude.Maybe Kernel.Types.Common.Meters -> Kernel.Prelude.Maybe Kernel.Types.Common.Meters -> Kernel.Prelude.Maybe Kernel.Prelude.Bool -> Kernel.Prelude.Maybe Kernel.Prelude.Int -> Kernel.Prelude.Maybe Kernel.Prelude.Bool -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
+updateDriverInformation canDowngradeToSedan canDowngradeToHatchback canDowngradeToTaxi canSwitchToRental canSwitchToInterCity canSwitchToIntraCity availableUpiApps isPetModeEnabled tripDistanceMaxThreshold tripDistanceMinThreshold maxPickupRadius isSilentModeEnabled rideRequestVolume isTTSEnabled driverId = do
   _now <- getCurrentTime
   updateOneWithKV
     [ Se.Set Beam.canDowngradeToSedan canDowngradeToSedan,
@@ -139,6 +148,12 @@ updateDriverInformation canDowngradeToSedan canDowngradeToHatchback canDowngrade
       Se.Set Beam.canSwitchToIntraCity (Kernel.Prelude.Just canSwitchToIntraCity),
       Se.Set Beam.availableUpiApps availableUpiApps,
       Se.Set Beam.isPetModeEnabled (Kernel.Prelude.Just isPetModeEnabled),
+      Se.Set Beam.tripDistanceMaxThreshold tripDistanceMaxThreshold,
+      Se.Set Beam.tripDistanceMinThreshold tripDistanceMinThreshold,
+      Se.Set Beam.maxPickupRadius maxPickupRadius,
+      Se.Set Beam.isSilentModeEnabled isSilentModeEnabled,
+      Se.Set Beam.rideRequestVolume rideRequestVolume,
+      Se.Set Beam.isTTSEnabled isTTSEnabled,
       Se.Set Beam.updatedAt _now
     ]
     [Se.Is Beam.driverId $ Se.Eq (Kernel.Types.Id.getId driverId)]
@@ -279,7 +294,7 @@ updateSoftBlock softBlockStiers softBlockExpiryTime softBlockReasonFlag driverId
 
 updateSpecialLocWarriorInfo ::
   (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
-  (Kernel.Prelude.Bool -> Kernel.Prelude.Maybe (Kernel.Types.Id.Id Lib.Types.SpecialLocation.SpecialLocation) -> [Kernel.Types.Id.Id Lib.Types.SpecialLocation.SpecialLocation] -> Kernel.Prelude.Maybe Kernel.Prelude.UTCTime -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
+  (Kernel.Prelude.Bool -> Kernel.Prelude.Maybe (Kernel.Types.Id.Id Lib.Types.SpecialLocation.SpecialLocation) -> [(Kernel.Types.Id.Id Lib.Types.SpecialLocation.SpecialLocation)] -> Kernel.Prelude.Maybe Kernel.Prelude.UTCTime -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
 updateSpecialLocWarriorInfo isSpecialLocWarrior preferredPrimarySpecialLocId preferredSecondarySpecialLocIds specialLocWarriorEnabledAt driverId = do
   _now <- getCurrentTime
   updateOneWithKV
@@ -310,6 +325,11 @@ updateTripEndLocation driverTripEndLocation driverId = do
       Se.Set Beam.updatedAt _now
     ]
     [Se.Is Beam.driverId $ Se.Eq (Kernel.Types.Id.getId driverId)]
+
+updateWalletBalance :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
+updateWalletBalance walletBalance driverId = do
+  _now <- getCurrentTime
+  updateOneWithKV [Se.Set Beam.walletBalance walletBalance, Se.Set Beam.updatedAt _now] [Se.Is Beam.driverId $ Se.Eq (Kernel.Types.Id.getId driverId)]
 
 updateWeeklyCancellationRateBlockingCooldown :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Prelude.Maybe Kernel.Prelude.UTCTime -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
 updateWeeklyCancellationRateBlockingCooldown weeklyCancellationRateBlockingCooldown driverId = do
@@ -349,6 +369,7 @@ updateByPrimaryKey (Domain.Types.DriverInformation.DriverInformation {..}) = do
       Se.Set Beam.dlNumberEncrypted (Storage.Queries.Transformers.FleetOwnerInformation.mkFieldEncrypted dlNumber),
       Se.Set Beam.dlNumberHash (Storage.Queries.Transformers.FleetOwnerInformation.mkFieldHash dlNumber),
       Se.Set Beam.driverDob driverDob,
+      Se.Set Beam.driverFlowStatus driverFlowStatus,
       Se.Set Beam.driverTripEndLocationLat (Kernel.Prelude.fmap (.lat) driverTripEndLocation),
       Se.Set Beam.driverTripEndLocationLon (Kernel.Prelude.fmap (.lon) driverTripEndLocation),
       Se.Set Beam.drunkAndDriveViolationCount drunkAndDriveViolationCount,
@@ -361,18 +382,22 @@ updateByPrimaryKey (Domain.Types.DriverInformation.DriverInformation {..}) = do
       Se.Set Beam.isBlockedForReferralPayout isBlockedForReferralPayout,
       Se.Set Beam.isInteroperable (Kernel.Prelude.Just isInteroperable),
       Se.Set Beam.isPetModeEnabled (Kernel.Prelude.Just isPetModeEnabled),
+      Se.Set Beam.isSilentModeEnabled isSilentModeEnabled,
       Se.Set Beam.isSpecialLocWarrior (Kernel.Prelude.Just isSpecialLocWarrior),
+      Se.Set Beam.isTTSEnabled isTTSEnabled,
       Se.Set Beam.issueBreachCooldownTimes (Kernel.Prelude.toJSON <$> issueBreachCooldownTimes),
       Se.Set Beam.lastACStatusCheckedAt lastACStatusCheckedAt,
       Se.Set Beam.lastEnabledOn lastEnabledOn,
       Se.Set Beam.latestScheduledBooking latestScheduledBooking,
       Se.Set Beam.latestScheduledPickupLat (Kernel.Prelude.fmap (.lat) latestScheduledPickup),
       Se.Set Beam.latestScheduledPickupLon (Kernel.Prelude.fmap (.lon) latestScheduledPickup),
+      Se.Set Beam.maxPickupRadius maxPickupRadius,
       Se.Set Beam.mode mode,
       Se.Set Beam.numOfLocks numOfLocks,
       Se.Set Beam.onRide onRide,
       Se.Set Beam.onRideTripCategory onRideTripCategory,
       Se.Set Beam.onboardingVehicleCategory onboardingVehicleCategory,
+      Se.Set Beam.onlineDurationRefreshedAt onlineDurationRefreshedAt,
       Se.Set Beam.panNumberEncrypted (Storage.Queries.Transformers.FleetOwnerInformation.mkFieldEncrypted panNumber),
       Se.Set Beam.panNumberHash (Storage.Queries.Transformers.FleetOwnerInformation.mkFieldHash panNumber),
       Se.Set Beam.payerVpa payerVpa,
@@ -382,12 +407,15 @@ updateByPrimaryKey (Domain.Types.DriverInformation.DriverInformation {..}) = do
       Se.Set Beam.payoutVpa payoutVpa,
       Se.Set Beam.payoutVpaBankAccount payoutVpaBankAccount,
       Se.Set Beam.payoutVpaStatus payoutVpaStatus,
+      Se.Set Beam.planExpiryDate planExpiryDate,
       Se.Set Beam.preferredPrimarySpecialLocId (Kernel.Types.Id.getId <$> preferredPrimarySpecialLocId),
       Se.Set Beam.preferredSecondarySpecialLocIds (Kernel.Prelude.Just (map Kernel.Types.Id.getId preferredSecondarySpecialLocIds)),
+      Se.Set Beam.prepaidSubscriptionBalance prepaidSubscriptionBalance,
       Se.Set Beam.referralCode referralCode,
       Se.Set Beam.referredByDriverId (Kernel.Types.Id.getId <$> referredByDriverId),
       Se.Set Beam.referredByFleetOwnerId referredByFleetOwnerId,
       Se.Set Beam.referredByOperatorId referredByOperatorId,
+      Se.Set Beam.rideRequestVolume rideRequestVolume,
       Se.Set Beam.servicesEnabledForSubscription (Kernel.Prelude.Just servicesEnabledForSubscription),
       Se.Set Beam.softBlockExpiryTime softBlockExpiryTime,
       Se.Set Beam.softBlockReasonFlag softBlockReasonFlag,
@@ -396,7 +424,10 @@ updateByPrimaryKey (Domain.Types.DriverInformation.DriverInformation {..}) = do
       Se.Set Beam.subscribed subscribed,
       Se.Set Beam.tollRelatedIssueCount tollRelatedIssueCount,
       Se.Set Beam.totalReferred totalReferred,
+      Se.Set Beam.tripDistanceMaxThreshold tripDistanceMaxThreshold,
+      Se.Set Beam.tripDistanceMinThreshold tripDistanceMinThreshold,
       Se.Set Beam.verified verified,
+      Se.Set Beam.walletBalance walletBalance,
       Se.Set Beam.weeklyCancellationRateBlockingCooldown weeklyCancellationRateBlockingCooldown,
       Se.Set Beam.merchantId (Kernel.Types.Id.getId <$> merchantId),
       Se.Set Beam.merchantOperatingCityId (Kernel.Types.Id.getId <$> merchantOperatingCityId),

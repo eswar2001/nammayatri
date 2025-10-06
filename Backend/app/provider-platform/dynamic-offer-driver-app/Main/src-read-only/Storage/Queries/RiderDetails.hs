@@ -100,7 +100,11 @@ updateByPrimaryKey :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Domain.Typ
 updateByPrimaryKey (Domain.Types.RiderDetails.RiderDetails {..}) = do
   _now <- getCurrentTime
   updateWithKV
-    [ Se.Set Beam.cancellationDues cancellationDues,
+    [ Se.Set Beam.bapId bapId,
+      Se.Set Beam.cancellationDueRides (Kernel.Prelude.Just cancellationDueRides),
+      Se.Set Beam.cancellationDues cancellationDues,
+      Se.Set Beam.cancelledRides (Kernel.Prelude.Just cancelledRides),
+      Se.Set Beam.completedRides (Kernel.Prelude.Just completedRides),
       Se.Set Beam.createdAt createdAt,
       Se.Set Beam.currency (Kernel.Prelude.Just currency),
       Se.Set Beam.disputeChancesUsed disputeChancesUsed,
@@ -120,6 +124,8 @@ updateByPrimaryKey (Domain.Types.RiderDetails.RiderDetails {..}) = do
       Se.Set Beam.referralCode (Kernel.Types.Id.getId <$> referralCode),
       Se.Set Beam.referredAt referredAt,
       Se.Set Beam.referredByDriver (Kernel.Types.Id.getId <$> referredByDriver),
-      Se.Set Beam.updatedAt _now
+      Se.Set Beam.totalBookings (Kernel.Prelude.Just totalBookings),
+      Se.Set Beam.updatedAt _now,
+      Se.Set Beam.validCancellations (Kernel.Prelude.Just validCancellations)
     ]
     [Se.And [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId id)]]

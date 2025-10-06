@@ -482,3 +482,80 @@ ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN allow_duplicate
 ------- SQL updates -------
 
 ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN max_allowed_video_doc_size_in_mb integer ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN allow_cache_driver_flow_status boolean  default false;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN cancellation_rate_slab_config json;
+
+
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN prepaid_subscription_threshold double precision ;
+
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN is_ml_based_dynamic_pricing_enabled boolean ;
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN gst_percentage double precision ;
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN enable_driver_wallet boolean ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN max_online_duration_days integer  default 10;
+
+
+
+------- SQL updates -------
+
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN distance_weightage integer  default 20;
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN driver_calling_option text  default 'AnonymousCall';
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN minimum_wallet_payout_amount double precision ;
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN max_wallet_payouts_per_day integer ;
+
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN online_duration_calculate_from timestamp with time zone ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN enable_wallet_payout boolean ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN enable_wallet_topup boolean ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_driver_offer_bpp.transporter_config ADD COLUMN payout_cut_off_days integer ;

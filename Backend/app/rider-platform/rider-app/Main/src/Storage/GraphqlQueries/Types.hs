@@ -16,13 +16,13 @@ module Storage.GraphqlQueries.Types where
 
 import qualified BecknV2.FRFS.Enums
 import Data.Aeson (Value (..), eitherDecodeStrict)
-import Data.Aeson.Types (Parser)
 import Data.Morpheus.Client.CodeGen.Internal
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Time.LocalTime as LocalTime
-import qualified Debug.Trace as Trace
 import EulerHS.Types (OptionEntity)
 import Kernel.Prelude
+import qualified Kernel.Types.Time
 import Network.HTTP.Client
 
 -- Data types for RouteStopTimeTable query
@@ -69,7 +69,8 @@ instance FromJSON StopData where
 
 data ExtraInfo = ExtraInfo
   { fareStageNumber :: Maybe Text,
-    providerStopCode :: Maybe Text
+    providerStopCode :: Maybe Text,
+    isStageStop :: Maybe Bool
   }
   deriving (Show, Generic, FromJSON)
 
@@ -78,43 +79,51 @@ data RouteStopTimeTableEntry = RouteStopTimeTableEntry
     realtimeArrival :: Int,
     arrivalDelay :: Int,
     scheduledDeparture :: Int,
+    realtimeDeparture :: Int,
     extraInfo :: Maybe ExtraInfo,
     trip :: TripData,
     stop :: Maybe PlatformCode
   }
   deriving (Show, Generic)
 
+-- Replace single quotes with double quotes
+sanitizeJsonQuotes :: Text -> Text
+sanitizeJsonQuotes = T.replace "'" "\""
+
 instance FromJSON RouteStopTimeTableEntry where
   parseJSON = withObject "RouteStopTimeTableEntry" $ \obj -> do
-    let headsignParser = do
-          headsignText <- obj .: "headsign" :: Parser Text
+    headsignParser <- do
+      mHeadsignText <- obj .:? "headsign"
+      case mHeadsignText of
+        Nothing -> pure Nothing
+        Just headsignText -> do
+          let sanitized = sanitizeJsonQuotes headsignText
           -- Try to parse headsign as JSON first
-          case eitherDecodeStrict (TE.encodeUtf8 headsignText) of
+          case eitherDecodeStrict (TE.encodeUtf8 sanitized) of
             Right (Object headsignObj) -> do
               -- Parse as ExtraInfo object
               extraInfo <- parseJSON (Object headsignObj)
               pure (Just extraInfo)
             Right (String jsonString) -> do
               -- The JSON string contains another JSON object, parse that
-              case eitherDecodeStrict (TE.encodeUtf8 jsonString) of
+              case eitherDecodeStrict (TE.encodeUtf8 (sanitizeJsonQuotes jsonString)) of
                 Right (Object headsignObj) -> do
                   extraInfo <- parseJSON (Object headsignObj)
                   pure (Just extraInfo)
                 _ -> do
                   -- Fallback: treat as simple text for fareStageNumber
-                  Trace.trace ("nested JSON parsing failed for: " <> show jsonString) $ pure ()
-                  pure (Just (ExtraInfo {fareStageNumber = Just headsignText, providerStopCode = Nothing}))
-            other -> do
-              -- Debug: print what case we're hitting
-              Trace.trace ("headsign parsing case: " <> show other) $ pure ()
+                  pure (Just (ExtraInfo (Just headsignText) Nothing Nothing))
+            _ -> do
               -- Fallback: treat as simple text for fareStageNumber
-              pure (Just (ExtraInfo {fareStageNumber = Just headsignText, providerStopCode = Nothing}))
+              pure (Just (ExtraInfo (Just headsignText) Nothing Nothing))
+
     RouteStopTimeTableEntry
       <$> obj .: "scheduledArrival"
       <*> obj .: "realtimeArrival"
       <*> obj .: "arrivalDelay"
       <*> obj .: "scheduledDeparture"
-      <*> headsignParser
+      <*> obj .: "realtimeDeparture"
+      <*> pure headsignParser
       <*> obj .: "trip"
       <*> obj .:? "stop"
 
@@ -161,7 +170,9 @@ data TimetableEntry = TimetableEntry
     providerStopCode :: Maybe Text,
     createdAt :: UTCTime,
     updatedAt :: UTCTime,
-    platformCode :: Maybe Text
+    platformCode :: Maybe Text,
+    isStageStop :: Maybe Bool,
+    arrivalDelay :: Kernel.Types.Time.Seconds
   }
   deriving (Show, Generic, FromJSON, ToJSON)
 
@@ -173,11 +184,12 @@ instance RequestType RouteStopTimeTableQuery where
       ++ "  stop(id: $stopId) {\n"
       ++ "    gtfsId\n"
       ++ "    name\n"
-      ++ "    stoptimesWithoutPatterns(numberOfDepartures: 500) {\n"
+      ++ "    stoptimesWithoutPatterns(numberOfDepartures: 10000) {\n"
       ++ "      scheduledArrival\n"
       ++ "      realtimeArrival\n"
       ++ "      arrivalDelay\n"
       ++ "      scheduledDeparture\n"
+      ++ "      realtimeDeparture\n"
       ++ "      headsign\n"
       ++ "      trip {\n"
       ++ "        serviceId\n"

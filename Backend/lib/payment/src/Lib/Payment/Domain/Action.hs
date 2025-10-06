@@ -32,6 +32,8 @@ module Lib.Payment.Domain.Action
     cancelPaymentIntentService,
     verifyVPAService,
     mkCreatePayoutOrderReq,
+    buildPaymentOrder,
+    updateRefundStatus,
   )
 where
 
@@ -62,7 +64,7 @@ import qualified Lib.Payment.Domain.Types.PaymentOrder as DOrder
 import qualified Lib.Payment.Domain.Types.PaymentTransaction as DTransaction
 import qualified Lib.Payment.Domain.Types.PayoutOrder as Payment
 import qualified Lib.Payment.Domain.Types.PayoutTransaction as PT
-import Lib.Payment.Domain.Types.Refunds (Refunds (..))
+import Lib.Payment.Domain.Types.Refunds (Refunds (..), Split (..))
 import Lib.Payment.Storage.Beam.BeamFlow
 import qualified Lib.Payment.Storage.Queries.PaymentOrder as QOrder
 import qualified Lib.Payment.Storage.Queries.PaymentTransaction as QTransaction
@@ -211,6 +213,7 @@ createPaymentIntentService merchantId mbMerchantOpCityId personId rideId rideSho
             action = Nothing,
             personId,
             merchantId,
+            entityName = Nothing,
             paymentMerchantId = Nothing,
             amount = createPaymentIntentReq.amount,
             currency = createPaymentIntentReq.currency,
@@ -374,16 +377,17 @@ createOrderService ::
   Id Merchant ->
   Maybe (Id MerchantOperatingCity) ->
   Id Person ->
+  Maybe EntityName ->
   Payment.CreateOrderReq ->
   (Payment.CreateOrderReq -> m Payment.CreateOrderResp) ->
   m (Maybe Payment.CreateOrderResp)
-createOrderService merchantId mbMerchantOpCityId personId createOrderReq createOrderCall = do
+createOrderService merchantId mbMerchantOpCityId personId mbEntityName createOrderReq createOrderCall = do
   logInfo $ "CreateOrderService: "
   mbExistingOrder <- QOrder.findById (Id createOrderReq.orderId)
   case mbExistingOrder of
     Nothing -> do
       createOrderResp <- createOrderCall createOrderReq -- api call
-      paymentOrder <- buildPaymentOrder merchantId mbMerchantOpCityId personId createOrderReq createOrderResp
+      paymentOrder <- buildPaymentOrder merchantId mbMerchantOpCityId personId mbEntityName createOrderReq createOrderResp
       QOrder.create paymentOrder
       return $ Just createOrderResp
     Just existingOrder -> do
@@ -466,10 +470,11 @@ buildPaymentOrder ::
   Id Merchant ->
   Maybe (Id MerchantOperatingCity) ->
   Id Person ->
+  Maybe EntityName ->
   Payment.CreateOrderReq ->
   Payment.CreateOrderResp ->
   m DOrder.PaymentOrder
-buildPaymentOrder merchantId mbMerchantOpCityId personId req resp = do
+buildPaymentOrder merchantId mbMerchantOpCityId personId mbEntityName req resp = do
   now <- getCurrentTime
   clientAuthToken <- encrypt resp.sdk_payload.payload.clientAuthToken
   pure
@@ -485,6 +490,7 @@ buildPaymentOrder merchantId mbMerchantOpCityId personId req resp = do
         action = resp.sdk_payload.payload.action,
         personId,
         merchantId,
+        entityName = mbEntityName,
         paymentMerchantId = resp.sdk_payload.payload.merchantId,
         amount = req.amount,
         currency = resp.sdk_payload.payload.currency,
@@ -785,6 +791,7 @@ createExecutionService (request, orderId) merchantId mbMerchantOpCityId executio
             action = Nothing,
             personId = Id req.customerId,
             merchantId = merchantId,
+            entityName = Nothing,
             paymentMerchantId = Nothing,
             amount = req.amount,
             currency = INR,
@@ -818,9 +825,10 @@ refundService ::
   ) =>
   (Payment.AutoRefundReq, Id Refunds) ->
   Id Merchant ->
+  Maybe [Split] ->
   (Payment.AutoRefundReq -> m Payment.AutoRefundResp) ->
   m Payment.AutoRefundResp
-refundService (request, refundId) merchantId refundsCall = do
+refundService (request, refundId) merchantId splitDetails refundsCall = do
   now <- getCurrentTime
   QRefunds.create $ mkRefundsEntry now
   response <- refundsCall request
@@ -831,16 +839,17 @@ refundService (request, refundId) merchantId refundsCall = do
       Refunds
         { id = refundId,
           merchantId = merchantId.getId,
-          shortId = request.requestId,
+          shortId = ShortId request.requestId,
           status = REFUND_PENDING,
-          orderId = Id request.orderId,
+          orderId = ShortId request.orderId,
           refundAmount = request.amount,
           errorMessage = Nothing,
           errorCode = Nothing,
           idAssignedByServiceProvider = Nothing,
           initiatedBy = Nothing,
           createdAt = now,
-          updatedAt = now
+          updatedAt = now,
+          split = splitDetails
         }
 
 updateRefundStatus :: (BeamFlow m r) => Payment.RefundsData -> m ()
@@ -967,7 +976,7 @@ mkCreatePayoutOrderReq :: Text -> HighPrecMoney -> Maybe Text -> Maybe Text -> T
 mkCreatePayoutOrderReq orderId amount mbPhoneNo mbEmail customerId remark mbCustomerName customerVpa orderType isDynamicWebhookRequired =
   PT.CreatePayoutOrderReq
     { customerPhone = fromMaybe "6666666666" mbPhoneNo,
-      customerEmail = fromMaybe "dummymail@gmail.com" mbEmail,
+      customerEmail = fromMaybe "growth@nammayatri.in" mbEmail,
       customerName = fromMaybe "Unknown Customer" mbCustomerName,
       isDynamicWebhookRequired = isDynamicWebhookRequired,
       ..

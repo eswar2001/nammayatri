@@ -163,6 +163,12 @@ linkReferee merchantId apiKey RefereeLinkInfoReq {..} = do
             firstRideId = Nothing,
             payoutFlagReason = flagReason,
             currency,
+            bapId = Nothing,
+            cancelledRides = 0,
+            totalBookings = 0,
+            completedRides = 0,
+            validCancellations = 0,
+            cancellationDueRides = 0,
             isDeviceIdExists = Just $ isJust isMultipleDeviceIdExist,
             isFlagConfirmed = Nothing,
             merchantOperatingCityId = Just merchOpCityId
@@ -227,7 +233,8 @@ linkReferee merchantId apiKey RefereeLinkInfoReq {..} = do
                       numDriversOnboarded = 0,
                       numFleetsOnboarded = 0,
                       merchantId = Just merchantId,
-                      merchantOperatingCityId = Just merchantOperatingCity.id
+                      merchantOperatingCityId = Just merchantOperatingCity.id,
+                      onlineDuration = Nothing
                     }
             QDailyStats.create dailyStatsOfDriver
             pure dailyStatsOfDriver
@@ -251,7 +258,7 @@ updatePayoutRelatedFieldsIfRideValie ::
   DS.DailyStats ->
   m ()
 updatePayoutRelatedFieldsIfRideValie transporterConfig merchOpCityId driverId ride driverStats dailyStats = do
-  if (isValidRide ride)
+  if isValidRide ride
     then do
       let localTimeOfThatDay = addUTCTime (secondsToNominalDiffTime transporterConfig.timeDiffFromUtc) ride.updatedAt
       vehicle <- QVeh.findById driverId >>= fromMaybeM (VehicleNotFound $ "driverId:-" <> driverId.getId)

@@ -4,8 +4,8 @@ import qualified Beckn.OnDemand.Utils.Common as Common
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as Text
 import qualified Domain.Action.Beckn.OnTrack as OnTrack
-import Domain.Types.Ride
 import qualified Domain.Types.Ride as SRide
+import Domain.Types.RideStatus
 import Kernel.Beam.Functions as B
 import Kernel.External.Encryption
 import qualified Kernel.External.Maps as Maps
@@ -16,7 +16,6 @@ import qualified Kernel.Storage.Hedis as Redis
 import Kernel.Streaming.Kafka.Producer.Types (KafkaProducerTools)
 import Kernel.Types.Id
 import Kernel.Utils.Common
-import Lib.JourneyLeg.Types
 import qualified SharedLogic.CallBPP as CallBPP
 import qualified Storage.CachedQueries.ValueAddNP as CQVAN
 import qualified Storage.Queries.Booking as QRB
@@ -28,7 +27,6 @@ import TransactionLogs.Types
 data GetDriverLocResp = GetDriverLocResp
   { lat :: Double,
     lon :: Double,
-    pickupStage :: Maybe JourneyLegStatus,
     lastUpdate :: UTCTime
   }
   deriving (Show, Generic, ToJSON, FromJSON, ToSchema)
@@ -68,6 +66,5 @@ getDriverLoc rideId = do
     GetDriverLocResp
       { lat = res.currPoint.lat,
         lon = res.currPoint.lon,
-        lastUpdate = res.lastUpdate,
-        pickupStage = booking.journeyLegStatus
+        lastUpdate = res.lastUpdate
       }

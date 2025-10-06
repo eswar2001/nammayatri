@@ -26,28 +26,41 @@ createMany = traverse_ create
 deleteById :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Types.Id.Id Domain.Types.PickupInstructions.PickupInstructions -> m ())
 deleteById id = do deleteWithKV [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId id)]
 
-deleteByPersonIdAndLocation :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Types.Id.Id Domain.Types.Person.Person -> Kernel.Prelude.Double -> Kernel.Prelude.Double -> m ())
-deleteByPersonIdAndLocation personId lat lon = do deleteWithKV [Se.And [Se.Is Beam.personId $ Se.Eq (Kernel.Types.Id.getId personId), Se.Is Beam.lat $ Se.Eq lat, Se.Is Beam.lon $ Se.Eq lon]]
+deleteByPersonIdAndLocation :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Types.Id.Id Domain.Types.Person.Person -> Kernel.Prelude.Text -> m ())
+deleteByPersonIdAndLocation personId geohash = do deleteWithKV [Se.And [Se.Is Beam.personId $ Se.Eq (Kernel.Types.Id.getId personId), Se.Is Beam.geohash $ Se.Eq geohash]]
 
-findByPersonId :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Types.Id.Id Domain.Types.Person.Person -> m ([Domain.Types.PickupInstructions.PickupInstructions]))
+findByPersonId :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Types.Id.Id Domain.Types.Person.Person -> m [Domain.Types.PickupInstructions.PickupInstructions])
 findByPersonId personId = do findAllWithKV [Se.Is Beam.personId $ Se.Eq (Kernel.Types.Id.getId personId)]
 
-findOldestByPersonId :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => (Kernel.Types.Id.Id Domain.Types.Person.Person -> m ([Domain.Types.PickupInstructions.PickupInstructions]))
-findOldestByPersonId personId = do findAllWithKV [Se.Is Beam.personId $ Se.Eq (Kernel.Types.Id.getId personId)]
-
-updateByPersonIdAndLocation ::
+findByPersonIdAndGeohash ::
   (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
-  (Kernel.Prelude.Double -> Kernel.Prelude.Double -> Kernel.Prelude.Text -> Kernel.Prelude.Maybe (Kernel.Types.Id.Id IssueManagement.Domain.Types.MediaFile.MediaFile) -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m ())
-updateByPersonIdAndLocation lat lon instruction mediaFileId personId = do
+  (Kernel.Types.Id.Id Domain.Types.Person.Person -> Kernel.Prelude.Text -> m (Maybe Domain.Types.PickupInstructions.PickupInstructions))
+findByPersonIdAndGeohash personId geohash = do findOneWithKV [Se.And [Se.Is Beam.personId $ Se.Eq (Kernel.Types.Id.getId personId), Se.Is Beam.geohash $ Se.Eq geohash]]
+
+findOldestByPersonId ::
+  (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
+  (Maybe Int -> Maybe Int -> Kernel.Types.Id.Id Domain.Types.Person.Person -> m [Domain.Types.PickupInstructions.PickupInstructions])
+findOldestByPersonId limit offset personId = do findAllWithOptionsKV [Se.Is Beam.personId $ Se.Eq (Kernel.Types.Id.getId personId)] (Se.Asc Beam.updatedAt) limit offset
+
+updateInstructionById ::
+  (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
+  (Kernel.Prelude.Text -> Kernel.Prelude.Text -> Kernel.Prelude.Maybe (Kernel.Types.Id.Id IssueManagement.Domain.Types.MediaFile.MediaFile) -> Kernel.Types.Id.Id Domain.Types.PickupInstructions.PickupInstructions -> m ())
+updateInstructionById geohash instruction mediaFileId id = do
   _now <- getCurrentTime
-  updateWithKV
-    [ Se.Set Beam.lat lat,
-      Se.Set Beam.lon lon,
+  updateOneWithKV
+    [ Se.Set Beam.geohash geohash,
       Se.Set Beam.instruction instruction,
       Se.Set Beam.mediaFileId (Kernel.Types.Id.getId <$> mediaFileId),
       Se.Set Beam.updatedAt _now
     ]
-    [Se.And [Se.Is Beam.personId $ Se.Eq (Kernel.Types.Id.getId personId), Se.Is Beam.lat $ Se.Eq lat, Se.Is Beam.lon $ Se.Eq lon]]
+    [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId id)]
+
+updateMediaFileById ::
+  (EsqDBFlow m r, MonadFlow m, CacheFlow m r) =>
+  (Kernel.Prelude.Maybe (Kernel.Types.Id.Id IssueManagement.Domain.Types.MediaFile.MediaFile) -> Kernel.Types.Id.Id Domain.Types.PickupInstructions.PickupInstructions -> m ())
+updateMediaFileById mediaFileId id = do
+  _now <- getCurrentTime
+  updateOneWithKV [Se.Set Beam.mediaFileId (Kernel.Types.Id.getId <$> mediaFileId), Se.Set Beam.updatedAt _now] [Se.Is Beam.id $ Se.Eq (Kernel.Types.Id.getId id)]
 
 instance FromTType' Beam.PickupInstructions Domain.Types.PickupInstructions.PickupInstructions where
   fromTType' (Beam.PickupInstructionsT {..}) = do
@@ -55,10 +68,9 @@ instance FromTType' Beam.PickupInstructions Domain.Types.PickupInstructions.Pick
       Just
         Domain.Types.PickupInstructions.PickupInstructions
           { createdAt = createdAt,
+            geohash = geohash,
             id = Kernel.Types.Id.Id id,
             instruction = instruction,
-            lat = lat,
-            lon = lon,
             mediaFileId = Kernel.Types.Id.Id <$> mediaFileId,
             merchantId = Kernel.Types.Id.Id merchantId,
             merchantOperatingCityId = Kernel.Types.Id.Id merchantOperatingCityId,
@@ -70,10 +82,9 @@ instance ToTType' Beam.PickupInstructions Domain.Types.PickupInstructions.Pickup
   toTType' (Domain.Types.PickupInstructions.PickupInstructions {..}) = do
     Beam.PickupInstructionsT
       { Beam.createdAt = createdAt,
+        Beam.geohash = geohash,
         Beam.id = Kernel.Types.Id.getId id,
         Beam.instruction = instruction,
-        Beam.lat = lat,
-        Beam.lon = lon,
         Beam.mediaFileId = Kernel.Types.Id.getId <$> mediaFileId,
         Beam.merchantId = Kernel.Types.Id.getId merchantId,
         Beam.merchantOperatingCityId = Kernel.Types.Id.getId merchantOperatingCityId,

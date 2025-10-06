@@ -12,6 +12,7 @@ import qualified Domain.Types.ServicePeopleCategory as DServicePeopleCategory
 import qualified Domain.Types.SpecialOccasion as DSpecialOccasion
 import qualified Domain.Types.TicketPlace as DTicketPlace
 import qualified Domain.Types.TicketService as DTicketService
+import qualified Domain.Types.TicketSubPlace as DTicketSubPlace
 import Kernel.Prelude
 import Kernel.Types.Common
 import Kernel.Types.Id
@@ -50,7 +51,19 @@ data BasicInformation = BasicInformation
     openTimings :: Maybe TimeOfDay,
     closeTimings :: Maybe TimeOfDay,
     customTabs :: Maybe [DTicketPlace.CustomTab],
-    rules :: Maybe [Rule]
+    rules :: Maybe [Rule],
+    faqs :: Maybe [DTicketPlace.Faq],
+    isRecurring :: Maybe Bool,
+    metadata :: Maybe [DTicketPlace.Metadata],
+    platformFee :: Maybe DTicketPlace.Fee,
+    platformFeeVendor :: Maybe Text,
+    pricingOnwards :: Maybe Int,
+    endDate :: Maybe Time.Day,
+    isClosed :: Bool,
+    startDate :: Maybe Time.Day,
+    venue :: Maybe Text,
+    assignTicketToBpp :: Bool,
+    enforcedAsSubPlace :: Bool
   }
   deriving (Generic, Show, Ord, Eq, ToJSON, FromJSON, ToSchema)
 
@@ -58,14 +71,17 @@ data TicketServiceDef = TicketServiceDef
   { id :: Id DTicketService.TicketService,
     service :: Text,
     shortDesc :: Maybe Text,
+    serviceDetails :: Maybe [Text],
     operationalDays :: [Text],
     operationalDate :: Maybe DTicketService.OperationalDate,
     maxVerification :: Int,
     allowFutureBooking :: Bool,
     allowCancellation :: Bool,
     expiry :: DTicketService.ExpiryType,
+    subPlaceId :: Maybe (Id DTicketSubPlace.TicketSubPlace),
     serviceCategoryId :: [Id DServiceCategory.ServiceCategory],
-    rules :: Maybe [Rule]
+    rules :: Maybe [Rule],
+    maxSelection :: Maybe Int
   }
   deriving (Generic, Show, Eq, Ord, ToJSON, FromJSON, ToSchema)
 
@@ -79,10 +95,12 @@ data ServiceCategoryDef = ServiceCategoryDef
   { id :: Id DServiceCategory.ServiceCategory,
     name :: Text,
     description :: Text,
+    inclusionPoints :: Maybe [Text],
     allowedSeats :: Maybe Int,
     businessHours :: [BusinessHourDef],
     peopleCategory :: [Id DServicePeopleCategory.ServicePeopleCategory],
-    rules :: Maybe [Rule]
+    rules :: Maybe [Rule],
+    maxSelection :: Maybe Int
   }
   deriving (Generic, Show, Eq, Ord, ToJSON, FromJSON, ToSchema)
 
@@ -93,7 +111,8 @@ data ServicePeopleCategoryDef = ServicePeopleCategoryDef
     pricingType :: DServicePeopleCategory.PricingType,
     priceAmount :: HighPrecMoney,
     priceCurrency :: Currency,
-    rules :: Maybe [Rule]
+    rules :: Maybe [Rule],
+    iconUrl :: Maybe Text
   }
   deriving (Generic, Show, Eq, Ord, ToJSON, FromJSON, ToSchema)
 

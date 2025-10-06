@@ -24,7 +24,8 @@ instance FromTType' Beam.DriverStats Domain.Types.DriverStats.DriverStats where
     pure $
       Just
         Domain.Types.DriverStats.DriverStats
-          { bonusEarned = Kernel.Types.Common.mkAmountWithDefault bonusEarnedAmount bonusEarned,
+          { blacklistCoinEvents = blacklistCoinEvents,
+            bonusEarned = Kernel.Types.Common.mkAmountWithDefault bonusEarnedAmount bonusEarned,
             coinCovertedToCashLeft = Kernel.Prelude.fromMaybe 0 coinCovertedToCashLeft,
             currency = Kernel.Prelude.fromMaybe Kernel.Types.Common.INR currency,
             distanceUnit = Kernel.Prelude.fromMaybe Kernel.Types.Common.Meter distanceUnit,
@@ -36,6 +37,7 @@ instance FromTType' Beam.DriverStats Domain.Types.DriverStats.DriverStats where
             lateNightTrips = lateNightTrips,
             numDriversOnboarded = Kernel.Prelude.fromMaybe 0 numDriversOnboarded,
             numFleetsOnboarded = Kernel.Prelude.fromMaybe 0 numFleetsOnboarded,
+            onlineDuration = Kernel.Prelude.fromMaybe 0 onlineDuration,
             rating = rating',
             ridesCancelled = ridesCancelled,
             safetyPlusEarnings = Kernel.Prelude.fromMaybe 0 safetyPlusEarnings,
@@ -60,7 +62,8 @@ instance FromTType' Beam.DriverStats Domain.Types.DriverStats.DriverStats where
 instance ToTType' Beam.DriverStats Domain.Types.DriverStats.DriverStats where
   toTType' (Domain.Types.DriverStats.DriverStats {..}) = do
     Beam.DriverStatsT
-      { Beam.bonusEarned = Kernel.Prelude.roundToIntegral bonusEarned,
+      { Beam.blacklistCoinEvents = blacklistCoinEvents,
+        Beam.bonusEarned = Kernel.Prelude.roundToIntegral bonusEarned,
         Beam.bonusEarnedAmount = Kernel.Prelude.Just bonusEarned,
         Beam.coinCovertedToCashLeft = Kernel.Prelude.Just coinCovertedToCashLeft,
         Beam.currency = Kernel.Prelude.Just currency,
@@ -74,6 +77,7 @@ instance ToTType' Beam.DriverStats Domain.Types.DriverStats.DriverStats where
         Beam.lateNightTrips = lateNightTrips,
         Beam.numDriversOnboarded = Kernel.Prelude.Just numDriversOnboarded,
         Beam.numFleetsOnboarded = Kernel.Prelude.Just numFleetsOnboarded,
+        Beam.onlineDuration = Kernel.Prelude.Just onlineDuration,
         Beam.ridesCancelled = ridesCancelled,
         Beam.safetyPlusEarnings = Kernel.Prelude.Just safetyPlusEarnings,
         Beam.safetyPlusRideCount = Kernel.Prelude.Just safetyPlusRideCount,

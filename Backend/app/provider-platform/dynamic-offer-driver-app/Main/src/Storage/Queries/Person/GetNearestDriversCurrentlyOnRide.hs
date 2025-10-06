@@ -51,6 +51,7 @@ data NearestDriversResultCurrentlyOnRide = NearestDriversResultCurrentlyOnRide
     mode :: Maybe DriverInfo.DriverMode,
     clientSdkVersion :: Maybe Version,
     clientBundleVersion :: Maybe Version,
+    reactBundleVersion :: Maybe Text,
     clientConfigVersion :: Maybe Version,
     clientDevice :: Maybe Device,
     vehicleAge :: Maybe Months,
@@ -59,7 +60,10 @@ data NearestDriversResultCurrentlyOnRide = NearestDriversResultCurrentlyOnRide
     latestScheduledBooking :: Maybe UTCTime,
     latestScheduledPickup :: Maybe LatLong,
     driverTags :: A.Value,
-    score :: Maybe A.Value
+    score :: Maybe A.Value,
+    tripDistanceMinThreshold :: Maybe Meters,
+    tripDistanceMaxThreshold :: Maybe Meters,
+    maxPickupDistance :: Maybe Meters
   }
   deriving (Generic, Show, HasCoordinates)
 
@@ -74,6 +78,8 @@ data NearestDriversOnRideReq = NearestDriversOnRideReq
     isRental :: Bool,
     isInterCity :: Bool,
     isValueAddNP :: Bool,
+    prepaidSubscriptionThreshold :: Maybe HighPrecMoney,
+    rideFare :: Maybe HighPrecMoney,
     onlinePayment :: Bool,
     now :: UTCTime
   }
@@ -90,7 +96,7 @@ getNearestDriversCurrentlyOnRide NearestDriversOnRideReq {..} = do
       allowedVehicleVariant = DL.nub $ concatMap (.allowedVehicleVariant) allowedCityServiceTiers
   driverLocs <- Int.getDriverLocsWithCond merchantId driverPositionInfoExpiry fromLocLatLong onRideRadius (Just allowedVehicleVariant)
   logDebug $ "GetNearestDriversCurrentlyOnRide - DLoc:- " <> show driverLocs
-  driverInfos <- Int.getDriverInfosWithCond (driverLocs <&> (.driverId)) False True isRental isInterCity
+  driverInfos <- Int.getDriverInfosWithCond (driverLocs <&> (.driverId)) False True isRental isInterCity prepaidSubscriptionThreshold rideFare
   logDebug $ "GetNearestDriversCurrentlyOnRide - DInfo:- " <> show (DIAPI.convertToDriverInfoAPIEntity <$> driverInfos)
   vehicles <- Int.getVehicles driverInfos
   drivers <- Int.getDrivers vehicles
@@ -176,6 +182,7 @@ getNearestDriversCurrentlyOnRide NearestDriversOnRideReq {..} = do
                 mode = info.mode,
                 clientSdkVersion = person.clientSdkVersion,
                 clientBundleVersion = person.clientBundleVersion,
+                reactBundleVersion = person.reactBundleVersion,
                 clientConfigVersion = person.clientConfigVersion,
                 vehicleAge = getVehicleAge vehicle.mYManufacturing now,
                 clientDevice = person.clientDevice,
@@ -184,5 +191,8 @@ getNearestDriversCurrentlyOnRide NearestDriversOnRideReq {..} = do
                 latestScheduledBooking = info.latestScheduledBooking,
                 latestScheduledPickup = info.latestScheduledPickup,
                 driverTags = Yudhishthira.convertTags $ LYT.TagNameValueExpiry "OnRideDriver#true" : fromMaybe [] person.driverTag,
-                score = Nothing
+                score = Nothing,
+                tripDistanceMinThreshold = info.tripDistanceMinThreshold,
+                tripDistanceMaxThreshold = info.tripDistanceMaxThreshold,
+                maxPickupDistance = info.maxPickupRadius
               }

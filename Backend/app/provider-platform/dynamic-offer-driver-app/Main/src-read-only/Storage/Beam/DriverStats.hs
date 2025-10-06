@@ -9,10 +9,12 @@ import Kernel.External.Encryption
 import Kernel.Prelude
 import qualified Kernel.Prelude
 import qualified Kernel.Types.Common
+import qualified Lib.DriverCoins.Types
 import Tools.Beam.UtilsTH
 
 data DriverStatsT f = DriverStatsT
-  { bonusEarned :: B.C f Kernel.Types.Common.Money,
+  { blacklistCoinEvents :: B.C f (Kernel.Prelude.Maybe [Lib.DriverCoins.Types.DriverCoinsFunctionType]),
+    bonusEarned :: B.C f Kernel.Types.Common.Money,
     bonusEarnedAmount :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney),
     coinCovertedToCashLeft :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney),
     currency :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Currency),
@@ -26,6 +28,7 @@ data DriverStatsT f = DriverStatsT
     lateNightTrips :: B.C f Kernel.Prelude.Int,
     numDriversOnboarded :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     numFleetsOnboarded :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
+    onlineDuration :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
     ridesCancelled :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     safetyPlusEarnings :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.HighPrecMoney),
     safetyPlusRideCount :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),

@@ -9,7 +9,7 @@ where
 
 import qualified API.Types.UI.Places
 import qualified Control.Lens
-import qualified Domain.Action.UI.Places as Domain.Action.UI.Places
+import qualified Domain.Action.UI.Places
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.Person
 import qualified Environment
@@ -21,7 +21,7 @@ import Servant
 import Storage.Beam.SystemConfigs ()
 import Tools.Auth
 
-type API = (TokenAuth :> "places" :> ReqBody ('[JSON]) API.Types.UI.Places.PlacesRequest :> Post ('[JSON]) API.Types.UI.Places.PlacesResponse)
+type API = (TokenAuth :> "places" :> ReqBody '[JSON] API.Types.UI.Places.PlacesRequest :> Post '[JSON] API.Types.UI.Places.PlacesResponse)
 
 handler :: Environment.FlowServer API
 handler = postPlaces

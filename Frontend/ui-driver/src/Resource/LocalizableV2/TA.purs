@@ -1864,6 +1864,9 @@ getTa =
     , open_meter: "ஓப்பன் மீட்டர்"
     , this_ride_includes_a_pet : "இந்த சவாரியில் ஒரு செல்லப்பிராணியும் அடங்கும்."
     , pet_rides : "பெட் ரைட்ஸ்"
+    , thanks_for_accepting_pet_ride : "வளர்ப்பு பிராணி பயணத்தை ஏற்றுக்கொண்டதற்கு நன்றி!"
+    , clean_the_vehicle_after_ride_if_needed : "பயணத்திற்கு பின், தேவைப்பட்டால் வாகனத்தை சுத்தம் செய்யுங்கள்."
+    , the_customer_is_responsible_for_pet : "பிராணிகள் தொடர்பான எந்த சிக்கலும் பயணியின் முழுப் பொறுப்பாகும்."
     , please_resume_ride_to_continue: "பயணத்தை மீண்டும் தொடங்கவும்"
     , you_are_too_far_from_the_stop: "நிறுத்தத்திற்கு அதிகமான தூரத்தில் உள்ளீர்கள். அடுத்த நிறுத்தத்திற்கு செல்லவும்"
     , you_may_lose_some_coins_if_you_cancel_this_ride: "நீங்கள் இந்த சவாரியை ரத்து செய்தால், குறைந்த காலி இருக்கலாம்"
@@ -1909,4 +1912,6 @@ getTa =
     , view_less : "காணுவதை கம்பாக்குக"
     , you_are_in_probation_period_till : (\date -> "நிமிட " <> date <> " வர்ஷத்திற்கு பார் ஦லில் மா஡஬ஹு஦ு")
     , pass_all_eligibility_criteria_to_continue_being_a_member : "நம்ம குதுமா ஸதஸ்யத்தை ஜாரி஗ெ ஸமஸ்த யோக்குவாய்ப்பாக மாநிதிகளை பாலிஸி"
+    , metro : "மெட்ரோ"
+    , gold_tier : "கோல்ட் டீர்"
     }

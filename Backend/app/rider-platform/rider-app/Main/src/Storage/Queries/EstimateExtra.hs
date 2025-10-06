@@ -1,6 +1,7 @@
 module Storage.Queries.EstimateExtra where
 
 import Domain.Types.Estimate as DE
+import Domain.Types.EstimateStatus
 import Domain.Types.SearchRequest (SearchRequest)
 import Kernel.Beam.Functions
 import Kernel.Prelude
@@ -17,7 +18,7 @@ import qualified Storage.Queries.TripTerms as QTT
 
 createEstimate :: (MonadFlow m, EsqDBFlow m r) => Estimate -> m ()
 createEstimate estimate = do
-  if fromMaybe False estimate.isMultimodalSearch then createWithKVWithOptions Nothing True estimate else createWithKV estimate
+  if fromMaybe False estimate.isMultimodalSearch then createWithKVWithOptions (Just 21600) True estimate else createWithKV estimate
 
 create :: (EsqDBFlow m r, MonadFlow m, CacheFlow m r) => Estimate -> m ()
 create estimate = do

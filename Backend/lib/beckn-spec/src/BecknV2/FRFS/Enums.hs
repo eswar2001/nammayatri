@@ -74,8 +74,34 @@ data VehicleCategory = METRO | SUBWAY | BUS
 
 $(mkHttpInstancesForEnum ''VehicleCategory)
 
-data ServiceTierType = ORDINARY | AC | NON_AC | EXPRESS | SPECIAL | EXECUTIVE | FIRST_CLASS | SECOND_CLASS | THIRD_CLASS
-  deriving (Eq, Ord, Show, Read, Generic, ToJSON, FromJSON, ToParamSchema)
+data ServiceTierType = ORDINARY | AC | NON_AC | EXPRESS | SPECIAL | EXECUTIVE | FIRST_CLASS | SECOND_CLASS | THIRD_CLASS | ASHOK_LEYLAND_AC | MIDI_AC | VOLVO_AC | ELECTRIC_V | ELECTRIC_V_PMI
+  deriving (Eq, Ord, Show, Read, Generic, ToJSON, ToParamSchema)
+
+instance FromJSON ServiceTierType where
+  parseJSON r = case r of
+    (String "Deluxe EV") -> pure EXECUTIVE
+    (String "Small Bus Express") -> pure EXPRESS
+    (String "Small Bus Ordinary") -> pure NON_AC
+    (String "A/C") -> pure AC
+    (String "Ordinary") -> pure ORDINARY
+    (String "A/C EV") -> pure AC
+    (String "Express") -> pure EXPRESS
+    (String "Deluxe") -> pure EXECUTIVE
+    (String "ORDINARY") -> pure ORDINARY
+    (String "AC") -> pure AC
+    (String "NON_AC") -> pure NON_AC
+    (String "EXPRESS") -> pure EXPRESS
+    (String "SPECIAL") -> pure SPECIAL
+    (String "EXECUTIVE") -> pure EXECUTIVE
+    (String "FIRST_CLASS") -> pure FIRST_CLASS
+    (String "SECOND_CLASS") -> pure SECOND_CLASS
+    (String "THIRD_CLASS") -> pure THIRD_CLASS
+    (String "ASHOK_LEYLAND_AC") -> pure ASHOK_LEYLAND_AC
+    (String "MIDI_AC") -> pure MIDI_AC
+    (String "VOLVO_AC") -> pure VOLVO_AC
+    (String "ELECTRIC_V") -> pure ELECTRIC_V
+    (String "ELECTRIC_V_PMI") -> pure ELECTRIC_V_PMI
+    _ -> parseFail "Invalid Service Tier Type"
 
 instance ToSchema ServiceTierType where
   declareNamedSchema proxy = do
@@ -115,7 +141,7 @@ data CancellationType = SOFT_CANCEL | CONFIRM_CANCEL
 data CancellationParams = REFUND | CANCELLATION_CHARGES | BASE_FARE
   deriving (Eq, Ord, Show, Read, Generic)
 
-data OrderStatus = SOFT_CANCELLED | CANCELLED | CANCEL_INITIATED | ACTIVE | COMPLETE
+data OrderStatus = SOFT_CANCELLED | CANCELLED | CANCEL_INITIATED | ACTIVE | COMPLETE | UPDATED
   deriving (Eq, Ord, Show, Read, Generic)
 
 instance FromJSON OrderStatus where
@@ -124,7 +150,8 @@ instance FromJSON OrderStatus where
   parseJSON (String "CANCEL_INITIATED") = pure CANCEL_INITIATED
   parseJSON (String "ACTIVE") = pure ACTIVE
   parseJSON (String "COMPLETE") = pure COMPLETE
-  parseJSON (String _) = parseFail "Invalid OnCancel Order Status"
+  parseJSON (String "UPDATED") = pure UPDATED
+  parseJSON (String _) = parseFail "Invalid Message Order Status"
   parseJSON e = typeMismatch "String" e
 
 instance ToJSON OrderStatus where
@@ -133,3 +160,4 @@ instance ToJSON OrderStatus where
   toJSON CANCEL_INITIATED = String "CANCEL_INITIATED"
   toJSON ACTIVE = String "ACTIVE"
   toJSON COMPLETE = String "COMPLETE"
+  toJSON UPDATED = String "UPDATED"

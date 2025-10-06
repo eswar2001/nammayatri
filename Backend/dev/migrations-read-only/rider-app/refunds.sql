@@ -13,3 +13,13 @@ ALTER TABLE atlas_app.refunds ADD COLUMN short_id text NOT NULL;
 ALTER TABLE atlas_app.refunds ADD COLUMN status text NOT NULL;
 ALTER TABLE atlas_app.refunds ADD COLUMN updated_at timestamp with time zone NOT NULL default CURRENT_TIMESTAMP;
 ALTER TABLE atlas_app.refunds ADD PRIMARY KEY ( id);
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.refunds ADD COLUMN split json ;
+
+
+------- SQL updates -------
+
+ALTER TABLE atlas_app.refunds ALTER COLUMN short_id TYPE character varying(36);

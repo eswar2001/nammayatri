@@ -563,7 +563,7 @@ getEn =
     , rides_cancelled: "Rides Cancelled"
     , earnings_missed: "Earnings Missed"
     , summary: "Summary"
-    , namma_bonus: (\_ -> "Namma Bonus")
+    , namma_bonus: (\_ -> "")
     , trips_completed: "Trips Completed"
     , late_night_trips: "Late night trips"
     , about_me: "About me"
@@ -1864,6 +1864,9 @@ getEn =
     , open_meter : "Open Meter"
     , this_ride_includes_a_pet : "This ride includes a pet"
     , pet_rides : "Pet Rides"
+    , thanks_for_accepting_pet_ride : "Thanks for accepting a Pet ride!"
+    , clean_the_vehicle_after_ride_if_needed : "Clean the vehicle after the ride if needed."
+    , the_customer_is_responsible_for_pet : "The customer is responsible for their pet and any problems that happen during the ride."
     , please_resume_ride_to_continue : "Please resume ride to continue"
     , you_are_too_far_from_the_stop : "You are too far from the stop. Please reach the next Stop"
     , you_may_lose_some_coins_if_you_cancel_this_ride : "You may lose some coins if you cancel this ride"
@@ -1909,4 +1912,6 @@ getEn =
     , view_less : "View Less"
     , you_are_in_probation_period_till : (\date -> "You are in probation period till " <> date)
     , pass_all_eligibility_criteria_to_continue_being_a_member : "Pass all Eligibility Criteria to continue being a member"
+    , metro : "Metro"
+    , gold_tier : "Gold Tier"
     }

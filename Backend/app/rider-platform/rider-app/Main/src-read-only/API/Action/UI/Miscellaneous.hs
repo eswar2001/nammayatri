@@ -9,7 +9,7 @@ where
 
 import qualified API.Types.UI.Miscellaneous
 import qualified Control.Lens
-import qualified Domain.Action.UI.Miscellaneous as Domain.Action.UI.Miscellaneous
+import qualified Domain.Action.UI.Miscellaneous
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.Person
 import qualified Environment
@@ -21,7 +21,7 @@ import Servant
 import Storage.Beam.SystemConfigs ()
 import Tools.Auth
 
-type API = (TokenAuth :> "misc" :> "testScanQR" :> ReqBody ('[JSON]) API.Types.UI.Miscellaneous.QRScanTestReq :> Post ('[JSON]) API.Types.UI.Miscellaneous.QRScanTestResp)
+type API = (TokenAuth :> "misc" :> "testScanQR" :> ReqBody '[JSON] API.Types.UI.Miscellaneous.QRScanTestReq :> Post '[JSON] API.Types.UI.Miscellaneous.QRScanTestResp)
 
 handler :: Environment.FlowServer API
 handler = postMiscTestScanQR

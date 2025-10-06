@@ -10,6 +10,8 @@ import Domain.Types.FRFSTicketBooking
 import Domain.Types.IntegratedBPPConfig
 import EulerHS.Types as ET hiding (Log)
 import ExternalBPP.ExternalAPI.Metro.CMRL.Auth
+import ExternalBPP.ExternalAPI.Metro.CMRL.Error (CMRLError (..))
+import qualified ExternalBPP.ExternalAPI.Metro.CMRL.UpdateQrReceivedStatus as UpdateQr
 import ExternalBPP.ExternalAPI.Types
 import Kernel.External.Encryption
 import Kernel.Prelude
@@ -28,6 +30,7 @@ createOrder config integratedBPPConfig booking mRiderNumber = do
   paymentTxnId <- booking.paymentTxnId & fromMaybeM (InternalError $ "Payment Transaction Id Missing")
   fromStation <- OTPRest.getStationByGtfsIdAndStopCode booking.fromStationCode integratedBPPConfig >>= fromMaybeM (InternalError $ "Station not found for stationCode: " <> booking.fromStationCode <> " and integratedBPPConfigId: " <> integratedBPPConfig.id.getId)
   toStation <- OTPRest.getStationByGtfsIdAndStopCode booking.toStationCode integratedBPPConfig >>= fromMaybeM (InternalError $ "Station not found for stationCode: " <> booking.toStationCode <> " and integratedBPPConfigId: " <> integratedBPPConfig.id.getId)
+  let totalTicketQuantity = max 1 (booking.quantity + fromMaybe 0 booking.childTicketQuantity)
   ticketsData <-
     generateQRTickets config $
       GenerateQRReq
@@ -35,13 +38,13 @@ createOrder config integratedBPPConfig booking mRiderNumber = do
           destination = toStation.code,
           ticketType = "SJT", -- TODO: FIX THIS
           noOfTickets = 1, -- Always set to 1 as per requirement
-          ticketFare = getMoney (maybe booking.price.amountInt (.amountInt) booking.finalPrice) `div` max 1 booking.quantity,
+          ticketFare = getMoney (maybe booking.price.amountInt (.amountInt) booking.finalPrice) `div` totalTicketQuantity,
           customerMobileNo = fromMaybe "9999999999" mRiderNumber,
           uniqueTxnRefNo = orderId,
           bankRefNo = paymentTxnId,
           paymentMode = "UPI",
           appType = cmrlAppType,
-          paxCount = booking.quantity, -- Number of tickets
+          paxCount = totalTicketQuantity, -- Number of tickets
           qrTypeCode = "FQR"
         }
   tickets <-
@@ -54,7 +57,8 @@ createOrder config integratedBPPConfig booking mRiderNumber = do
             qrStatus = "UNCLAIMED",
             qrValidity = expiryTime,
             description = Nothing,
-            qrRefreshAt = Nothing
+            qrRefreshAt = Nothing,
+            commencingHours = Nothing
           }
   return ProviderOrder {..}
 
@@ -108,8 +112,24 @@ generateQRTickets :: (CoreMetrics m, MonadFlow m, CacheFlow m r, EncFlow m r) =>
 generateQRTickets config qrReq = do
   let modifiedQrReq = qrReq {origin = getStationCode qrReq.origin, destination = getStationCode qrReq.destination}
       eulerClient = \accessToken -> ET.client generateQRAPI (Just $ "Bearer " <> accessToken) modifiedQrReq
-  qrResponse <- callCMRLAPI config eulerClient "generateQRTickets" generateQRAPI
-  return qrResponse.result
+  result <- try @_ @SomeException $ callCMRLAPI config eulerClient "generateQRTickets" generateQRAPI
+  case result of
+    Left err -> do
+      let mCMRLError = fromException @CMRLError err
+      case mCMRLError of
+        Just (GateWayTimeOut msg) -> do
+          let updateReq =
+                UpdateQr.UpdateQrReceivedStatusReq
+                  { UpdateQr.txnRefNo = qrReq.uniqueTxnRefNo,
+                    UpdateQr.appType = "CMRL_CUM_IQR",
+                    UpdateQr.isFailure = True,
+                    UpdateQr.failureReason = if T.null msg then "GateWayTimeOut Error (504)" else msg
+                  }
+          _ <- UpdateQr.updateQrReceivedStatus config updateReq
+          throwError $ InternalError $ "Generate QR Tickets API GateWayTimeOut Error (504): " <> updateReq.failureReason
+        _ -> do
+          throwError $ InternalError $ "Failed to fetch QR ticket: " <> T.pack (show err)
+    Right qrResponse -> return qrResponse.result
   where
     getStationCode :: Text -> Text
     getStationCode stationCode = fromMaybe stationCode (listToMaybe $ T.splitOn "|" stationCode)

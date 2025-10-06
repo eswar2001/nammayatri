@@ -21,6 +21,7 @@ where
 
 import qualified BecknV2.OnDemand.Enums as BecknEnums
 import qualified BecknV2.OnDemand.Utils.Common as Utils
+import Control.Monad.Extra (mapMaybeM)
 import qualified Data.Geohash as Geohash
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as Text
@@ -28,9 +29,10 @@ import Data.Time hiding (getCurrentTime)
 import Domain.Action.UI.Cancel (makeCustomerBlockingKey)
 import Domain.Action.UI.HotSpot
 import Domain.Action.UI.RidePayment as Reexport
-import qualified Domain.Types.Booking as BT
 import qualified Domain.Types.Booking as DRB
 import qualified Domain.Types.BookingCancellationReason as DBCR
+import qualified Domain.Types.BookingStatus as BT
+import qualified Domain.Types.BookingStatus as DRB
 import qualified Domain.Types.Client as DC
 import qualified Domain.Types.ClientPersonInfo as DPCI
 import qualified Domain.Types.Extra.MerchantServiceConfig as DEMSC
@@ -46,11 +48,14 @@ import qualified Domain.Types.PersonStats as DPS
 import qualified Domain.Types.RecentLocation as DTRL
 import qualified Domain.Types.Ride as DRide
 import qualified Domain.Types.RideRelatedNotificationConfig as DRN
+import qualified Domain.Types.RideStatus as DRide
 import qualified Domain.Types.RiderConfig as DRC
 import qualified Domain.Types.Trip as Trip
 import qualified Domain.Types.VehicleVariant as DV
+import qualified Domain.Types.Yudhishthira as Y
 import Environment
 import Kernel.Beam.Functions as B
+import Kernel.Beam.Lib.Utils (pushToKafka)
 import Kernel.External.Encryption
 import Kernel.External.Payment.Interface.Types as Payment
 import qualified Kernel.External.Payout.Types as PT
@@ -70,13 +75,15 @@ import qualified Kernel.Types.SlidingWindowCounters as SW
 import Kernel.Utils.Common
 import qualified Kernel.Utils.SlidingWindowCounters as SWC
 import qualified Kernel.Utils.Time as KUT
-import qualified Lib.JourneyLeg.Types as JL
-import qualified Lib.JourneyModule.Types as JL
 import qualified Lib.Payment.Domain.Action as Payout
 import qualified Lib.Payment.Domain.Types.Common as DLP
 import Lib.Scheduler.JobStorageType.SchedulerType (createJobIn)
 import Lib.SessionizerMetrics.Types.Event
+import qualified Lib.Yudhishthira.Event as Yudhishthira
 import qualified Lib.Yudhishthira.Tools.Utils as Yudhishthira
+import qualified Lib.Yudhishthira.Types as LYT
+import qualified Lib.Yudhishthira.Types as Yudhishthira
+import SharedLogic.Booking
 import qualified SharedLogic.CallBPP as CallBPP
 import qualified SharedLogic.Insurance as SI
 import SharedLogic.JobScheduler
@@ -103,6 +110,7 @@ import qualified Storage.Queries.BookingPartiesLink as QBPL
 import qualified Storage.Queries.ClientPersonInfo as QCP
 import qualified Storage.Queries.FareBreakup as QFareBreakup
 import qualified Storage.Queries.Journey as QJourney
+import qualified Storage.Queries.JourneyLeg as QJL
 import qualified Storage.Queries.Person as QP
 import qualified Storage.Queries.PersonStats as QPersonStats
 import qualified Storage.Queries.RecentLocation as SQRL
@@ -538,8 +546,7 @@ rideStartedReqHandler ValidatedRideStartedReq {..} = do
   triggerRideStartedEvent RideEventData {ride = updRideForStartReq, personId = booking.riderId, merchantId = booking.merchantId}
   _ <- QRide.updateMultiple updRideForStartReq.id updRideForStartReq
   QPFS.clearCache booking.riderId
-  fork "create insurance" $ do
-    SI.createInsurance updRideForStartReq
+  when (updRideForStartReq.isInsured) $ fork "create insurance" $ SI.createInsurance updRideForStartReq
   now <- getCurrentTime
   rideRelatedNotificationConfigList <- CRRN.findAllByMerchantOperatingCityIdAndTimeDiffEventInRideFlow booking.merchantOperatingCityId DRN.START_TIME booking.configInExperimentVersions
   forM_ rideRelatedNotificationConfigList (SN.pushReminderUpdatesInScheduler booking updRideForStartReq (fromMaybe now rideStartTime))
@@ -604,6 +611,14 @@ rideStartedReqHandler ValidatedRideStartedReq {..} = do
         else do
           logInfo "Merchant not configured to send dashboard sms"
           pure ()
+
+data RideEndOffersKafkaData = RideEndOffersKafkaData
+  { rideId :: Id DRide.Ride,
+    personId :: Id DPerson.Person,
+    tags :: [LYT.TagNameValueExpiry],
+    createdAt :: UTCTime
+  }
+  deriving (Generic, Show, ToJSON)
 
 rideCompletedReqHandler ::
   ( HasFlowEnv m r '["nwAddress" ::: BaseUrl, "smsCfg" ::: SmsConfig],
@@ -674,6 +689,11 @@ rideCompletedReqHandler ValidatedRideCompletedReq {..} = do
           Notify.notifyFirstRideEvent booking.riderId (Utils.mapServiceTierToCategory booking.vehicleServiceTierType) booking.tripCategory
           fork ("processing referral payouts for ride: " <> ride.id.getId) $ do
             customerReferralPayout ride isValidRide riderConfig person booking.merchantId booking.merchantOperatingCityId
+
+  when (riderConfig.enableRideEndOffers) $ do
+    fork "computing offers namma tag" $
+      addOffersNammaTags updRide person
+
   -- we should create job for collecting money from customer
   let onlinePayment = maybe False (.onlinePayment) mbMerchant
   when onlinePayment $ do
@@ -700,8 +720,8 @@ rideCompletedReqHandler ValidatedRideCompletedReq {..} = do
   QRide.updateMultiple updRide.id updRide
   QFareBreakup.createMany breakups
   QPFS.clearCache booking.riderId
-
-  when (isNothing booking.journeyId) $ createRecentLocationForTaxi booking
+  createRecentLocationForTaxi booking
+  checkAndUpdateJourneyTerminalStatusForNormalRide booking DJourney.COMPLETED
 
   -- uncomment for update api test; booking.paymentMethodId should be present
   -- whenJust booking.paymentMethodId $ \paymentMethodId -> do
@@ -733,6 +753,73 @@ rideCompletedReqHandler ValidatedRideCompletedReq {..} = do
             entityType = DFareBreakup.RIDE,
             ..
           }
+
+addOffersNammaTags ::
+  ( MonadFlow m,
+    CoreMetrics m,
+    EsqDBFlow m r,
+    CacheFlow m r,
+    EncFlow m r,
+    HasKafkaProducer r
+  ) =>
+  DRide.Ride ->
+  DPerson.Person ->
+  m ()
+addOffersNammaTags ride person = do
+  decryptedMobileNumber <- mapM decrypt person.mobileNumber >>= fromMaybeM (InternalError "Customer has no mobile number")
+  now <- getCurrentTime
+  let rideData = mkRideData ride
+      customerData = Y.CustomerData {mobileNumber = decryptedMobileNumber, gender = person.gender}
+  tags <- Yudhishthira.computeNammaTagsWithExpiry Yudhishthira.RideEndOffers (Y.EndRideOffersTagData customerData rideData)
+  newTags <- modifiedNewNammaTags tags (fromMaybe [] person.customerNammaTags) now
+  when (not $ null newTags) $ do
+    QP.updateCustomerTags (Just $ (fromMaybe [] person.customerNammaTags) <> newTags) person.id
+    pushToKafka (RideEndOffersKafkaData ride.id person.id newTags now) "customer-ride-end-offers" person.id.getId
+    Notify.notifyOnRideEndOffer person
+  where
+    modifiedNewNammaTags newTags currTags now = do
+      let currValidParsedTags =
+            foldr
+              ( \tag acc ->
+                  case Yudhishthira.parseTag tag now of
+                    Just (tagName, tagValue, validity) ->
+                      case validity of
+                        Just (Hours val) ->
+                          if val > 0
+                            then (tagName, tagValue, validity) : acc
+                            else acc
+                        Nothing -> (tagName, tagValue, validity) : acc
+                    Nothing -> acc
+              )
+              []
+              currTags
+          newParsedTags = mapMaybe (\tag -> Yudhishthira.parseTag tag now) newTags
+          newParsedTagsNotInCurrTags = filter (\(tagName, _, _) -> tagName `notElem` (currValidParsedTags <&> (\(tagName', _, _) -> tagName'))) newParsedTags
+      modifiedParsedTags <-
+        mapMaybeM
+          ( \(LYT.TagName tagName, tagValue, validity) -> do
+              case tagValue of
+                LYT.TextValue tagValueText -> getOfferCodeModifiedTag tagName validity [tagValueText]
+                LYT.ArrayValue tagValueTextArray -> getOfferCodeModifiedTag tagName validity tagValueTextArray
+                _ -> pure Nothing
+          )
+          newParsedTagsNotInCurrTags
+      return $
+        map
+          (\(tagName, tagValue, tagValidity) -> Yudhishthira.mkTagNameValueExpiry tagName tagValue tagValidity now)
+          modifiedParsedTags
+
+    getOfferCodeModifiedTag _ _ [] = pure Nothing
+    getOfferCodeModifiedTag tagName validity tags@(tagValue : _) = do
+      if tagValue == "Valid"
+        then do
+          mbOfferCode :: Maybe Text <- Redis.withCrossAppRedis $ Redis.rPop ("offerCodesPool-" <> tagName)
+          case mbOfferCode of
+            Just offerCode -> pure $ Just (LYT.TagName tagName, LYT.ArrayValue (tags <> [offerCode]), validity)
+            Nothing -> pure Nothing
+        else pure Nothing
+
+    mkRideData DRide.Ride {updatedAt = updatedAt', ..} = Y.RideData {updatedAt = updatedAt', ..}
 
 buildFareBreakupV2 :: MonadFlow m => Text -> DFareBreakup.FareBreakupEntityType -> DFareBreakup -> m DFareBreakup.FareBreakup
 buildFareBreakupV2 entityId entityType DFareBreakup {..} = do
@@ -789,11 +876,10 @@ bookingCancelledReqHandler ::
     m ~ Kernel.Types.Flow.FlowR AppEnv
   ) =>
   ValidatedBookingCancelledReq ->
-  (Id DJourney.Journey -> m [JL.LegInfo]) ->
   m ()
-bookingCancelledReqHandler (ValidatedBookingCancelledReq {..}) getJourneyLegsCallbackFn = do
+bookingCancelledReqHandler (ValidatedBookingCancelledReq {..}) = do
   logTagInfo ("BookingId-" <> getId booking.id) ("Cancellation reason:-" <> show cancellationSource)
-  cancellationTransaction booking mbRide cancellationSource Nothing getJourneyLegsCallbackFn
+  cancellationTransaction booking mbRide cancellationSource Nothing
 
 cancellationTransaction ::
   ( HasFlowEnv m r '["nwAddress" ::: BaseUrl, "smsCfg" ::: SmsConfig],
@@ -816,9 +902,8 @@ cancellationTransaction ::
   Maybe DRide.Ride ->
   DBCR.CancellationSource ->
   Maybe PriceAPIEntity ->
-  (Id DJourney.Journey -> m [JL.LegInfo]) ->
   m ()
-cancellationTransaction booking mbRide cancellationSource cancellationFee getJourneyLegsCallbackFn = do
+cancellationTransaction booking mbRide cancellationSource cancellationFee = do
   bookingCancellationReason <- mkBookingCancellationReason booking (mbRide <&> (.id)) cancellationSource
   merchantConfigs <- CMC.findAllByMerchantOperatingCityIdInRideFlow booking.merchantOperatingCityId booking.configInExperimentVersions
   fork "incrementing fraud counters" $ do
@@ -842,16 +927,8 @@ cancellationTransaction booking mbRide cancellationSource cancellationFee getJou
   unless (booking.status == DRB.CANCELLED) $
     void $ do
       QRB.updateStatus booking.id DRB.CANCELLED
-      QRB.updateJourneyLegStatus (Just JL.Cancelled) booking.id
       QBPL.makeAllInactiveByBookingId booking.id
-      whenJust booking.journeyId $ \journeyId -> do
-        journeyLegs <- getJourneyLegsCallbackFn journeyId
-        when (length journeyLegs == 1 || length (filter (\journeyLeg -> journeyLeg.status == JL.Cancelled) journeyLegs) == length journeyLegs - 1) $ -- means, there was only one leg in the journey, which is now sadly cancelled, so we can mark the journey itself as cancelled.
-          QJourney.updateStatus DJourney.CANCELLED journeyId
-        when (length journeyLegs > 1) $ do
-          let activeLegs = filter (\journeyLeg -> journeyLeg.status `notElem` [JL.Skipped, JL.Cancelled, JL.Completed]) journeyLegs
-          when (length activeLegs <= 1) $ do
-            QJourney.updateStatus DJourney.COMPLETED journeyId
+      checkAndUpdateJourneyTerminalStatusForNormalRide booking DJourney.CANCELLED
   whenJust mbRide $ \ride -> void $ do
     unless (ride.status == DRide.CANCELLED) $ void $ QRide.updateStatus ride.id DRide.CANCELLED
   riderConfig <- QRC.findByMerchantOperatingCityIdInRideFlow booking.merchantOperatingCityId booking.configInExperimentVersions >>= fromMaybeM (InternalError "RiderConfig not found")
@@ -897,6 +974,15 @@ cancellationTransaction booking mbRide cancellationSource cancellationFee getJou
               rejectUpgradeTagWithExpiry <- Yudhishthira.fetchNammaTagExpiry rejectUpgradeTag
               QP.updateCustomerTags (Just $ personTags <> [rejectUpgradeTagWithExpiry]) person.id
         _ -> pure ()
+
+checkAndUpdateJourneyTerminalStatusForNormalRide :: (CacheFlow m r, EsqDBFlow m r, MonadFlow m) => DRB.Booking -> DJourney.JourneyStatus -> m ()
+checkAndUpdateJourneyTerminalStatusForNormalRide booking journeyStatus = do
+  mbJourneyId <- getJourneyIdFromBooking booking
+  whenJust mbJourneyId $ \journeyId -> do
+    journeyLegs <- QJL.getJourneyLegs journeyId
+    case journeyLegs of
+      [_] -> QJourney.updateStatus journeyStatus journeyId -- only one element here means just taxi leg i.e. normal ride flow, so updating journeyStatus
+      _ -> pure ()
 
 mkBookingCancellationReason ::
   (MonadFlow m) =>
@@ -970,7 +1056,7 @@ validateRideStartedReq RideStartedReq {..} = do
   booking <- QRB.findByBPPBookingId bppBookingId >>= fromMaybeM (BookingDoesNotExist $ "BppBookingId: " <> bppBookingId.getId)
   ride <- QRide.findByBPPRideId bppRideId >>= fromMaybeM (RideDoesNotExist $ "BppRideId" <> bppRideId.getId)
   unless (booking.status == DRB.TRIP_ASSIGNED) $ throwError (BookingInvalidStatus $ show booking.status)
-  unless (ride.status == DRide.NEW) $ throwError (RideInvalidStatus $ show ride.status)
+  unless (ride.status == DRide.NEW || ride.status == DRide.UPCOMING) $ throwError (RideInvalidStatus $ show ride.status)
   let estimatedEndTimeRange = mkEstimatedEndTimeRange <$> estimatedEndTimeRangeStart <*> estimatedEndTimeRangeEnd
   return $ ValidatedRideStartedReq {..}
   where

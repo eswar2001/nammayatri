@@ -9,7 +9,7 @@ where
 
 import qualified API.Types.UI.NearbyDrivers
 import qualified Control.Lens
-import qualified Domain.Action.UI.NearbyDrivers as Domain.Action.UI.NearbyDrivers
+import qualified Domain.Action.UI.NearbyDrivers
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.Person
 import qualified Environment
@@ -21,7 +21,7 @@ import Servant
 import Storage.Beam.SystemConfigs ()
 import Tools.Auth
 
-type API = (TokenAuth :> "nearbyDrivers" :> ReqBody ('[JSON]) API.Types.UI.NearbyDrivers.NearbyDriverReq :> Post ('[JSON]) API.Types.UI.NearbyDrivers.NearbyDriverRes)
+type API = (TokenAuth :> "nearbyDrivers" :> ReqBody '[JSON] API.Types.UI.NearbyDrivers.NearbyDriverReq :> Post '[JSON] API.Types.UI.NearbyDrivers.NearbyDriverRes)
 
 handler :: Environment.FlowServer API
 handler = postNearbyDrivers

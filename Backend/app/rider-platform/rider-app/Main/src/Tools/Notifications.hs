@@ -24,6 +24,7 @@ import qualified Domain.Types.BookingCancellationReason as SBCR
 import qualified Domain.Types.BppDetails as DBppDetails
 import Domain.Types.EmptyDynamicParam
 import Domain.Types.Estimate (Estimate)
+import qualified Domain.Types.EstimateStatus as DEstimate
 import Domain.Types.Merchant
 import Domain.Types.MerchantOperatingCity (MerchantOperatingCity)
 import qualified Domain.Types.MerchantServiceConfig as DMSC
@@ -67,6 +68,8 @@ import qualified Storage.CachedQueries.Merchant.RiderConfig as QRC
 import qualified Storage.CachedQueries.Sos as CQSos
 import qualified Storage.CachedQueries.ValueAddNP as CQVAN
 import qualified Storage.Queries.BookingPartiesLink as QBPL
+import qualified Storage.Queries.Estimate as QEstimate
+import qualified Storage.Queries.JourneyLeg as QJourneyLeg
 import qualified Storage.Queries.NotificationSoundsConfig as SQNSC
 import qualified Storage.Queries.Person as Person
 import Storage.Queries.PersonDefaultEmergencyNumber as QPDEN
@@ -223,6 +226,8 @@ notifyOnRideSearchExpired searchReq = do
   logDebug "Sending ride search expired notification"
   let searchRequestId = searchReq.id
   person <- Person.findById searchReq.riderId
+  mbJourneyLeg <- QJourneyLeg.findByLegSearchId (Just searchReq.id.getId)
+  whenJust (mbJourneyLeg >>= (.legPricingId)) $ QEstimate.updateStatus DEstimate.RIDE_SEARCH_EXPIRED . Id
   case person of
     Just personObj -> do
       let entity = Notification.Entity Notification.SearchRequest searchRequestId.getId ()
@@ -281,7 +286,8 @@ notifyOnRideSearchExpired searchReq = do
 data RideAssignedParam = RideAssignedParam
   { driverName :: Text,
     rideTime :: UTCTime,
-    bookingId :: Id SRB.Booking
+    bookingId :: Id SRB.Booking,
+    isScheduledBooking :: Bool
   }
   deriving (Show, Eq, Generic, ToJSON, FromJSON)
 
@@ -295,8 +301,8 @@ notifyOnRideAssigned booking ride = do
       rideId = ride.id
       driverName = ride.driverName
   person <- Person.findById personId >>= fromMaybeM (PersonNotFound personId.getId)
-  let entity = Notification.Entity Notification.Product rideId.getId (RideAssignedParam driverName booking.startTime booking.id)
-      dynamicParams = RideAssignedParam driverName booking.startTime booking.id
+  let entity = Notification.Entity Notification.Product rideId.getId (RideAssignedParam driverName booking.startTime booking.id booking.isScheduled)
+      dynamicParams = RideAssignedParam driverName booking.startTime booking.id booking.isScheduled
   allOtherBookingPartyPersons <- getAllOtherRelatedPartyPersons booking
   forM_ (person : allOtherBookingPartyPersons) $ \person' -> do
     tag <- getDisabilityTag person.hasDisability person'.id
@@ -367,10 +373,10 @@ notifyOnScheduledRideAccepted booking ride = do
             subCategory = Nothing,
             showNotification = Notification.SHOW,
             messagePriority = Nothing,
-            entity = Notification.Entity Notification.Product rideId.getId (RideAssignedParam driverName booking.startTime booking.id),
+            entity = Notification.Entity Notification.Product rideId.getId (RideAssignedParam driverName booking.startTime booking.id booking.isScheduled),
             body = body,
             title = title,
-            dynamicParams = RideAssignedParam driverName booking.startTime booking.id,
+            dynamicParams = RideAssignedParam driverName booking.startTime booking.id booking.isScheduled,
             auth = Notification.Auth person.id.getId person.deviceToken person.notificationToken,
             ttl = Nothing,
             sound = notificationSound
@@ -1555,6 +1561,22 @@ notifyAboutDeletedPerson personId = do
   dynamicNotifyPerson
     person
     (createNotificationReq "ACCOUNT_DELETED" identity)
+    EmptyDynamicParam
+    entity
+    Nothing
+    []
+    Nothing
+    Nothing
+
+notifyOnRideEndOffer ::
+  ServiceFlow m r =>
+  Person ->
+  m ()
+notifyOnRideEndOffer person = do
+  let entity = Notification.Entity Notification.Person person.id.getId ()
+  dynamicNotifyPerson
+    person
+    (createNotificationReq "RIDE_END_OFFER" identity)
     EmptyDynamicParam
     entity
     Nothing

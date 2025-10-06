@@ -33,3 +33,18 @@ findAllActiveAssociationByRCId ::
 findAllActiveAssociationByRCId (Id rcId) = do
   now <- getCurrentTime
   findAllWithKV [Se.And [Se.Is Beam.rcId $ Se.Eq rcId, Se.Is Beam.associatedTill $ Se.GreaterThan $ Just now]]
+
+findActiveAssociationByFleetOwnerId ::
+  (MonadFlow m, EsqDBFlow m r, CacheFlow m r) =>
+  Id Person ->
+  m (Maybe FleetRCAssociation)
+findActiveAssociationByFleetOwnerId (Id fleetOwnerId) = do
+  now <- getCurrentTime
+  listToMaybe
+    <$> findAllWithOptionsKV'
+      [Se.And [Se.Is Beam.fleetOwnerId $ Se.Eq fleetOwnerId, Se.Is Beam.associatedTill $ Se.GreaterThan $ Just now]]
+      (Just 1)
+      Nothing
+
+deleteByFleetOwnerId :: (MonadFlow m, EsqDBFlow m r, CacheFlow m r) => Id Person -> m ()
+deleteByFleetOwnerId (Id fleetOwnerId) = deleteWithKV [Se.Is Beam.fleetOwnerId (Se.Eq fleetOwnerId)]

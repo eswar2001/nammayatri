@@ -9,6 +9,7 @@ import qualified Domain.Types.IntegratedBPPConfig
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.MerchantOperatingCity
 import qualified Domain.Types.StationType
+import Kernel.External.Maps (HasCoordinates (..))
 import Kernel.Prelude
 import qualified Kernel.Types.Id
 import qualified Kernel.Types.TimeBound
@@ -21,6 +22,8 @@ data Gate = Gate
     lon :: Double
   }
   deriving (Generic, Show, ToJSON, FromJSON, ToSchema)
+
+instance HasCoordinates Gate
 
 data Station = Station
   { address :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
@@ -40,6 +43,7 @@ data Station = Station
     gates :: Maybe [Gate],
     timeBounds :: Kernel.Types.TimeBound.TimeBound,
     vehicleType :: BecknV2.FRFS.Enums.VehicleCategory,
+    parentStopCode :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     createdAt :: Kernel.Prelude.UTCTime,
     updatedAt :: Kernel.Prelude.UTCTime
   }

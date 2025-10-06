@@ -25,9 +25,12 @@ where
 import qualified BecknV2.OnDemand.Enums as Enums
 import qualified Data.Text as T
 import qualified Domain.Action.Beckn.Common as Common
+import qualified Domain.SharedLogic.Cancel as SharedCancel
 import qualified Domain.Types.Booking as SRB
 import qualified Domain.Types.BookingCancellationReason as SBCR
+import qualified Domain.Types.BookingStatus as SRB
 import qualified Domain.Types.Ride as SRide
+import qualified Domain.Types.RideStatus as SRide
 import Environment
 import Environment ()
 import Kernel.Beam.Functions
@@ -35,7 +38,6 @@ import Kernel.Prelude
 import Kernel.Storage.Esqueleto.Config (EsqDBReplicaFlow)
 import Kernel.Types.Id
 import Kernel.Utils.Common
-import qualified Lib.JourneyModule.Base as JM
 import qualified Storage.Queries.Booking as QRB
 import qualified Storage.Queries.Ride as QRide
 import Tools.Error
@@ -60,7 +62,8 @@ onCancel ValidatedBookingCancelledReq {..} = do
   logTagInfo ("BookingId-" <> getId booking.id) ""
   whenJust cancellationSource $ \source -> logTagInfo ("Cancellation source " <> source) ""
   let castedCancellationSource = castCancellatonSource cancellationSource_
-  Common.cancellationTransaction booking mbRide castedCancellationSource cancellationFee JM.getAllLegsInfoWithoutAddingSkipLeg
+  Common.cancellationTransaction booking mbRide castedCancellationSource cancellationFee
+  SharedCancel.releaseCancellationLock booking.transactionId
   where
     castCancellatonSource = \case
       Just Enums.CONSUMER -> SBCR.ByUser

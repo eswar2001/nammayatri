@@ -1,13 +1,8 @@
-{-# OPTIONS_GHC -Wwarn=unused-imports #-}
-
 module Domain.Action.UI.AttractionRecommend (postAttractionsRecommend, makeRecommendedTicketPlacesKey) where
 
 import qualified API.Types.UI.AttractionRecommend as API
-import Control.Monad (join)
 import qualified Data.List as L
-import qualified Data.Maybe as Maybe
 import Data.OpenApi (ToSchema)
-import qualified Data.Text as T
 import qualified Domain.Types.Merchant
 import qualified Domain.Types.Person
 import qualified Domain.Types.TicketPlace as DTicketPlace
@@ -19,14 +14,12 @@ import qualified Kernel.Storage.Hedis as Hedis
 import Kernel.Types.Distance (HighPrecMeters (..), highPrecMetersToMeters)
 import qualified Kernel.Types.Id
 import Kernel.Utils.CalculateDistance (distanceBetweenInMeters)
-import Kernel.Utils.Common (getCurrentTime)
-import Servant
 import qualified Storage.Queries.TicketPlace as QTicketPlace
-import Tools.Auth
 
 data CachedAttraction = CachedAttraction
   { id :: Kernel.Types.Id.Id DTicketPlace.TicketPlace,
     name :: Text,
+    iconUrl :: Maybe Text,
     lat :: Double,
     lon :: Double
   }
@@ -66,7 +59,7 @@ postAttractionsRecommend (_, merchantId) req = do
     filterWithInRadius userpos radiusInKm = filter (\(_, dist) -> dist <= radiusInKm) . map (\place -> (place, getKm $ distanceBetweenInMeters userpos (LatLong place.lat place.lon)))
 
     mkCachedAttraction :: DTicketPlace.TicketPlace -> Maybe CachedAttraction
-    mkCachedAttraction place = if isJust place.lat && isJust place.lon then Just CachedAttraction {id = place.id, name = place.name, lat = fromMaybe 0 place.lat, lon = fromMaybe 0 place.lon} else Nothing
+    mkCachedAttraction place = if isJust place.lat && isJust place.lon then Just CachedAttraction {id = place.id, name = place.name, iconUrl = place.iconUrl, lat = fromMaybe 0 place.lat, lon = fromMaybe 0 place.lon} else Nothing
 
     mkAttractions :: [(CachedAttraction, Double)] -> [API.Attraction]
-    mkAttractions = map (\(place, dist) -> API.Attraction {id = place.id, name = place.name, distanceInKm = dist})
+    mkAttractions = map (\(place, dist) -> API.Attraction {id = place.id, iconUrl = place.iconUrl, name = place.name, distanceInKm = dist})

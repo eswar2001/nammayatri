@@ -152,8 +152,8 @@ data ServiceHandle m = ServiceHandle
     getMerchant :: Id DM.Merchant -> m (Maybe DM.Merchant),
     endRideTransaction :: Id DP.Driver -> SRB.Booking -> DRide.Ride -> Maybe FareParameters -> Maybe (Id RD.RiderDetails) -> FareParameters -> DTConf.TransporterConfig -> m (),
     notifyCompleteToBAP :: SRB.Booking -> DRide.Ride -> Fare.FareParameters -> Maybe DMPM.PaymentMethodInfo -> Maybe Text -> Maybe LatLong -> m (),
-    getFarePolicyByEstOrQuoteId :: Maybe LatLong -> Maybe Text -> Maybe Text -> Maybe Meters -> Maybe Seconds -> Id DMOC.MerchantOperatingCity -> DTC.TripCategory -> DVST.ServiceTierType -> Maybe SL.Area -> Text -> Maybe UTCTime -> Maybe Bool -> Maybe Int -> Maybe CacKey -> [LYT.ConfigVersionMap] -> m DFP.FullFarePolicy,
-    getFarePolicyOnEndRide :: Maybe LatLong -> Maybe Text -> Maybe Text -> Maybe Meters -> Maybe Seconds -> LatLong -> Id DMOC.MerchantOperatingCity -> DTC.TripCategory -> DVST.ServiceTierType -> Maybe SL.Area -> Text -> Maybe UTCTime -> Maybe Bool -> Maybe Int -> Maybe CacKey -> [LYT.ConfigVersionMap] -> m DFP.FullFarePolicy,
+    getFarePolicyByEstOrQuoteId :: Maybe LatLong -> Maybe LatLong -> Maybe Text -> Maybe Text -> Maybe Meters -> Maybe Seconds -> Id DMOC.MerchantOperatingCity -> DTC.TripCategory -> DVST.ServiceTierType -> Maybe SL.Area -> Text -> Maybe UTCTime -> Maybe Bool -> Maybe Int -> Maybe CacKey -> [LYT.ConfigVersionMap] -> m DFP.FullFarePolicy,
+    getFarePolicyOnEndRide :: Maybe LatLong -> Maybe LatLong -> Maybe Text -> Maybe Text -> Maybe Meters -> Maybe Seconds -> LatLong -> Id DMOC.MerchantOperatingCity -> DTC.TripCategory -> DVST.ServiceTierType -> Maybe SL.Area -> Text -> Maybe UTCTime -> Maybe Bool -> Maybe Int -> Maybe CacKey -> [LYT.ConfigVersionMap] -> m DFP.FullFarePolicy,
     calculateFareParameters :: Fare.CalculateFareParametersParams -> m Fare.FareParameters,
     putDiffMetric :: Id DM.Merchant -> HighPrecMoney -> Meters -> m (),
     isDistanceCalculationFailed :: Id DP.Person -> m Bool,
@@ -530,9 +530,9 @@ endRideHandler handle@ServiceHandle {..} rideId req = do
             mbExophone = Nothing
             bapMetadata = Nothing
         isValueAddNP <- CQVAN.isValueAddNP booking.bapId
-        stopsInfo <- if (fromMaybe False finalUpdatedRide.hasStops) then QSI.findAllByRideId finalUpdatedRide.id else return []
+        stopsInfo <- if fromMaybe False finalUpdatedRide.hasStops then QSI.findAllByRideId finalUpdatedRide.id else return []
         let goHomeReqId = finalUpdatedRide.driverGoHomeRequestId
-        Just <$> DUIRideCommon.mkDriverRideRes rideDetail driverNumber rideRating mbExophone (finalUpdatedRide, booking) bapMetadata goHomeReqId Nothing isValueAddNP stopsInfo
+        Just <$> DUIRideCommon.mkDriverRideRes rideDetail driverNumber rideRating mbExophone (finalUpdatedRide, booking) bapMetadata goHomeReqId Nothing isValueAddNP stopsInfo Nothing
 
   return $
     EndRideResp
@@ -565,12 +565,8 @@ determineMetroRideType mbSplLocTag sureMetro sureWarriorMetro =
   case mbSplLocTag of
     Just splLocTag ->
       case (fromMetro, toMetro, priorityTag) of
-        (True, True, Just "PriorityPickup") -> DCT.FromMetro
-        (True, True, Just "PriorityDrop") -> DCT.ToMetro
-        (True, _, Just "PriorityPickup") -> DCT.FromMetro
-        (_, True, Just "PriorityDrop") -> DCT.ToMetro
-        (True, _, _) -> DCT.FromMetro
-        (_, True, _) -> DCT.ToMetro
+        (True, _, _) -> DCT.FromOrToMetro
+        (_, True, _) -> DCT.FromOrToMetro
         _ -> DCT.None
       where
         tagArr = Text.splitOn "_" splLocTag
@@ -602,8 +598,8 @@ recalculateFareForDistance ServiceHandle {..} booking ride recalcDistance' thres
       else pure Nothing
   farePolicy <-
     if recomputeWithLatestPricing
-      then getFarePolicyOnEndRide (Just $ getCoordinates booking.fromLocation) booking.fromLocGeohash booking.toLocGeohash (Just recalcDistance) finalDuration (getCoordinates tripEndPoint) booking.merchantOperatingCityId booking.tripCategory booking.vehicleServiceTier booking.area booking.quoteId (Just booking.startTime) (Just booking.isDashboardRequest) booking.dynamicPricingLogicVersion (Just (TransactionId (Id booking.transactionId))) booking.configInExperimentVersions
-      else getFarePolicyByEstOrQuoteId (Just $ getCoordinates booking.fromLocation) booking.fromLocGeohash booking.toLocGeohash (Just recalcDistance) finalDuration booking.merchantOperatingCityId booking.tripCategory booking.vehicleServiceTier booking.area booking.quoteId (Just booking.startTime) (Just booking.isDashboardRequest) booking.dynamicPricingLogicVersion (Just (TransactionId (Id booking.transactionId))) booking.configInExperimentVersions
+      then getFarePolicyOnEndRide (Just $ getCoordinates booking.fromLocation) (Just . getCoordinates =<< booking.toLocation) booking.fromLocGeohash booking.toLocGeohash (Just recalcDistance) finalDuration (getCoordinates tripEndPoint) booking.merchantOperatingCityId booking.tripCategory booking.vehicleServiceTier booking.area booking.quoteId (Just booking.startTime) (Just booking.isDashboardRequest) booking.dynamicPricingLogicVersion (Just (TransactionId (Id booking.transactionId))) booking.configInExperimentVersions
+      else getFarePolicyByEstOrQuoteId (Just $ getCoordinates booking.fromLocation) (Just . getCoordinates =<< booking.toLocation) booking.fromLocGeohash booking.toLocGeohash (Just recalcDistance) finalDuration booking.merchantOperatingCityId booking.tripCategory booking.vehicleServiceTier booking.area booking.quoteId (Just booking.startTime) (Just booking.isDashboardRequest) booking.dynamicPricingLogicVersion (Just (TransactionId (Id booking.transactionId))) booking.configInExperimentVersions
   if farePolicy.disableRecompute == Just True
     then return (fromMaybe 0 booking.estimatedDistance, booking.estimatedFare, Nothing)
     else do
@@ -617,8 +613,8 @@ recalculateFareForDistance ServiceHandle {..} booking ride recalcDistance' thres
               rideTime = booking.startTime,
               returnTime = booking.returnTime,
               roundTrip = fromMaybe False booking.roundTrip,
-              waitingTime = fmap (destinationWaitingTime +) $ if isNothing ride.driverArrivalTime then Nothing else fmap (max 0) (secondsToMinutes . roundToIntegral <$> (diffUTCTime <$> ride.tripStartTime <*> (liftA2 max ride.driverArrivalTime (Just booking.startTime)))),
-              stopWaitingTimes = stopsInfo <&> (\stopInfo -> max 0 (secondsToMinutes $ roundToIntegral (diffUTCTime (fromMaybe stopInfo.waitingTimeStart stopInfo.waitingTimeEnd) stopInfo.waitingTimeStart))),
+              waitingTime = fmap (destinationWaitingTime +) $ if isNothing ride.driverArrivalTime then Nothing else fmap (max 0) (secondsToMinutesCeil . roundToIntegral <$> (diffUTCTime <$> ride.tripStartTime <*> (liftA2 max ride.driverArrivalTime (Just booking.startTime)))),
+              stopWaitingTimes = stopsInfo <&> (\stopInfo -> max 0 (secondsToMinutesCeil $ roundToIntegral (diffUTCTime (fromMaybe stopInfo.waitingTimeStart stopInfo.waitingTimeEnd) stopInfo.waitingTimeStart))),
               actualRideDuration = finalDuration,
               estimatedRideDuration = booking.estimatedDuration,
               avgSpeedOfVehicle = thresholdConfig.avgSpeedOfVehicle,

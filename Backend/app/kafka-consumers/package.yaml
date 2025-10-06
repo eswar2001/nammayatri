@@ -95,6 +95,8 @@ dependencies:
   - uuid
   - fdep
   - fieldInspector
+  - beckn-spec
+
 ghc-options:
   - -Wall
   - -Werror
@@ -157,3 +159,4 @@ executables:
     dependencies:
       - kafka-consumers
       - mobility-core
+      - beckn-spec

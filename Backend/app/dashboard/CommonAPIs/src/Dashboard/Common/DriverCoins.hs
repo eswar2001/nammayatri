@@ -23,7 +23,7 @@ import Dashboard.Common as ReExport
 import Data.Aeson
 import qualified Data.List as List
 import qualified Data.Vector as V
-import Kernel.Beam.Lib.UtilsTH (mkBeamInstancesForEnum)
+import Kernel.Beam.Lib.UtilsTH (mkBeamInstancesForEnumAndList)
 import Kernel.Prelude
 import qualified Text.Show (show)
 
@@ -37,6 +37,7 @@ data CoinMessage
 data MetroRideType
   = ToMetro
   | FromMetro
+  | FromOrToMetro
   | None
   deriving stock (Eq, Show, Generic, Read, Ord)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
@@ -178,6 +179,14 @@ instance Read DriverCoinsFunctionType where
                  | r1 <- stripPrefix "MetroRideCompleted FromMetro" r,
                    r1 == ""
                ]
+            ++ [ (MetroRideCompleted FromOrToMetro (Just coins), r2)
+                 | r1 <- stripPrefix "MetroRideCompleted FromOrToMetro " r,
+                   (coins, r2) <- readsPrec (app_prec + 1) r1
+               ]
+            ++ [ (MetroRideCompleted FromOrToMetro Nothing, r1)
+                 | r1 <- stripPrefix "MetroRideCompleted FromOrToMetro" r,
+                   r1 == ""
+               ]
             ++ [ (RidesCompleted v1, r2)
                  | r1 <- stripPrefix "RidesCompleted " r,
                    (v1, r2) <- readsPrec (app_prec + 1) r1
@@ -227,7 +236,8 @@ instance FromJSON DriverCoinsFunctionType where
           Array arr' -> case V.toList arr' of
             [String rideType, Number rides] -> pure $ MetroRideCompleted (parseRideType rideType) (Just (round rides))
             [String rideType] -> pure $ MetroRideCompleted (parseRideType rideType) Nothing
-            _ -> fail "Expected array of length 1 or 2 for 'MetroRideCompleted'"
+            [String rideType, Null] -> pure $ MetroRideCompleted (parseRideType rideType) Nothing
+            _ -> fail $ "Expected array of length 1 or 2 for 'MetroRideCompleted', got: " <> show contents
           -- Older format: "FromMetro"
           String rideType -> pure $ MetroRideCompleted (parseRideType rideType) Nothing
           _ -> fail "Unsupported format for 'MetroRideCompleted' contents"
@@ -236,11 +246,13 @@ instance FromJSON DriverCoinsFunctionType where
 parseRideType :: Text -> MetroRideType
 parseRideType "ToMetro" = ToMetro
 parseRideType "FromMetro" = FromMetro
+parseRideType "FromOrToMetro" = FromOrToMetro
 parseRideType _ = None
 
 isMetroRideType :: MetroRideType -> Bool
 isMetroRideType ToMetro = True
 isMetroRideType FromMetro = True
+isMetroRideType FromOrToMetro = True
 isMetroRideType _ = False
 
-$(mkBeamInstancesForEnum ''DriverCoinsFunctionType)
+$(mkBeamInstancesForEnumAndList ''DriverCoinsFunctionType)

@@ -99,6 +99,12 @@ let marketingParamsKafkaConfig
       , kafkaKey = "rider-app-marketing-events"
       }
 
+let marketingParamsPreLoginKafkaConfig
+    : globalCommon.kafkaConfig
+    = { topicName = "MarketingParamsPreLoginData"
+      , kafkaKey = "rider-app-marketing-events"
+      }
+
 let routeDataKafkaConfig
     : globalCommon.kafkaConfig
     = { topicName = "RouteCollection"
@@ -168,6 +174,12 @@ let eventStreamMappings =
             globalCommon.streamConfig.KafkaStream marketingParamsKafkaConfig
         , eventTypes = [ globalCommon.eventType.MarketingParamsData ]
         }
+      , { streamName = globalCommon.eventStreamNameType.KAFKA_STREAM
+        , streamConfig =
+            globalCommon.streamConfig.KafkaStream
+              marketingParamsPreLoginKafkaConfig
+        , eventTypes = [ globalCommon.eventType.MarketingParamsPreLoginData ]
+        }
       ]
 
 let apiRateLimitOptions = { limit = +8000, limitResetTimeInSec = +1 }
@@ -229,6 +241,7 @@ let RiderJobType =
       | PostRideSafetyNotification
       | UpdateCrisUtsData
       | CheckMultimodalConfirmFail
+      | CheckRefundStatus
       | MetroBusinessHour
       | NyRegularMaster
       | NyRegularInstance
@@ -264,6 +277,7 @@ let jobInfoMapx =
       , { mapKey = RiderJobType.PostRideSafetyNotification, mapValue = False }
       , { mapKey = RiderJobType.UpdateCrisUtsData, mapValue = True }
       , { mapKey = RiderJobType.CheckMultimodalConfirmFail, mapValue = True }
+      , { mapKey = RiderJobType.CheckRefundStatus, mapValue = True }
       , { mapKey = RiderJobType.MetroBusinessHour, mapValue = True }
       , { mapKey = RiderJobType.NyRegularInstance, mapValue = True }
       , { mapKey = RiderJobType.NyRegularMaster, mapValue = True }
@@ -317,6 +331,8 @@ let nearByDriverAPIRateLimitOptions = { limit = +5, limitResetTimeInSec = +30 }
 let dashboardClickhouseCfg = riderClickhouseCfg
 
 let tsServiceConfig = { url = "http://0.0.0.0:3001/" }
+
+let inMemConfig = { enableInMem = True, maxInMemSize = +100000000 }
 
 in  { esqDBCfg
     , esqDBReplicaCfg
@@ -410,4 +426,5 @@ in  { esqDBCfg
     , googleSAPrivateKey = sec.googleSAPrivateKey
     , locationTrackingServiceKey = sec.locationTrackingServiceKey
     , nearByDriverAPIRateLimitOptions
+    , inMemConfig
     }

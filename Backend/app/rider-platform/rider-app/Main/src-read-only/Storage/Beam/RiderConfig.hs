@@ -3,12 +3,15 @@
 
 module Storage.Beam.RiderConfig where
 
+import qualified BecknV2.FRFS.Enums
 import qualified Data.Aeson
 import qualified Data.Time
 import qualified Database.Beam as B
 import Domain.Types.Common ()
 import qualified Domain.Types.Extra.RiderConfig
+import qualified Domain.Types.MultimodalPreferences
 import qualified Domain.Types.RentalsIntercityCache
+import qualified Domain.Types.RiderConfig
 import qualified Domain.Types.ServiceTierType
 import qualified Domain.Types.UtilsTH
 import qualified Email.Types
@@ -27,21 +30,31 @@ data RiderConfigT f = RiderConfigT
     avgSpeedInKmPerHr :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Kilometers),
     blockedUntilInMins :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Minutes),
     bookingSyncStatusCallSecondsDiffThreshold :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
+    boostSearchPreSelectionServiceTierConfig :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
+    busBookingAllowed :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
+    busScanRouteCalculationEnabledModes :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
+    busTierSortingConfig :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
     busTrackingConfig :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
+    busTransitTypes :: B.C f (Kernel.Prelude.Maybe [BecknV2.FRFS.Enums.ServiceTierType]),
     cancellationPaymentDelay :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
     collectAutoCompleteData :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     collectMMIRouteData :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     csAlertTriggerDelay :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
     cxAgentDetails :: B.C f (Kernel.Prelude.Maybe [IssueManagement.Common.CxAgentDetails]),
+    distanceToNearestStopThreshold :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     distanceWeightage :: B.C f Kernel.Prelude.Int,
+    domainPublicTransportDataVersion :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
+    domainRouteCalculationEnabledModes :: B.C f (Kernel.Prelude.Maybe [Kernel.External.MultiModal.Interface.Types.GeneralVehicleType]),
     driverReferredSearchReqExpiry :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
     dynamicLogicUpdatePassword :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     emailOtpConfig :: B.C f (Kernel.Prelude.Maybe Email.Types.EmailOTPConfig),
     enableAutoJourneyRefund :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     enableBusFiltering :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     enableEmergencyContactAddedMessage :: B.C f Kernel.Prelude.Bool,
+    enableIGMIssueFlow :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     enableLocalPoliceSupport :: B.C f Kernel.Prelude.Bool,
     enableMultiModalForAllUsers :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
+    enableRideEndOffers :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     enableSupportForSafety :: B.C f Kernel.Prelude.Bool,
     excludedVehicleVariants :: B.C f (Kernel.Prelude.Maybe [Domain.Types.ServiceTierType.ServiceTierType]),
     executePaymentDelay :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
@@ -59,6 +72,7 @@ data RiderConfigT f = RiderConfigT
     isDeviceIdCheckDisabled :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     isFirstReferredRideEnabled :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     ivrTriggerDelay :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
+    journeyOptionsSortingType :: B.C f (Kernel.Prelude.Maybe Domain.Types.MultimodalPreferences.JourneyOptionsSortingType),
     kaptureConfig :: B.C f IssueManagement.Common.KaptureConfig,
     kaptureQueue :: B.C f Kernel.Prelude.Text,
     localPoliceNumber :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
@@ -66,6 +80,7 @@ data RiderConfigT f = RiderConfigT
     maxAllowedPublicTransportLegs :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     maximumWalkDistance :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Meters),
     merchantOperatingCityId :: B.C f Kernel.Prelude.Text,
+    metricsBlacklistPatterns :: B.C f (Kernel.Prelude.Maybe [Kernel.Prelude.Text]),
     metroBookingAllowed :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     minRidesToBlock :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     minRidesToShowCancellationRate :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
@@ -92,22 +107,31 @@ data RiderConfigT f = RiderConfigT
     postRideSafetyNotificationDelay :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
     qrTicketRestrictionEndTime :: B.C f (Kernel.Prelude.Maybe Data.Time.TimeOfDay),
     qrTicketRestrictionStartTime :: B.C f (Kernel.Prelude.Maybe Data.Time.TimeOfDay),
+    refundBufferTTLSec :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
+    refundStatusUpdateInterval :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
+    refundStatusUpdateRetries :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     rentalsConfig :: B.C f (Kernel.Prelude.Maybe [Domain.Types.RentalsIntercityCache.RentalsConfig]),
     safetyCheckEndTime :: B.C f Kernel.Types.Common.Seconds,
     safetyCheckStartTime :: B.C f Kernel.Types.Common.Seconds,
     sensitiveWords :: B.C f (Kernel.Prelude.Maybe [Kernel.Prelude.Text]),
     sensitiveWordsForExactMatch :: B.C f (Kernel.Prelude.Maybe [Kernel.Prelude.Text]),
+    serviceTierRelationshipCfg :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
     settleCancellationFeeBeforeNextRide :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
+    sourceOfServiceTier :: B.C f (Kernel.Prelude.Maybe Domain.Types.RiderConfig.ServiceTierSource),
     specialZoneRadius :: B.C f Kernel.Prelude.Int,
-    straightLineThreshold :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Meters),
     suburbanBookingAllowed :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
+    subwayTransitTypes :: B.C f (Kernel.Prelude.Maybe [BecknV2.FRFS.Enums.ServiceTierType]),
     thresholdCancellationPercentageToBlock :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     ticketAssetDomain :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),
     ticketingPermissionConfig :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
     timeDiffFromUtc :: B.C f Kernel.Types.Common.Seconds,
+    trackVehicleKeyExpiry :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Int),
     trackingShortUrlPattern :: B.C f Kernel.Prelude.Text,
+    upcomingBusThresholdSec :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
+    updateTicketValidityInSecondsPostSetOnboarding :: B.C f (Kernel.Prelude.Maybe Kernel.Types.Common.Seconds),
     useUserSettingsForSafetyIVR :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     userServiceTierOrderConfig :: B.C f (Kernel.Prelude.Maybe Data.Aeson.Value),
+    validateSetOnboardingVehicleRequest :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Bool),
     variantListForNearByReq :: B.C f (Kernel.Prelude.Maybe [Kernel.Prelude.Text]),
     videoFileSizeUpperLimit :: B.C f Kernel.Prelude.Int,
     merchantId :: B.C f (Kernel.Prelude.Maybe Kernel.Prelude.Text),

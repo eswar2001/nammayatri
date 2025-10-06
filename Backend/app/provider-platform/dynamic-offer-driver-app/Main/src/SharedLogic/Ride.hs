@@ -101,6 +101,8 @@ initializeRide merchant driver booking mbOtpCode enableFrequentLocationUpdates m
   QRB.updateStatus booking.id DBooking.TRIP_ASSIGNED
   QRide.createRide ride
   QRideD.create rideDetails
+  fork "updateRiderDetails" $ do
+    whenJust booking.riderId (QRiderD.updateTotalBookingsCount . getId)
   Redis.withWaitOnLockRedisWithExpiry (isOnRideWithAdvRideConditionKey driver.id.getId) 4 4 $ do
     when (not booking.isScheduled) $ do
       whenJust (booking.toLocation) $ \toLoc -> do
@@ -277,7 +279,8 @@ buildRide driver booking ghrId otp enableFrequentLocationUpdates clientId dinfo 
         hasStops = booking.hasStops,
         isPickupOrDestinationEdited = Just False,
         isInsured = booking.isInsured,
-        insuredAmount = booking.insuredAmount
+        insuredAmount = booking.insuredAmount,
+        reactBundleVersion = driver.reactBundleVersion
       }
 
 buildTrackingUrl :: Id DRide.Ride -> Flow BaseUrl
@@ -401,3 +404,4 @@ getArrivalTimeBufferOfVehicle bufferJson serviceTier =
     DST.BUS_NON_AC -> buffer.busNonAc
     DST.BUS_AC -> buffer.busAc
     DST.AUTO_PLUS -> buffer.autorickshaw
+    DST.BOAT -> buffer.boat

@@ -5,7 +5,7 @@ module Storage.Beam.FRFSRecon where
 
 import qualified Database.Beam as B
 import Domain.Types.Common ()
-import qualified Domain.Types.FRFSTicket
+import qualified Domain.Types.FRFSTicketStatus
 import Kernel.External.Encryption
 import Kernel.Prelude
 import qualified Kernel.Prelude
@@ -37,7 +37,7 @@ data FRFSReconT f = FRFSReconT
     sourceStationCode :: (B.C f Kernel.Prelude.Text),
     ticketNumber :: (B.C f Kernel.Prelude.Text),
     ticketQty :: (B.C f Kernel.Prelude.Int),
-    ticketStatus :: (B.C f (Kernel.Prelude.Maybe Domain.Types.FRFSTicket.FRFSTicketStatus)),
+    ticketStatus :: (B.C f (Kernel.Prelude.Maybe Domain.Types.FRFSTicketStatus.FRFSTicketStatus)),
     time :: (B.C f Kernel.Prelude.Text),
     totalOrderValue :: (B.C f Kernel.Types.Common.HighPrecMoney),
     transactionRefNumber :: (B.C f Kernel.Prelude.Text),

@@ -3,6 +3,7 @@ imports:
   UTCTime: Kernel.Prelude
   IntegratedBPPConfig: Domain.Types.IntegratedBPPConfig
   MerchantOperatingCity: Domain.Types.MerchantOperatingCity
+  SplitShare: Domain.Types.Extra.VendorSplitDetails
 
 VendorSplitDetails:
   tableName: vendor_split_details
@@ -15,6 +16,16 @@ VendorSplitDetails:
     vendorId : Text
     splitType : SplitType
     includeInSplit : Maybe Bool
+    splitShare : Maybe SplitShare
+
+  fromTType:
+    splitShare: (readMaybe . Data.Text.unpack) =<< splitShare|E
+
+  toTType:
+    splitShare: Just $ show splitShare|E
+
+  beamType:
+    splitShare: Maybe Text
 
   constraints:
     id: PrimaryKey

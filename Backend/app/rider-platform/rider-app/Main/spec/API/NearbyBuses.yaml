@@ -10,20 +10,23 @@ imports:
   ServiceTierType: BecknV2.FRFS.Enums
   VehicleCategory: BecknV2.FRFS.Enums
   UpcomingTripInfo: Lib.JourneyModule.Utils
-
+  RouteState: Storage.CachedQueries.Merchant.MultiModalBus
+  Seconds: Kernel.Types.Time
+  SourceType: Domain.Types.RouteStopTimeTable
 module: NearbyBuses
 
 types:
+  RouteCodes:
+      routeCodes: [Text]
   NearbyBus:
       vehicleNumber: Maybe Text
       routeCode: Text
       currentLocation: LatLong
-      nextStop: Maybe Text
       distance: Maybe Double
-      serviceType: Maybe Text
-      eta: Maybe UTCTime
-      capacity: Maybe Int
-      occupancy: Maybe Int
+      serviceType: Maybe ServiceTierType
+      serviceTierName: Maybe Text
+      routeState: Maybe RouteState
+      shortName: Maybe Text
 
   RecentRide:
       fromStopCode: Text
@@ -47,6 +50,10 @@ types:
     timeOfArrival: TimeOfDay
     timeOfDeparture: TimeOfDay
     serviceTierType: ServiceTierType
+    platformCode: Maybe Text
+    tripId: Text
+    delay: Maybe Seconds
+    source: SourceType
 
   TimetableResponse:
     timetable: [TimetableEntry]
@@ -79,5 +86,6 @@ apis:
         stopCode: Text
       query:
         vehicleType: VehicleCategory
+        toCode: Text
       response:
         type: TimetableResponse

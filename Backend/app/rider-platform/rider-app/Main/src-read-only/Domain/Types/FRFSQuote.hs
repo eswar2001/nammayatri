@@ -34,6 +34,7 @@ data FRFSQuote = FRFSQuote
     integratedBppConfigId :: Kernel.Types.Id.Id Domain.Types.IntegratedBPPConfig.IntegratedBPPConfig,
     merchantId :: Kernel.Types.Id.Id Domain.Types.Merchant.Merchant,
     merchantOperatingCityId :: Kernel.Types.Id.Id Domain.Types.MerchantOperatingCity.MerchantOperatingCity,
+    multimodalSearchRequestId :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     oldCacheDump :: Kernel.Prelude.Maybe Kernel.Prelude.Text,
     partnerOrgId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.PartnerOrganization.PartnerOrganization),
     partnerOrgTransactionId :: Kernel.Prelude.Maybe (Kernel.Types.Id.Id Domain.Types.PartnerOrganization.PartnerOrgTransaction),
@@ -58,7 +59,6 @@ data FRFSFareDetails = FRFSFareDetails
   { appSession :: Kernel.Prelude.Int,
     distance :: Kernel.Types.Common.Meters,
     providerRouteId :: Kernel.Prelude.Text,
-    sdkToken :: Kernel.Prelude.Text,
     ticketTypeCode :: Kernel.Prelude.Text,
     trainTypeCode :: Kernel.Prelude.Text,
     via :: Kernel.Prelude.Text
@@ -67,4 +67,4 @@ data FRFSFareDetails = FRFSFareDetails
 
 data FRFSQuoteType = SingleJourney | ReturnJourney | Pass | SpecialFareSingleJourney deriving (Eq, Ord, Show, Read, Generic, ToJSON, FromJSON, ToSchema)
 
-$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList ''FRFSQuoteType)
+$(Tools.Beam.UtilsTH.mkBeamInstancesForEnumAndList (''FRFSQuoteType))
